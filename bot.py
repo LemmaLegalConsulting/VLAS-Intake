@@ -84,7 +84,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
 
     stt = GoogleSTTService(
-        credentials_path=os.getenv("GOOGLE_ACCESS_CREDENTIALS_FILE"),
+        credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
         params=GoogleSTTService.InputParams(
             languages=Language.EN_US,
             model="latest_long",
@@ -94,7 +94,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
     )
 
     tts = GoogleTTSService(
-        credentials_path=os.getenv("GOOGLE_ACCESS_CREDENTIALS_FILE"),
+        credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
         voice_id="en-US-Chirp3-HD-Leda",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(language=Language.EN, gender="female", google_style="empathetic"),
