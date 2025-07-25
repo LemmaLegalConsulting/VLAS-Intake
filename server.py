@@ -55,13 +55,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    default_host = "0.0.0.0"
-    default_port = "8765"
-
     parser = argparse.ArgumentParser(description="VLAS Intake-Bot Server")
-    parser.add_argument("--host", type=str, default=default_host, help="Host address")
-    parser.add_argument("--port", type=int, default=default_port, help="Port number")
     parser.add_argument("--reload", action="store_true", help="Reload code on change")
     config = parser.parse_args()
 
-    uvicorn.run("server:app", host=config.host, port=config.port, reload=config.reload)
+    uvicorn.run("server:app", host="0.0.0.0", port=8765, reload=config.reload)
