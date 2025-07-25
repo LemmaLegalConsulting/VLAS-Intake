@@ -1,0 +1,23 @@
+[project]
+name = "intake-bot"
+version = "0.1.0"
+description = "Virginia Legal Aid Society (VLAS) Telephone Intake Bot"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles",
+    "fastapi",
+    "loguru",
+    "numba",
+    "onnxruntime",
+    "pipecat-ai-flows",
+    "pipecat-ai[openai,google,websocket]",
+    "python-dotenv",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-asyncio>=1.1.0",
+]
