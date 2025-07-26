@@ -1,0 +1,38 @@
+# Docker
+Dockerfile
+
+
+# Fly.io
+fly.toml
+
+
+# Python
+__pycache__
+.cache
+.coverage
+.coverage.*
+.env
+.env.dist
+.git
+.hypothesis
+.mypy_cache
+.pytest_cache
+.Python
+.tox
+.venv
+*.cover
+*.log
+*.pyc
+*.pyd
+*.pyo
+coverage.xml
+env
+nosetests.xml
+pip-delete-this-directory.txt
+pip-log.txt
+
+
+# intake-bot
+client
+recordings
+tests

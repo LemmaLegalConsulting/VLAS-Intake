@@ -16,8 +16,24 @@ dependencies = [
     "uvicorn",
 ]
 
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+intake-bot = "intake_bot.server:main"
+
 [dependency-groups]
-dev = [
-    "pytest>=8.4.1",
-    "pytest-asyncio>=1.1.0",
-]
+dev = ["pytest>=8.4.1", "pytest-asyncio>=1.1.0"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+required_plugins = ["pytest-asyncio"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+asbar = ["__assets__/*.xml"]

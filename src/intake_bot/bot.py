@@ -32,7 +32,8 @@ from pipecat.transports.network.fastapi_websocket import (
 from pipecat_flows import (
     FlowManager,
 )
-import intake_nodes
+
+from . import intake_nodes
 
 load_dotenv(override=True)
 

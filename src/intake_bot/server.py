@@ -9,7 +9,7 @@ import json
 import os
 
 import uvicorn
-from bot import run_bot
+from .bot import run_bot
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,7 +33,7 @@ ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 @app.post("/")
 async def start_call():
     print("POST TwiML")
-    with open("templates/streams.xml", "r") as file:
+    with open(ROOT_DIR + "/__assets__/streams.xml", "r") as file:
         xml_content = file.read()
 
     xml_content = xml_content.replace("{{ DOMAIN }}", os.getenv("DOMAIN"))
@@ -54,9 +54,13 @@ async def websocket_endpoint(websocket: WebSocket):
     await run_bot(websocket, stream_sid, call_sid)
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="VLAS Intake-Bot Server")
     parser.add_argument("--reload", action="store_true", help="Reload code on change")
     config = parser.parse_args()
 
-    uvicorn.run("server:app", host="0.0.0.0", port=8765, reload=config.reload)
+    uvicorn.run("intake_bot.server:app", host="0.0.0.0", port=8765, reload=config.reload)
+
+
+if __name__ == "__main__":
+    main()

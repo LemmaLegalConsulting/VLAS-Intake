@@ -1,5 +1,5 @@
 import pytest
-from intake_nodes import MockRemoteSystem
+from intake_bot.intake_nodes import MockRemoteSystem  # type: ignore
 
 
 @pytest.mark.asyncio
