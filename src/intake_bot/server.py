@@ -7,13 +7,16 @@
 import argparse
 import json
 import os
+from functools import wraps
 
 import uvicorn
-from .bot import run_bot
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
+from twilio.request_validator import RequestValidator
+
+from .bot import run_bot
 
 app = FastAPI()
 
@@ -29,10 +32,38 @@ load_dotenv(override=True)
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# In-memory storage for Twilio signatures
+TWILIO_SIGNATURES = dict()
+
+
+def validate_twilio_request(f):
+    """Validates that incoming requests genuinely originated from Twilio"""
+
+    @wraps(f)
+    async def decorated_function(request: Request, *args, **kwargs):
+        validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN"))
+
+        form_data = await request.form()
+        call_sid = form_data.get("CallSid")
+        twilio_signature = request.headers.get("X-TWILIO-SIGNATURE", "")
+
+        valid_request = validator.validate(uri=str(request.url), params=form_data, signature=twilio_signature)
+
+        if valid_request and call_sid and twilio_signature:
+            TWILIO_SIGNATURES[call_sid] = twilio_signature
+            print(f"Stored Twilio signature for CallSid: {call_sid}")
+            return await f(request, *args, **kwargs)
+        else:
+            raise HTTPException(status_code=403, detail="Webhook authentication failed")
+
+    return decorated_function
+
 
 @app.post("/")
-async def start_call():
+@validate_twilio_request
+async def start_call(request: Request):
     print("POST TwiML")
+
     with open(ROOT_DIR + "/__assets__/streams.xml", "r") as file:
         xml_content = file.read()
 
@@ -48,10 +79,19 @@ async def websocket_endpoint(websocket: WebSocket):
     await start_data.__anext__()
     call_data = json.loads(await start_data.__anext__())
     print(call_data, flush=True)
-    stream_sid = call_data["start"]["streamSid"]
+
     call_sid = call_data["start"]["callSid"]
-    print("WebSocket connection accepted")
-    await run_bot(websocket, stream_sid, call_sid)
+    stream_sid = call_data["start"]["streamSid"]
+
+    if (TWILIO_SIGNATURES.get(call_sid)) or (
+        os.getenv("ALLOW_TEST_CLIENT") == "TRUE" and call_sid == "ws_mock_call_sid"
+    ):
+        print("WebSocket connection accepted for CallSid: {call_sid}")
+        await run_bot(websocket, stream_sid, call_sid)
+    else:
+        print("WebSocket connection denied for CallSid: {call_sid}")
+        await websocket.close(code=1008)  # Close WebSocket with error code
+        return
 
 
 def main():

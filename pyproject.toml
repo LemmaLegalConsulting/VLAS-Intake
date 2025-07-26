@@ -13,6 +13,8 @@ dependencies = [
     "pipecat-ai-flows",
     "pipecat-ai[openai,google,websocket]",
     "python-dotenv",
+    "python-multipart",
+    "twilio",
     "uvicorn",
 ]
 
