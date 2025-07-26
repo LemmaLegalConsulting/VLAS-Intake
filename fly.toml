@@ -18,6 +18,7 @@ processes = ['app']
 
 [env]
 DOMAIN = 'vlas-intake.fly.dev'
+PROTOCOL = 'https'
 
 [[vm]]
 memory = '1gb'

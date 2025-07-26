@@ -43,13 +43,15 @@ def validate_twilio_request(f):
     async def decorated_function(request: Request, *args, **kwargs):
         validator = RequestValidator(os.getenv("TWILIO_AUTH_TOKEN"))
 
+        # https://community.fly.io/t/redirect-uri-is-http-instead-of-https/6671/6
+        url = f"""{os.getenv("PROTOCOL", "https")}://{os.getenv("DOMAIN")}/"""
+        print("url:", url)
         form_data = await request.form()
-        call_sid = form_data.get("CallSid")
         twilio_signature = request.headers.get("X-TWILIO-SIGNATURE", "")
+        valid_request = validator.validate(uri=url, params=form_data, signature=twilio_signature)
+        call_sid = form_data.get("CallSid")
 
-        valid_request = validator.validate(uri=str(request.url), params=form_data, signature=twilio_signature)
-
-        if valid_request and call_sid and twilio_signature:
+        if valid_request and twilio_signature and call_sid:
             TWILIO_SIGNATURES[call_sid] = twilio_signature
             print(f"Stored Twilio signature for CallSid: {call_sid}")
             return await f(request, *args, **kwargs)
