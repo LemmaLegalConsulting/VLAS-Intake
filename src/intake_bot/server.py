@@ -17,6 +17,7 @@ from starlette.responses import HTMLResponse
 from twilio.request_validator import RequestValidator
 
 from .bot import run_bot
+from .globals import ROOT_DIR
 
 app = FastAPI()
 
@@ -29,8 +30,6 @@ app.add_middleware(
 )
 
 load_dotenv(override=True)
-
-ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # In-memory storage for Twilio signatures
 TWILIO_SIGNATURES = dict()
@@ -66,7 +65,7 @@ def validate_twilio_request(f):
 async def start_call(request: Request):
     print("POST TwiML")
 
-    with open(ROOT_DIR + "/__assets__/streams.xml", "r") as file:
+    with open(f"""{ROOT_DIR}/__assets__/streams.xml""", "r") as file:
         xml_content = file.read()
 
     xml_content = xml_content.replace("{{ DOMAIN }}", os.getenv("DOMAIN"))
@@ -88,10 +87,10 @@ async def websocket_endpoint(websocket: WebSocket):
     if (TWILIO_SIGNATURES.get(call_sid)) or (
         os.getenv("ALLOW_TEST_CLIENT") == "TRUE" and call_sid == "ws_mock_call_sid"
     ):
-        print("WebSocket connection accepted for CallSid: {call_sid}")
+        print(f"""WebSocket connection accepted for CallSid: {call_sid}""")
         await run_bot(websocket, stream_sid, call_sid)
     else:
-        print("WebSocket connection denied for CallSid: {call_sid}")
+        print(f"""WebSocket connection denied for CallSid: {call_sid}""")
         await websocket.close(code=1008)  # Close WebSocket with error code
         return
 
