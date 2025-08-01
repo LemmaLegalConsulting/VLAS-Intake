@@ -3,17 +3,31 @@ import re
 from itertools import chain
 from textwrap import dedent
 from typing import Literal
+
 from loguru import logger
 from pipecat_flows import (
+    ContextStrategy,
+    ContextStrategyConfig,
     FlowManager,
     FlowResult,
     NodeConfig,
 )
 
+from .prompts import get_prompts
+
 
 def status_helper(status: bool) -> Literal["success", "failure"]:
     """Helper for FlowResult's _status_ value."""
     return "success" if status else "failure"
+
+
+# Get prompts
+prompts = get_prompts()
+
+
+######################################################################
+# MockRemoteSystem
+######################################################################
 
 
 class MockRemoteSystem:
@@ -217,7 +231,7 @@ class MockRemoteSystem:
         return valid, phone_number
 
     async def get_alternative_providers(self) -> list[str]:
-        """Alternative legal providers for the customer."""
+        """Alternative legal providers for the caller."""
         alternatives = [
             "Center for Legal Help",
             "Local Legal Help",
@@ -225,7 +239,7 @@ class MockRemoteSystem:
         return alternatives
 
     async def check_case_type(self, case_type: str) -> tuple[bool, list[str]]:
-        """Check if the customer's legal problem is a type of case that we can handle."""
+        """Check if the caller's legal problem is a type of case that we can handle."""
 
         # Simulate API call delay
         await asyncio.sleep(0.5)
@@ -233,14 +247,14 @@ class MockRemoteSystem:
         is_eligible = case_type not in self.ineligible_case_types
         return is_eligible
 
-    async def check_service_area(self, customer_area: str) -> list[str]:
-        """Check if the customer's location or legal problem occurred in an eligible service area based on the city name, county name, or zip code."""
+    async def check_service_area(self, caller_area: str) -> list[str]:
+        """Check if the caller's location or legal problem occurred in an eligible service area based on the city name, county name, or zip code."""
 
         # Simulate API call delay
         await asyncio.sleep(0.5)
 
         # Check for rough matches
-        simple_area = customer_area.lower().replace("city", "").replace("county", "").replace("town", "").strip()
+        simple_area = caller_area.lower().replace("city", "").replace("county", "").replace("town", "").strip()
         matches = [
             match
             for match in chain(self.service_area_names, self.service_area_zip_codes)
@@ -253,41 +267,145 @@ class MockRemoteSystem:
 remote_system = MockRemoteSystem()
 
 
+######################################################################
 # Function handlers
+######################################################################
 
 
-class NameAndPhoneResult(FlowResult):
+class PhoneNumberResult(FlowResult):
     status: str
-    name: str
     phone: str
 
 
-async def collect_name_and_phone(
-    flow_manager: FlowManager, name: str, phone: str
-) -> tuple[NameAndPhoneResult, NodeConfig]:
+async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[PhoneNumberResult, NodeConfig]:
     """
-    Record the customer's name and phone number.
+    Ask for the caller's phone number.
 
     Args:
-        name (str): The customer's first and last name.
-        phone (str): The customer's phone number as text, starting with the 3 digit area code followed by the 7 digit phone number.
+        phone (str): The caller's 10 digit phone number, starting with the 3 digit area code.
     """
 
     valid_phone, phone = await remote_system.valid_phone_number(phone_number=phone)
 
-    logger.debug(f"""Name: {name}""")
     logger.debug(f"""Phone: {phone}""")
     logger.debug(f"""Valid: {valid_phone}""")
 
     status = status_helper(valid_phone)
-    result = NameAndPhoneResult(status=status, name=name, phone=phone)
-
+    result = PhoneNumberResult(status=status, phone=phone)
     if status == "success":
-        next_node = create_node_service_area()
+        next_node = {
+            **prompts["confirm_phone_number"],
+            "functions": [
+                confirm_phone_number,
+            ],
+        }
     else:
-        next_node = create_node_initial()
-
+        next_node = {
+            **prompts["collect_phone_number"],
+            "functions": [
+                collect_phone_number,
+            ],
+        }
     return result, next_node
+
+
+async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
+    """
+    Confirm with the caller that we have the right phone number for them.
+
+    Args:
+        confirmation (bool): The caller's confirmation that we have the right information.
+    """
+    status = status_helper(confirmation)
+    if status == "success":
+        next_node = {
+            **prompts["collect_full_name"],
+            "functions": [
+                collect_full_name,
+            ],
+            "context_strategy": ContextStrategyConfig(
+                strategy=ContextStrategy.RESET_WITH_SUMMARY,
+                summary_prompt=prompts["reset_with_summary"],
+            ),
+        }
+    else:
+        next_node = {
+            **prompts["collect_phone_number"],
+            "functions": [
+                collect_phone_number,
+            ],
+        }
+    return None, next_node
+
+
+class FullNameResult(FlowResult):
+    status: str
+    name_first: str
+    name_last: str
+
+
+async def collect_full_name(
+    flow_manager: FlowManager, name_first: str, name_last: str
+) -> tuple[FullNameResult, NodeConfig]:
+    """
+    Record the caller's full, legal name.
+
+    Args:
+        name_first (str): The caller's first name.
+        name_last (str): The caller's last name.
+    """
+
+    name_first = re.sub(r"\W", "", name_first)
+    logger.debug(f"""Name (first): {name_first}""")
+    name_last = re.sub(r"\W", "", name_last)
+    logger.debug(f"""Name (last): {name_last}""")
+
+    status = status_helper(name_first and name_last)
+    result = FullNameResult(status=status, name_first=name_first, name_last=name_last)
+    if status == "success":
+        next_node = {
+            **prompts["confirm_full_name"],
+            "functions": [
+                confirm_full_name,
+            ],
+        }
+    else:
+        next_node = {
+            **prompts["collect_full_name"],
+            "functions": [
+                collect_full_name,
+            ],
+        }
+    return result, next_node
+
+
+async def confirm_full_name(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
+    """
+    Confirm with the caller that we have the right name for them.
+
+    Args:
+        confirmation (bool): The caller's confirmation that we have the right information.
+    """
+    status = status_helper(confirmation)
+    if status == "success":
+        next_node = {
+            **prompts["collect_service_area"],
+            "functions": [
+                collect_service_area,
+            ],
+            "context_strategy": ContextStrategyConfig(
+                strategy=ContextStrategy.RESET_WITH_SUMMARY,
+                summary_prompt=prompts["reset_with_summary"],
+            ),
+        }
+    else:
+        next_node = {
+            **prompts["collect_full_name"],
+            "functions": [
+                collect_full_name,
+            ],
+        }
+    return None, next_node
 
 
 class ServiceAreaResult(FlowResult):
@@ -297,23 +415,23 @@ class ServiceAreaResult(FlowResult):
     matches: list[str]
 
 
-async def collect_service_area(flow_manager: FlowManager, customer_area: str) -> tuple[ServiceAreaResult, NodeConfig]:
+async def collect_service_area(flow_manager: FlowManager, caller_area: str) -> tuple[ServiceAreaResult, NodeConfig]:
     """
-    Record the customer's location or the location of the incident.
+    Record the caller's location or the location of the incident.
 
     Args:
-        customer_area (str): The location of the customer or the legal incident. Must be a city, county, or zip code.
+        caller_area (str): The location of the caller or the legal incident. Must be a city, county, or zip code.
     """
 
     is_eligible = False
 
-    matches = await remote_system.check_service_area(customer_area)
+    matches = await remote_system.check_service_area(caller_area)
 
-    if len(matches) == 1 and matches[0] == customer_area:
+    if len(matches) == 1 and matches[0] == caller_area:
         is_eligible = True
 
     status = status_helper(is_eligible)
-    result = ServiceAreaResult(status=status, service_area=customer_area, is_eligible=is_eligible, matches=matches)
+    result = ServiceAreaResult(status=status, service_area=caller_area, is_eligible=is_eligible, matches=matches)
 
     if status == "success":
         next_node = create_node_case_type()
@@ -334,10 +452,10 @@ class CaseTypeResult(FlowResult):
 
 async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[CaseTypeResult, NodeConfig]:
     """
-    Check eligibility of customer's type of case.
+    Check eligibility of caller's type of case.
 
     Args:
-        case_type (str): The type of legal case that the customer has.
+        case_type (str): The type of legal case that the caller has.
     """
 
     is_eligible = await remote_system.check_case_type(case_type=case_type)
@@ -362,43 +480,16 @@ async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]
     return None, create_node_end()
 
 
+######################################################################
 # Node configurations
+######################################################################
+
+
 def create_node_initial() -> NodeConfig:
-    """Create initial node for greeting, and name and phone number collection."""
+    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
     return {
-        "name": "initial",
-        "role_messages": [
-            {
-                "role": "system",
-                "content": """You are Ada, an agent for Virginia's Law-Line Legal Help Service. Be concise, professional, and friendly. This is a voice conversation, so avoid special characters and emojis.""",
-            }
-        ],
-        "task_messages": [
-            {
-                "role": "system",
-                "content": """Greet the customer and ask for their name and phone number. This is your only job for now; if the customer asks for something else, politely remind them you can't do it.""",
-            }
-        ],
-        "functions": [
-            collect_name_and_phone,
-        ],
-    }
-
-
-def create_node_service_area() -> NodeConfig:
-    """Create node for getting and checking the service area."""
-    logger.debug("Creating service area node")
-    return {
-        "name": "service_area",
-        "task_messages": [
-            {
-                "role": "system",
-                "content": """Ask the customer where the legal incident occurred.""",
-            }
-        ],
-        "functions": [
-            collect_service_area,
-        ],
+        **prompts["initial"],
+        "functions": [collect_phone_number, end_conversation],
     }
 
 
@@ -412,11 +503,11 @@ def create_node_service_area_matches(matches: list[str]) -> NodeConfig:
             {
                 "role": "system",
                 "content": dedent(f"""\
-                    Tell the customer that you did not find an exact match for their service area. Read the following possible matches: {matches_list}. 
-                    Ask the customer to confirm if any of these matches are correct:
-                    - If the customer confirms one of the matches is correct, re-check that service area and continue intake.
-                    - If the customer says none of the matches are correct, end the conversation.
-                    - If the customer wants to make a correction or provide a different service area, ask them to provide their service area again.
+                    Tell the caller that you did not find an exact match for their service area. Read the following possible matches: {matches_list}.
+                    Ask the caller to confirm if any of these matches are correct:
+                    - If the caller confirms one of the matches is correct, re-check that service area and continue intake.
+                    - If the caller says none of the matches are correct, end the conversation.
+                    - If the caller wants to make a correction or provide a different service area, ask them to provide their service area again.
                     """),
             }
         ],
@@ -435,7 +526,7 @@ def create_node_case_type() -> NodeConfig:
         "task_messages": [
             {
                 "role": "system",
-                "content": """Ask the customer what kind of legal case they have.""",
+                "content": """Ask the caller what kind of legal case they have.""",
             }
         ],
         "functions": [
@@ -451,7 +542,7 @@ def create_node_confirmation() -> NodeConfig:
         "task_messages": [
             {
                 "role": "system",
-                "content": """Confirm the intake details and ask if they need anything else. When reading back the customer's phone number, speak each number clearly and pause briefly at, but don't pronounce, each hyphen or period. For example, if the number is 123-456-7890, say: "One two three. Four five six. Seven eight nine zero." """,
+                "content": """Confirm the intake details and ask if they need anything else. When reading back the caller's phone number, speak each number clearly and pause briefly at, but don't pronounce, each hyphen. For example, if the number is 123-456-7890, say: "One two three. Four five six. Seven eight nine zero." """,
             }
         ],
         "functions": [
@@ -469,7 +560,7 @@ def create_node_no_service(alternate_providers: list[str]) -> NodeConfig:
             {
                 "role": "system",
                 "content": (
-                    f"""Apologize that the customer's location isn't within the service area. Suggest these alternate providers: {alternate_providers_list}."""
+                    f"""Apologize that the caller's location isn't within the service area. Suggest these alternate providers: {alternate_providers_list}."""
                 ),
             }
         ],

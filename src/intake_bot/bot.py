@@ -96,7 +96,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
 
     tts = GoogleTTSService(
         credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
-        voice_id="en-US-Chirp3-HD-Leda",
+        voice_id="en-US-Chirp3-HD-Aoede",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(language=Language.EN, gender="female", google_style="empathetic"),
     )
