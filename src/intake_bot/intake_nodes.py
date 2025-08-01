@@ -21,6 +21,15 @@ def status_helper(status: bool) -> Literal["success", "failure"]:
     return "success" if status else "failure"
 
 
+# Get prompts
+prompts = get_prompts()
+
+
+######################################################################
+# MockRemoteSystem
+######################################################################
+
+
 class MockRemoteSystem:
     """Simulates a remote system API."""
 
@@ -258,11 +267,9 @@ class MockRemoteSystem:
 remote_system = MockRemoteSystem()
 
 
-# Get prompts
-prompts = get_prompts()
-
-
+######################################################################
 # Function handlers
+######################################################################
 
 
 class PhoneNumberResult(FlowResult):
@@ -473,31 +480,17 @@ async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]
     return None, create_node_end()
 
 
+######################################################################
 # Node configurations
+######################################################################
+
+
 def create_node_initial() -> NodeConfig:
     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
     return {
         **prompts["initial"],
         "functions": [collect_phone_number, end_conversation],
     }
-
-
-# def create_node_initial() -> NodeConfig:
-#     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
-#     return {
-#         **prompts["initial"],
-#         "functions": [collect_phone_number, end_conversation],
-#     }
-
-
-# def create_node_service_area() -> NodeConfig:
-#     """Create node for getting and checking the service area."""
-#     return {
-#         **prompts["service_area"],
-#         "functions": [
-#             collect_service_area,
-#         ],
-#     }
 
 
 def create_node_service_area_matches(matches: list[str]) -> NodeConfig:

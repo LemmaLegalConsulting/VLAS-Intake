@@ -38,7 +38,7 @@ confirm_full_name:
 collect_service_area:
   task_messages:
     - content: >-
-        Ask the customer where the legal incident occurred.
+        Ask the caller where the legal incident occurred.
 
 reset_with_summary: >-
   Provide a concise summary of the caller's details.
