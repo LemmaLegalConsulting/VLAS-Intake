@@ -11,6 +11,7 @@ dependencies = [
     "loguru",
     "numba",
     "onnxruntime",
+    "phonenumberslite",
     "pipecat-ai-flows",
     "pipecat-ai[openai,google,websocket]",
     "python-dotenv",

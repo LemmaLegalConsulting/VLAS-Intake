@@ -4,6 +4,7 @@ from itertools import chain
 from textwrap import dedent
 from typing import Literal
 
+import phonenumbers
 from loguru import logger
 from pipecat_flows import (
     ContextStrategy,
@@ -221,14 +222,15 @@ class MockRemoteSystem:
             "injury",
         ]
 
-    async def valid_phone_number(self, phone_number: str) -> tuple[bool, str]:
-        """Cleans and checks that the provided number is a (basically) valid phone number."""
-        valid: bool = False
-        digits_only: str = re.sub(r"\D", "", phone_number)
-        if len(digits_only) == 10:
-            phone_number = f"""{digits_only[:3]}-{digits_only[3:6]}-{digits_only[6:]}"""
-            valid = True
-        return valid, phone_number
+    async def valid_phone_number(self, phone: str) -> tuple[bool, str]:
+        try:
+            phone_number = phonenumbers.parse(phone, "US")
+            valid = phonenumbers.is_valid_number(phone_number)
+            if valid:
+                phone = phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.NATIONAL)
+        except phonenumbers.phonenumberutil.NumberParseException:
+            valid = False
+        return valid, phone
 
     async def get_alternative_providers(self) -> list[str]:
         """Alternative legal providers for the caller."""
@@ -277,15 +279,48 @@ class PhoneNumberResult(FlowResult):
     phone: str
 
 
+async def initial_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberResult, NodeConfig]:
+    """
+    Validates the caller's Caller-ID and either asks the user to confirm the phone number is a good call-back number, or asks the user to provide a call-back number.
+    """
+
+    logger.debug(f"""initial_phone_number (flow_manager.state["phone"]): {flow_manager.state["phone"]}""")
+
+    valid_phone, phone = await remote_system.valid_phone_number(phone=flow_manager.state["phone"])
+
+    logger.debug(f"""Phone: {phone}""")
+    logger.debug(f"""Valid: {valid_phone}""")
+
+    status = status_helper(valid_phone)
+    result = PhoneNumberResult(status=status, phone=phone)
+    if status == "success":
+        next_node = {
+            **prompts["confirm_phone_number"],
+            "functions": [
+                confirm_phone_number,
+            ],
+        }
+    else:
+        next_node = {
+            **prompts["collect_phone_number"],
+            "functions": [
+                collect_phone_number,
+            ],
+        }
+    return result, next_node
+
+
 async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[PhoneNumberResult, NodeConfig]:
     """
-    Ask for the caller's phone number.
+    Collect the caller's phone number.
 
     Args:
-        phone (str): The caller's 10 digit phone number, starting with the 3 digit area code.
+        phone (str): The caller's 10 digit phone number.
     """
 
-    valid_phone, phone = await remote_system.valid_phone_number(phone_number=phone)
+    logger.debug(f"""flow_manager.state["phone"]: {flow_manager.state["phone"]}""")
+
+    valid_phone, phone = await remote_system.valid_phone_number(phone=phone)
 
     logger.debug(f"""Phone: {phone}""")
     logger.debug(f"""Valid: {valid_phone}""")
@@ -489,7 +524,7 @@ def create_node_initial() -> NodeConfig:
     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
     return {
         **prompts["initial"],
-        "functions": [collect_phone_number, end_conversation],
+        "functions": [initial_phone_number, end_conversation],
     }
 
 

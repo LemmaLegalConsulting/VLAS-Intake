@@ -599,6 +599,7 @@ dependencies = [
     { name = "loguru" },
     { name = "numba" },
     { name = "onnxruntime" },
+    { name = "phonenumberslite" },
     { name = "pipecat-ai", extra = ["google", "openai", "websocket"] },
     { name = "pipecat-ai-flows" },
     { name = "python-dotenv" },
@@ -622,6 +623,7 @@ requires-dist = [
     { name = "loguru" },
     { name = "numba" },
     { name = "onnxruntime" },
+    { name = "phonenumberslite" },
     { name = "pipecat-ai", extras = ["openai", "google", "websocket"] },
     { name = "pipecat-ai-flows" },
     { name = "python-dotenv" },
@@ -878,6 +880,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a1/d4/1fc4078c65507b51b96ca8f8c3ba19e6a61c8253c72794544580a7b6c24d/packaging-25.0.tar.gz", hash = "sha256:d443872c98d677bf60f6a1f2f8c1cb748e8fe762d2bf9d3148b5599295b0fc4f", size = 165727, upload-time = "2025-04-19T11:48:59.673Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/20/12/38679034af332785aac8774540895e234f4d07f7545804097de4b666afd8/packaging-25.0-py3-none-any.whl", hash = "sha256:29572ef2b1f17581046b3a2227d5c611fb25ec70ca1ba8554b24b0e69331a484", size = 66469, upload-time = "2025-04-19T11:48:57.875Z" },
+]
+
+[[package]]
+name = "phonenumberslite"
+version = "9.0.11"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/2f/1c/a84aa962b222381421484cd61b7a10d4d60862315f7a02aaa9d64e2c31ed/phonenumberslite-9.0.11.tar.gz", hash = "sha256:d5662eb8dd2e2a7832265272cacccab3900334e4c1137f77dd426f554259a6e7", size = 2297929, upload-time = "2025-08-07T15:42:29.401Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f7/a6/915764da41dad98637c430d577dac16130956c90daaffc2aecb959316c97/phonenumberslite-9.0.11-py2.py3-none-any.whl", hash = "sha256:1531003eebfa08046c6ae1ed8a25d862606c12dfd13afb2c0731081db73e2319", size = 472281, upload-time = "2025-08-07T15:42:25.715Z" },
 ]
 
 [[package]]
