@@ -4,12 +4,10 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import argparse
 import json
 import os
 from functools import wraps
 
-import uvicorn
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -93,15 +91,3 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"""WebSocket connection denied for CallSid: {call_sid}""")
         await websocket.close(code=1008)  # Close WebSocket with error code
         return
-
-
-def main():
-    parser = argparse.ArgumentParser(description="VLAS Intake-Bot Server")
-    parser.add_argument("--reload", action="store_true", help="Reload code on change")
-    config = parser.parse_args()
-
-    uvicorn.run("intake_bot.server:app", host="0.0.0.0", port=8765, reload=config.reload)
-
-
-if __name__ == "__main__":
-    main()
