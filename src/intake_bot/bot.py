@@ -61,7 +61,7 @@ async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_chann
         logger.info("No audio data to save")
 
 
-async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
+async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, caller_phone_number: str):
     """Main function to set up and run the VLAS intake bot."""
 
     serializer = TwilioFrameSerializer(
@@ -82,8 +82,6 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
         ),
     )
 
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
-
     stt = GoogleSTTService(
         credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
         params=GoogleSTTService.InputParams(
@@ -94,9 +92,11 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
         ),
     )
 
+    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+
     tts = GoogleTTSService(
         credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
-        voice_id="en-US-Chirp3-HD-Aoede",
+        voice_id="en-US-Chirp3-HD-Autonoe",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(language=Language.EN, gender="female", google_style="empathetic"),
     )
@@ -138,13 +138,18 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str):
         llm=llm,
         context_aggregator=context_aggregator,
     )
+    # Add caller_phone_number from Twilio to context
+    flow_manager.state["phone"] = caller_phone_number
+    logger.debug(f"""bot.py (caller_phone_number): {caller_phone_number}""")
+    # Add initial state values
+    flow_manager.state["confirming_name"] = False
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         # Start recording.
         await audiobuffer.start_recording()
         # Kick off the conversation.
-        await flow_manager.initialize(intake_nodes.create_node_initial())
+        await flow_manager.initialize(intake_nodes.node_initial())
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

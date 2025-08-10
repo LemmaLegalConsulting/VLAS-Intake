@@ -35,4 +35,4 @@ EXPOSE 8765
 ENTRYPOINT []
 
 # Run the application
-CMD ["intake-bot"]
+CMD ["granian", "intake_bot.server:app", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8765"]

@@ -29,15 +29,16 @@ async def test_check_service_area_matches(user_area, expected_matches):
 @pytest.mark.parametrize(
     "phone,expected_valid,expected_format",
     [
-        ("123-456-7890", True, "123-456-7890"),  # already formatted
-        ("1234567890", True, "123-456-7890"),  # digits only
-        ("(123) 456-7890", True, "123-456-7890"),  # with parentheses and spaces
-        ("123.456.7890", True, "123-456-7890"),  # with dots
-        ("123 456 7890", True, "123-456-7890"),  # with spaces
-        ("123-4567-890", True, "123-456-7890"),  # wrong format
-        ("123a456f7890.", True, "123-456-7890"),  # letters/symbol mixed
+        ("866-534-5243", True, "(866) 534-5243"),  # already formatted
+        ("8665345243", True, "(866) 534-5243"),  # digits only
+        ("(866) 534-5243", True, "(866) 534-5243"),  # with parentheses and spaces
+        ("866.534.5243", True, "(866) 534-5243"),  # with dots
+        ("866 534 5243", True, "(866) 534-5243"),  # with spaces
+        ("866-5345-243", True, "(866) 534-5243"),  # wrong format
+        ("866a534f5243.", True, "(866) 534-5243"),  # letters/symbol mixed
+        ("123-456-7890", False, "123-456-7890"),  # can't start with "1"
         ("abc-def-ghij", False, "abc-def-ghij"),  # letters only
-        ("123456789", False, "123456789"),  # too short
+        ("866534524", False, "866534524"),  # too short
         ("", False, ""),  # empty string
     ],
 )
