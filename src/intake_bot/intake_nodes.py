@@ -270,18 +270,26 @@ remote_system = MockRemoteSystem()
 
 
 ######################################################################
-# Function handlers
+# Flow
 ######################################################################
 
 
-class PhoneNumberResult(FlowResult):
+def node_initial() -> NodeConfig:
+    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
+    return {
+        **prompts["initial"],
+        "functions": [initial_phone_number, end_conversation],
+    }
+
+
+class ResultPhoneNumber(FlowResult):
     status: str
     phone: str
 
 
-async def initial_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberResult, NodeConfig]:
+async def initial_phone_number(flow_manager: FlowManager) -> tuple[ResultPhoneNumber, NodeConfig]:
     """
-    Validates the caller's Caller-ID and either asks the user to confirm the phone number is a good call-back number, or asks the user to provide a call-back number.
+    This function checks if the phone system recieved the caller's phone number. If so, confirm the number with the caller. If not, collect the caller's phone number.
     """
 
     logger.debug(f"""initial_phone_number (flow_manager.state["phone"]): {flow_manager.state["phone"]}""")
@@ -292,25 +300,24 @@ async def initial_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberRe
     logger.debug(f"""Valid: {valid_phone}""")
 
     status = status_helper(valid_phone)
-    result = PhoneNumberResult(status=status, phone=phone)
+    result = ResultPhoneNumber(status=status, phone=phone)
     if status == "success":
-        next_node = {
-            **prompts["confirm_phone_number"],
-            "functions": [
-                confirm_phone_number,
-            ],
-        }
+        next_node = node_confirm_phone_number()
     else:
-        next_node = {
-            **prompts["collect_phone_number"],
-            "functions": [
-                collect_phone_number,
-            ],
-        }
+        next_node = node_collect_phone_number()
     return result, next_node
 
 
-async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[PhoneNumberResult, NodeConfig]:
+def node_collect_phone_number() -> NodeConfig:
+    return {
+        **prompts["collect_phone_number"],
+        "functions": [
+            collect_phone_number,
+        ],
+    }
+
+
+async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[ResultPhoneNumber, NodeConfig]:
     """
     Collect the caller's phone number.
 
@@ -326,22 +333,21 @@ async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[P
     logger.debug(f"""Valid: {valid_phone}""")
 
     status = status_helper(valid_phone)
-    result = PhoneNumberResult(status=status, phone=phone)
+    result = ResultPhoneNumber(status=status, phone=phone)
     if status == "success":
-        next_node = {
-            **prompts["confirm_phone_number"],
-            "functions": [
-                confirm_phone_number,
-            ],
-        }
+        next_node = node_confirm_phone_number()
     else:
-        next_node = {
-            **prompts["collect_phone_number"],
-            "functions": [
-                collect_phone_number,
-            ],
-        }
+        next_node = node_collect_phone_number()
     return result, next_node
+
+
+def node_confirm_phone_number() -> NodeConfig:
+    return {
+        **prompts["confirm_phone_number"],
+        "functions": [
+            confirm_phone_number,
+        ],
+    }
 
 
 async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
@@ -353,94 +359,163 @@ async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) ->
     """
     status = status_helper(confirmation)
     if status == "success":
-        next_node = {
-            **prompts["collect_full_name"],
-            "functions": [
-                collect_full_name,
-            ],
-            "context_strategy": ContextStrategyConfig(
-                strategy=ContextStrategy.RESET_WITH_SUMMARY,
-                summary_prompt=prompts["reset_with_summary"],
-            ),
-        }
+        next_node = node_collect_name_first() | node_partial_reset_with_summary()
     else:
-        next_node = {
-            **prompts["collect_phone_number"],
-            "functions": [
-                collect_phone_number,
-            ],
-        }
+        next_node = node_collect_phone_number()
     return None, next_node
 
 
-class FullNameResult(FlowResult):
+def node_collect_name_first() -> NodeConfig:
+    return {
+        **prompts["collect_name_first"],
+        "functions": [
+            collect_name_first,
+        ],
+    }
+
+
+class ResultNameFirst(FlowResult):
     status: str
-    name_first: str
-    name_last: str
+    name: str
 
 
-async def collect_full_name(
-    flow_manager: FlowManager, name_first: str, name_last: str
-) -> tuple[FullNameResult, NodeConfig]:
+async def collect_name_first(flow_manager: FlowManager, name: str) -> tuple[ResultNameFirst, NodeConfig]:
     """
-    Record the caller's full, legal name.
+    Record the caller's legal first name.
 
     Args:
-        name_first (str): The caller's first name.
-        name_last (str): The caller's last name.
+        name (str): The caller's first name.
     """
 
-    name_first = re.sub(r"\W", "", name_first)
-    logger.debug(f"""Name (first): {name_first}""")
-    name_last = re.sub(r"\W", "", name_last)
-    logger.debug(f"""Name (last): {name_last}""")
+    name = re.sub(r"\W", "", name)
+    logger.debug(f"""Name First: {name}""")
 
-    status = status_helper(name_first and name_last)
-    result = FullNameResult(status=status, name_first=name_first, name_last=name_last)
+    status = status_helper(name)
+    result = ResultNameFirst(status=status, name=name)
     if status == "success":
-        next_node = {
-            **prompts["confirm_full_name"],
-            "functions": [
-                confirm_full_name,
-            ],
-        }
+        if flow_manager.state["confirming_name"]:
+            next_node = node_confirm_name_full()
+        else:
+            next_node = node_collect_name_middle()
     else:
-        next_node = {
-            **prompts["collect_full_name"],
-            "functions": [
-                collect_full_name,
-            ],
-        }
+        next_node = node_collect_name_first()
     return result, next_node
 
 
-async def confirm_full_name(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
+def node_collect_name_middle() -> NodeConfig:
+    return {
+        **prompts["collect_name_middle"],
+        "functions": [
+            collect_name_middle,
+        ],
+    }
+
+
+class ResultNameMiddle(FlowResult):
+    status: str
+    name: str
+
+
+async def collect_name_middle(flow_manager: FlowManager, name: str) -> tuple[ResultNameMiddle, NodeConfig]:
     """
-    Confirm with the caller that we have the right name for them.
+    Record the caller's legal middle name (if they have one).
+
+    Args:
+        name (str, optional): The caller's middle name.
+    """
+
+    if name:
+        name = re.sub(r"\W", "", name)
+    else:
+        name = ""
+    logger.debug(f"""Name Middle: {name}""")
+
+    status = status_helper(True)
+    result = ResultNameMiddle(status=status, name=name)
+    if flow_manager.state["confirming_name"]:
+        next_node = node_confirm_name_full()
+    else:
+        next_node = node_collect_name_last()
+    return result, next_node
+
+
+def node_collect_name_last() -> NodeConfig:
+    return {
+        **prompts["collect_name_last"],
+        "functions": [
+            collect_name_last,
+        ],
+    }
+
+
+class ResultNameLast(FlowResult):
+    status: str
+    name: str
+
+
+async def collect_name_last(flow_manager: FlowManager, name: str) -> tuple[ResultNameLast, NodeConfig]:
+    """
+    Record the caller's legal last name.
+
+    Args:
+        name (str): The caller's last name.
+    """
+
+    name = re.sub(r"\W", "", name)
+    logger.debug(f"""Name Last: {name}""")
+
+    status = status_helper(name)
+    result = ResultNameLast(status=status, name=name)
+    if status == "success":
+        next_node = node_confirm_name_full()
+    else:
+        next_node = node_collect_name_last()
+    return result, next_node
+
+
+def node_confirm_name_full() -> NodeConfig:
+    return {
+        **prompts["confirm_name_full"],
+        "functions": [
+            confirm_name_full,
+        ],
+    }
+
+
+async def confirm_name_full(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
+    """
+    Confirm with the caller that we have the right name for them. Ask them to spell out
 
     Args:
         confirmation (bool): The caller's confirmation that we have the right information.
     """
+    flow_manager.state["confirming_name"] = True
     status = status_helper(confirmation)
     if status == "success":
-        next_node = {
-            **prompts["collect_service_area"],
-            "functions": [
-                collect_service_area,
-            ],
-            "context_strategy": ContextStrategyConfig(
-                strategy=ContextStrategy.RESET_WITH_SUMMARY,
-                summary_prompt=prompts["reset_with_summary"],
-            ),
-        }
+        next_node = node_collect_service_area() | node_partial_reset_with_summary()
     else:
-        next_node = {
-            **prompts["collect_full_name"],
-            "functions": [
-                collect_full_name,
-            ],
-        }
+        next_node = node_collect_name_correction()
     return None, next_node
+
+
+def node_collect_name_correction() -> NodeConfig:
+    return {
+        **prompts["collect_name_correction"],
+        "functions": [
+            collect_name_first,
+            collect_name_middle,
+            collect_name_last,
+        ],
+    }
+
+
+def node_collect_service_area() -> NodeConfig:
+    return {
+        **prompts["collect_service_area"],
+        "functions": [
+            collect_service_area,
+        ],
+    }
 
 
 class ServiceAreaResult(FlowResult):
@@ -516,16 +591,8 @@ async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]
 
 
 ######################################################################
-# Node configurations
+# Standard node configurations
 ######################################################################
-
-
-def create_node_initial() -> NodeConfig:
-    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
-    return {
-        **prompts["initial"],
-        "functions": [initial_phone_number, end_conversation],
-    }
 
 
 def create_node_service_area_matches(matches: list[str]) -> NodeConfig:
@@ -617,4 +684,13 @@ def create_node_end() -> NodeConfig:
         ],
         "functions": [],
         "post_actions": [{"type": "end_conversation"}],
+    }
+
+
+def node_partial_reset_with_summary() -> NodeConfig:
+    return {
+        "context_strategy": ContextStrategyConfig(
+            strategy=ContextStrategy.RESET_WITH_SUMMARY,
+            summary_prompt=prompts["reset_with_summary"],
+        ),
     }

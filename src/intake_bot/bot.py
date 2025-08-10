@@ -141,13 +141,15 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
     # Add caller_phone_number from Twilio to context
     flow_manager.state["phone"] = caller_phone_number
     logger.debug(f"""bot.py (caller_phone_number): {caller_phone_number}""")
+    # Add initial state values
+    flow_manager.state["confirming_name"] = False
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
         # Start recording.
         await audiobuffer.start_recording()
         # Kick off the conversation.
-        await flow_manager.initialize(intake_nodes.create_node_initial())
+        await flow_manager.initialize(intake_nodes.node_initial())
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):

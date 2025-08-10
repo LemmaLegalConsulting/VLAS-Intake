@@ -24,15 +24,30 @@ confirm_phone_number:
     - content: >-
         Read back the caller's phone number and confirm that it is correct.
 
-collect_full_name:
+collect_name_first:
   task_messages:
     - content: >-
-        Ask for their full, legal name.
+        Ask for their legal first name.
 
-confirm_full_name:
+collect_name_middle:
   task_messages:
     - content: >-
-        Spell out the caller's first name and last name and confirm that it is correct.
+        Ask for their legal middle name.
+
+collect_name_last:
+  task_messages:
+    - content: >-
+        Ask for their legal last name.
+
+confirm_name_full:
+  task_messages:
+    - content: >-
+        Spell out the caller's first, middle, and last name and confirm that it is correct.
+
+collect_name_correction:
+  task_messages:
+    - content: >-
+        Determine which name (first, middle, or last) was spelled wrong, and use the correct function to try collecting only that name again.
 
 collect_service_area:
   task_messages:
