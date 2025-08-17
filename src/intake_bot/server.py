@@ -52,7 +52,7 @@ def validate_twilio_request(f):
 
         if valid_request and twilio_signature and call_sid:
             TWILIO_SIGNATURES[call_sid] = twilio_signature
-            INBOUND_PHONE_NUMBER[call_sid] = form_data["From"]
+            INBOUND_PHONE_NUMBER[call_sid] = form_data.get("From")
             print(f"Stored Twilio signature for CallSid: {call_sid}")
             return await f(request, *args, **kwargs)
         else:
