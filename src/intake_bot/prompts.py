@@ -1,4 +1,5 @@
 import yaml
+
 from intake_bot.globals import ROOT_DIR
 
 
@@ -57,5 +58,8 @@ if __name__ == "__main__":
 
     prompts = Prompts()
     # pprint(prompts)
-    pprint(prompts.get("collect_service_area"))
-    pprint(prompts.get("confirm_service_area", match="Amelia County"))
+    # pprint(prompts.get("collect_service_area"))
+    # pprint(prompts.get("confirm_service_area", match="Amelia County"))
+    # pprint(prompts.get("initial"))
+    # pprint(prompts.get("primary_role_message"))
+    pprint(prompts.get("primary_role_message") | prompts.get("initial"))

@@ -61,6 +61,11 @@ class MockRemoteSystem:
             "Suffolk City",
             "Sussex County",
         ]
+        # case_type: conflict_check
+        self.eligible_case_types = {
+            "citation": False,
+            "divorce": True,
+        }
         self.ineligible_case_types = [
             "criminal",
             "traffic",
@@ -85,14 +90,15 @@ class MockRemoteSystem:
         ]
         return alternatives
 
-    async def check_case_type(self, case_type: str) -> tuple[bool, list[str]]:
+    async def check_case_type(self, case_type: str) -> tuple[bool, bool]:
         """Check if the caller's legal problem is a type of case that we can handle."""
 
         # Simulate API call delay
         await asyncio.sleep(0.5)
 
-        is_eligible = case_type not in self.ineligible_case_types
-        return is_eligible
+        is_eligible = case_type in self.eligible_case_types
+        conflict_check_required = self.eligible_case_types.get(case_type)
+        return is_eligible, conflict_check_required
 
     async def check_service_area(self, caller_area: str) -> str:
         """Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name."""
@@ -105,6 +111,13 @@ class MockRemoteSystem:
         else:
             return ""
 
+    async def conflict_check(self, opposing_party_members: list[str]) -> bool:
+        """Check for conflict of interest with the caller's case."""
+        if "Jimmy Dean" in opposing_party_members:
+            return True
+        else:
+            return False
+
 
 # Initialize mock system
 remote_system = MockRemoteSystem()
@@ -115,12 +128,24 @@ remote_system = MockRemoteSystem()
 ######################################################################
 
 
+# MODIFIED NODE FOR TESTING: NAME
 def node_initial() -> NodeConfig:
     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
     return {
-        **prompts.get("initial"),
-        "functions": [initial_phone_number, end_conversation],
+        **prompts.get("primary_role_message"),
+        **prompts.get("collect_case_type"),
+        "functions": [collect_case_type, end_conversation],
     }
+
+
+# ACTUAL GOOD INITIAL NODE
+# def node_initial() -> NodeConfig:
+#     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
+#     return {
+#         **prompts.get("primary_role_message"),
+#         **prompts.get("initial"),
+#         "functions": [initial_phone_number, end_conversation],
+#     }
 
 
 class ResultPhoneNumber(FlowResult):
@@ -200,7 +225,7 @@ async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) ->
     """
     status = status_helper(confirmation)
     if status == "success":
-        next_node = node_collect_name_first() | node_partial_reset_with_summary()
+        next_node = node_partial_reset_with_summary() | node_collect_name_first()
     else:
         next_node = node_collect_phone_number()
     return None, next_node
@@ -273,7 +298,8 @@ async def collect_name_middle(flow_manager: FlowManager, name: str) -> tuple[Res
 
     status = status_helper(True)
     result = ResultNameMiddle(status=status, name=name)
-    if flow_manager.state["confirming_name"]:
+
+    if status == "success" and flow_manager.state["confirming_name"]:
         next_node = node_confirm_name_full()
     else:
         next_node = node_collect_name_last()
@@ -325,7 +351,7 @@ def node_confirm_name_full() -> NodeConfig:
 
 async def confirm_name_full(flow_manager: FlowManager, confirmation: bool) -> tuple[None, NodeConfig]:
     """
-    Confirm the caller's name.
+    Confirm the caller's name and spelling.
 
     Args:
         confirmation (bool): The caller's confirmation that we have the right information.
@@ -333,7 +359,7 @@ async def confirm_name_full(flow_manager: FlowManager, confirmation: bool) -> tu
     flow_manager.state["confirming_name"] = True
     status = status_helper(confirmation)
     if status == "success":
-        next_node = node_collect_service_area() | node_partial_reset_with_summary()
+        next_node = node_partial_reset_with_summary() | node_collect_service_area()
     else:
         next_node = node_collect_name_correction()
     return None, next_node
@@ -417,6 +443,7 @@ class CaseTypeResult(FlowResult):
     status: str
     case_type: str
     is_eligible: bool
+    conflict_check_required: bool
 
 
 async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[CaseTypeResult, NodeConfig]:
@@ -427,14 +454,52 @@ async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[
         case_type (str): The type of legal case that the caller has.
     """
 
-    is_eligible = await remote_system.check_case_type(case_type=case_type)
-
-    alternate_providers = await remote_system.get_alternative_providers() if not is_eligible else []
+    is_eligible, conflict_check_required = await remote_system.check_case_type(case_type=case_type)
 
     status = status_helper(is_eligible)
     result = CaseTypeResult(
-        status=status, case_type=case_type, is_eligible=is_eligible, alternate_providers=alternate_providers
+        status=status, case_type=case_type, is_eligible=is_eligible, conflict_check_required=conflict_check_required
     )
+
+    if status == "success":
+        if conflict_check_required:
+            next_node = node_conflict_check()
+        else:
+            next_node = node_intake_confirmation()
+    else:
+        next_node = node_no_service(await remote_system.get_alternative_providers())
+
+    return result, next_node
+
+
+class ConflictCheckResult(FlowResult):
+    status: str
+    there_is_a_conflict: bool
+
+
+def node_conflict_check() -> NodeConfig:
+    return {
+        **prompts.get("conflict_check"),
+        "functions": [
+            conflict_check,
+        ],
+    }
+
+
+async def conflict_check(
+    flow_manager: FlowManager, opposing_party_members: list[str]
+) -> tuple[CaseTypeResult, NodeConfig]:
+    """
+    Check for conflicts of interest with the caller's case.
+
+    Args:
+        opposing_party_members (list[str]): The members of the opposing party.
+    """
+
+    there_is_a_conflict = await remote_system.conflict_check(opposing_party_members=opposing_party_members)
+
+    status = status_helper(not there_is_a_conflict)
+    result = ConflictCheckResult(status=status, there_is_a_conflict=there_is_a_conflict)
 
     if status == "success":
         next_node = node_intake_confirmation()
@@ -486,6 +551,7 @@ def create_node_end() -> NodeConfig:
 
 def node_partial_reset_with_summary() -> NodeConfig:
     return {
+        **prompts.get("primary_role_message"),
         "context_strategy": ContextStrategyConfig(
             strategy=ContextStrategy.RESET_WITH_SUMMARY,
             summary_prompt=prompts.get("reset_with_summary"),
