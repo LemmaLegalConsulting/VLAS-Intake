@@ -4,25 +4,24 @@ from intake_bot.intake_nodes import MockRemoteSystem  # type: ignore
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "user_area,expected_matches",
+    "user_area,expected_match",
     [
-        ("Amelia County", ["Amelia County"]),  # exact match
-        ("Amelia", ["Amelia County"]),  # partial match
-        ("22951", [22951]),  # zip code match
-        ("Nonexistent Place", []),  # no match
-        ("amelia county", ["Amelia County"]),  # case-insensitive match
-        ("Amelia County City", ["Amelia County"]),  # extra words
+        ("Amelia County", "Amelia County"),  # exact match
+        ("Amelia", "Amelia County"),  # partial match
+        ("amalea", "Amelia County"),  # WRatio partial match
+        ("AMILYA", "Amelia County"),  # WRatio partial match
+        ("aml", "Amelia County"),  # WRatio partial match
+        ("Nonexistent Place", ""),  # no match
+        ("amelia county", "Amelia County"),  # case-insensitive match
+        ("Amelia County City", "Amelia County"),  # extra words
     ],
 )
-async def test_check_service_area_matches(user_area, expected_matches):
+async def test_check_service_area_match_fuzzy(user_area, expected_match):
     remote = MockRemoteSystem()
-    matches = await remote.check_service_area(user_area)
-    # Convert all to str for comparison, since zip codes are int
-    matches_str = [str(m) for m in matches]
-    expected_str = [str(m) for m in expected_matches]
-    for e in expected_str:
-        assert e in matches_str
-    assert len(matches_str) == len(expected_str)
+    match = await remote.check_service_area_fuzzy(user_area)
+    for e in expected_match:
+        assert e in match
+    assert len(match) == len(expected_match)
 
 
 @pytest.mark.asyncio

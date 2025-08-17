@@ -17,7 +17,6 @@ initial:
         7. If you do not understand the user request, respond with "I'm sorry, I didn't understand that."
 
         Your output will be directly converted to speech, so your response should be natural-sounding and appropriate for a spoken conversation.
-
   task_messages:
     - content: >-
         Ask for the information in the function.
@@ -32,20 +31,22 @@ confirm_phone_number:
     - content: >-
         Read back the caller's phone number and confirm that it is correct.
 
+
 collect_name_first:
   task_messages:
     - content: >-
-        Ask for their legal first name.
+        Explain that you need to collect the caller's legal name.
+        Ask for the caller's first name and the spelling.
 
 collect_name_middle:
   task_messages:
     - content: >-
-        Ask for their legal middle name.
+        Ask for their middle name and the spelling.
 
 collect_name_last:
   task_messages:
     - content: >-
-        Ask for their legal last name.
+        Ask for their last name and the spelling.
 
 confirm_name_full:
   task_messages:
@@ -57,10 +58,44 @@ collect_name_correction:
     - content: >-
         Determine which name (first, middle, or last) was spelled wrong, and use the correct function to try collecting only that name again.
 
+
 collect_service_area:
   task_messages:
     - content: >-
         Ask the caller where the legal incident occurred.
+
+confirm_service_area:
+  task_messages:
+    - content: >-
+        Tell the caller that you did not find an exact match for their service area. Ask them if they meant {match}.
+        - If the caller confirms the match is correct, re-check that service area and continue intake.
+        - If the caller wants to make a correction or provide a different service area, ask them to provide their service area again.
+        - If the caller says the match is incorrect and/or they don't want to provide a correction, end the conversation.
+
+
+collect_case_type:
+  task_messages:
+    - content: >-
+        Ask the caller what kind of legal case they have.
+
+
+intake_confirmation:
+  task_messages:
+    - content: >-
+        Confirm the intake details and ask if they need anything else.
+
+
+no_service:
+  task_messages:
+    - content: >-
+        Apologize that the caller's location isn't within the service area. Suggest these alternate providers: {alternate_providers_list}.
+
+
+end:
+  task_messages:
+    - content: >-
+        Thank them and end the conversation.
+
 
 reset_with_summary: >-
   Provide a concise summary of the caller's details.
