@@ -13,29 +13,30 @@ dependencies = [
     "onnxruntime",
     "phonenumberslite",
     "pipecat-ai-flows",
+    "pipecat-ai-whisker",
     "pipecat-ai[openai,google,websocket]",
     "python-dotenv",
     "python-multipart",
-    "pyyaml>=6.0.2",
-    "rapidfuzz>=3.13.0",
+    "pyyaml",
+    "rapidfuzz",
     "twilio",
 ]
+
+[dependency-groups]
+dev = ["granian[reload]", "pytest-asyncio", "pytest"]
 
 [build-system]
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
-
-[dependency-groups]
-dev = ["granian[reload]", "pytest-asyncio>=1.1.0", "pytest>=8.4.1"]
-
-[tool.pytest.ini_options]
-minversion = "8.0"
-testpaths = ["tests"]
-pythonpath = ["src"]
-required_plugins = ["pytest-asyncio"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
 asbar = ["__assets__/*.xml"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["src"]
+required_plugins = ["pytest-asyncio"]
