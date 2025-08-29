@@ -32,9 +32,10 @@ pip-delete-this-directory.txt
 pip-log.txt
 
 # Taskfile
-taskfile.yaml
+Taskfile.yml
 
 # intake-bot
 client
+debug
 recordings
 tests
