@@ -6,7 +6,11 @@ tasks:
 
   runclient:
     cmds:
-      - npm run --prefix ./client/typescript dev
+      - npm run --prefix ./client/typescript dev -- --clearScreen false --port 5173
+
+  rundebug:
+    cmds:
+      - npm run --prefix ./debug dev -- --clearScreen false --port 5174
 
   runserver:
     cmds:
