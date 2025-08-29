@@ -62,15 +62,24 @@ class MockRemoteSystem:
             "Sussex County",
         ]
         # case_type: conflict_check
-        self.eligible_case_types = {
-            "citation": False,
-            "divorce": True,
+        self.case_types = {
+            "bankruptcy": {
+                "conflict_check": True,
+                "domestic_violence": "yes",
+            },
+            "citation": {
+                "conflict_check": False,
+                "domestic_violence": "no",
+            },
+            "divorce": {
+                "conflict_check": True,
+                "domestic_violence": "ask",
+            },
+            "domestic violence": {
+                "conflict_check": True,
+                "domestic_violence": "yes",
+            },
         }
-        self.ineligible_case_types = [
-            "criminal",
-            "traffic",
-            "injury",
-        ]
 
     async def valid_phone_number(self, phone: str) -> tuple[bool, str]:
         try:
@@ -96,9 +105,10 @@ class MockRemoteSystem:
         # Simulate API call delay
         await asyncio.sleep(0.5)
 
-        is_eligible = case_type in self.eligible_case_types
-        conflict_check_required = self.eligible_case_types.get(case_type)
-        return is_eligible, conflict_check_required
+        is_eligible = case_type in self.case_types
+        conflict_check_required = self.case_types.get(case_type, {}).get("conflict_check")
+        domestic_violence = self.case_types.get(case_type, {}).get("domestic_violence")
+        return is_eligible, conflict_check_required, domestic_violence
 
     async def check_service_area(self, caller_area: str) -> str:
         """Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name."""
@@ -128,23 +138,23 @@ remote_system = MockRemoteSystem()
 ######################################################################
 
 
-# MODIFIED NODE FOR TESTING: NAME
+# MODIFIED NODE FOR TESTING
 def node_initial() -> NodeConfig:
     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
     return {
         **prompts.get("primary_role_message"),
-        **prompts.get("collect_case_type"),
-        "functions": [collect_case_type, end_conversation],
+        **prompts.get("collect_name_full"),
+        "functions": [collect_name_full, caller_ended_conversation],
     }
 
 
-# ACTUAL GOOD INITIAL NODE
+# ACTUAL INITIAL NODE
 # def node_initial() -> NodeConfig:
 #     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
 #     return {
 #         **prompts.get("primary_role_message"),
 #         **prompts.get("initial"),
-#         "functions": [initial_phone_number, end_conversation],
+#         "functions": [initial_phone_number, caller_ended_conversation],
 #     }
 
 
@@ -168,6 +178,7 @@ async def initial_phone_number(flow_manager: FlowManager) -> tuple[ResultPhoneNu
     status = status_helper(valid_phone)
     result = ResultPhoneNumber(status=status, phone=phone)
     if status == "success":
+        flow_manager.state["phone"] = phone
         next_node = node_confirm_phone_number()
     else:
         next_node = node_collect_phone_number()
@@ -201,6 +212,7 @@ async def collect_phone_number(flow_manager: FlowManager, phone: str) -> tuple[R
     status = status_helper(valid_phone)
     result = ResultPhoneNumber(status=status, phone=phone)
     if status == "success":
+        flow_manager.state["phone"] = phone
         next_node = node_confirm_phone_number()
     else:
         next_node = node_collect_phone_number()
@@ -225,118 +237,56 @@ async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) ->
     """
     status = status_helper(confirmation)
     if status == "success":
-        next_node = node_partial_reset_with_summary() | node_collect_name_first()
+        next_node = node_partial_reset_with_summary() | collect_name_full()
     else:
         next_node = node_collect_phone_number()
     return None, next_node
 
 
-def node_collect_name_first() -> NodeConfig:
+def node_collect_name_full() -> NodeConfig:
     return {
-        **prompts.get("collect_name_first"),
+        **prompts.get("collect_name_full"),
         "functions": [
-            collect_name_first,
+            collect_name_full,
         ],
     }
 
 
-class ResultNameFirst(FlowResult):
+class ResultNameFull(FlowResult):
     status: str
-    name: str
+    first: str
+    middle: str
+    last: str
 
 
-async def collect_name_first(flow_manager: FlowManager, name: str) -> tuple[ResultNameFirst, NodeConfig]:
+async def collect_name_full(
+    flow_manager: FlowManager, first: str, middle: str, last: str
+) -> tuple[ResultNameFull, NodeConfig]:
     """
-    Record the caller's first name.
+    Record the caller's name.
 
     Args:
-        name (str): The caller's first name.
+        first (str): The caller's first name.
+        middle (str): The caller's middle name.
+        last (str): The caller's last name.
     """
 
-    name = re.sub(r"\W", "", name)
-    logger.debug(f"""Name First: {name}""")
+    first = re.sub(r"\W", "", first)
+    middle = re.sub(r"\W", "", middle)
+    last = re.sub(r"\W", "", last)
 
-    status = status_helper(name)
-    result = ResultNameFirst(status=status, name=name)
+    full = f"{first}{' ' + middle if middle else ''} {last}"
+    logger.debug(f"""Full Name: {full}""")
+
+    status = status_helper(full)
+    result = ResultNameFull(status=status, first=first, middle=middle, last=last)
     if status == "success":
-        if flow_manager.state["confirming_name"]:
-            next_node = node_confirm_name_full()
-        else:
-            next_node = node_collect_name_middle()
-    else:
-        next_node = node_collect_name_first()
-    return result, next_node
-
-
-def node_collect_name_middle() -> NodeConfig:
-    return {
-        **prompts.get("collect_name_middle"),
-        "functions": [
-            collect_name_middle,
-        ],
-    }
-
-
-class ResultNameMiddle(FlowResult):
-    status: str
-    name: str
-
-
-async def collect_name_middle(flow_manager: FlowManager, name: str) -> tuple[ResultNameMiddle, NodeConfig]:
-    """
-    Record the caller's middle name (if they have one).
-
-    Args:
-        name (str, optional): The caller's middle name.
-    """
-
-    if name:
-        name = re.sub(r"\W", "", name)
-    else:
-        name = ""
-    logger.debug(f"""Name Middle: {name}""")
-
-    status = status_helper(True)
-    result = ResultNameMiddle(status=status, name=name)
-
-    if status == "success" and flow_manager.state["confirming_name"]:
+        flow_manager.state["caller name first"] = first
+        flow_manager.state["caller name middle"] = middle
+        flow_manager.state["caller name last"] = last
         next_node = node_confirm_name_full()
     else:
-        next_node = node_collect_name_last()
-    return result, next_node
-
-
-def node_collect_name_last() -> NodeConfig:
-    return {
-        **prompts.get("collect_name_last"),
-        "functions": [
-            collect_name_last,
-        ],
-    }
-
-
-class ResultNameLast(FlowResult):
-    status: str
-    name: str
-
-
-async def collect_name_last(flow_manager: FlowManager, name: str) -> tuple[ResultNameLast, NodeConfig]:
-    """
-    Record the caller's last name.
-
-    Args:
-        name (str): The caller's last name.
-    """
-
-    name = re.sub(r"\W", "", name)
-    logger.debug(f"""Name Last: {name}""")
-
-    status = status_helper(name)
-    result = ResultNameLast(status=status, name=name)
-    if status == "success":
-        next_node = node_confirm_name_full()
-    else:
-        next_node = node_collect_name_last()
+        next_node = node_collect_name_full()
     return result, next_node
 
 
@@ -356,7 +306,6 @@ async def confirm_name_full(flow_manager: FlowManager, confirmation: bool) -> tu
     Args:
         confirmation (bool): The caller's confirmation that we have the right information.
     """
-    flow_manager.state["confirming_name"] = True
     status = status_helper(confirmation)
     if status == "success":
         next_node = node_partial_reset_with_summary() | node_collect_service_area()
@@ -369,9 +318,7 @@ def node_collect_name_correction() -> NodeConfig:
     return {
         **prompts.get("collect_name_correction"),
         "functions": [
-            collect_name_first,
-            collect_name_middle,
-            collect_name_last,
+            collect_name_full,
         ],
     }
 
@@ -392,30 +339,35 @@ class ServiceAreaResult(FlowResult):
     match: str
 
 
-async def collect_service_area(flow_manager: FlowManager, caller_area: str) -> tuple[ServiceAreaResult, NodeConfig]:
+async def collect_service_area(flow_manager: FlowManager, service_area: str) -> tuple[ServiceAreaResult, NodeConfig]:
     """
-    Record the caller's location or the location of the incident.
+    Record the service area.
 
     Args:
-        caller_area (str): The location of the caller or the legal incident. Must be a city or county.
+        service_area (str): The location of the caller or the legal incident. Must be a city or county.
     """
 
-    match = await remote_system.check_service_area(caller_area)
-    if match == caller_area:
+    match = await remote_system.check_service_area(service_area)
+    if match == service_area:
         is_eligible = True
     else:
         is_eligible = False
 
     status = status_helper(is_eligible)
-    result = ServiceAreaResult(status=status, service_area=caller_area, is_eligible=is_eligible, match=match)
+    result = ServiceAreaResult(status=status, service_area=service_area, is_eligible=is_eligible, match=match)
 
     if status == "success":
+        flow_manager.state["service area"] = service_area
         next_node = node_collect_case_type()
     else:
         if match:
             next_node = node_confirm_service_area(match=match)
         else:
-            next_node = node_no_service(await remote_system.get_alternative_providers())
+            alternate_providers = await remote_system.get_alternative_providers()
+            next_node = node_no_service(
+                alternate_providers=alternate_providers,
+                no_service_reason="not in service area",
+            )
 
     return result, next_node
 
@@ -444,6 +396,7 @@ class CaseTypeResult(FlowResult):
     case_type: str
     is_eligible: bool
     conflict_check_required: bool
+    domestic_violence: str
 
 
 async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[CaseTypeResult, NodeConfig]:
@@ -454,7 +407,7 @@ async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[
         case_type (str): The type of legal case that the caller has.
     """
 
-    is_eligible, conflict_check_required = await remote_system.check_case_type(case_type=case_type)
+    is_eligible, conflict_check_required, domestic_violence = await remote_system.check_case_type(case_type=case_type)
 
     status = status_helper(is_eligible)
     result = CaseTypeResult(
@@ -462,12 +415,18 @@ async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[
     )
 
     if status == "success":
+        flow_manager.state["case type"] = case_type
+        flow_manager.state["domestic violence"] = domestic_violence
         if conflict_check_required:
             next_node = node_conflict_check()
         else:
             next_node = node_intake_confirmation()
     else:
-        next_node = node_no_service(await remote_system.get_alternative_providers())
+        alternate_providers = await remote_system.get_alternative_providers()
+        next_node = node_no_service(
+            alternate_providers=alternate_providers,
+            no_service_reason="ineligible case type",
+        )
 
     return result, next_node
 
@@ -496,15 +455,61 @@ async def conflict_check(
         opposing_party_members (list[str]): The members of the opposing party.
     """
 
+    # TODO: Need to see what LegalServer's conflict-check API looks like;
+    # may need to ask for other related names, not just adverse;
+    # may need to perform additional searches/checks for the caller
+    # to see if they had previous cases that might disqualify.
+    # Probably flag as "potential conflict" and pass them on in many cases.
+
     there_is_a_conflict = await remote_system.conflict_check(opposing_party_members=opposing_party_members)
 
     status = status_helper(not there_is_a_conflict)
     result = ConflictCheckResult(status=status, there_is_a_conflict=there_is_a_conflict)
 
     if status == "success":
-        next_node = node_intake_confirmation()
+        flow_manager.state["conflict"] = there_is_a_conflict
+        if flow_manager.state.get("domestic violence") == "ask":
+            next_node = node_collect_domestic_violence()
+        else:
+            next_node = node_intake_confirmation()
     else:
-        next_node = node_no_service(await remote_system.get_alternative_providers())
+        alternate_providers = await remote_system.get_alternative_providers()
+        next_node = node_no_service(
+            alternate_providers=alternate_providers,
+            no_service_reason="there is a representation conflict",
+        )
+
+    return result, next_node
+
+
+class DomesticViolenceResult(FlowResult):
+    status: str
+    experiencing_domestic_violence: bool
+
+
+def node_collect_domestic_violence() -> NodeConfig:
+    return {
+        **prompts.get("collect_domestic_violence"),
+        "functions": [
+            collect_domestic_violence,
+        ],
+    }
+
+
+async def collect_domestic_violence(
+    flow_manager: FlowManager, experiencing_domestic_violence: bool
+) -> tuple[None, NodeConfig]:
+    """
+    Record if the caller experiencing domestic violence or not.
+
+    Args:
+        experiencing_domestic_violence (bool): The caller's answer that they are or are not experiencing domestic violence.
+    """
+    flow_manager.state["domestic violence"] = experiencing_domestic_violence
+
+    result = ConflictCheckResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
+
+    next_node = node_partial_reset_with_summary() | node_intake_confirmation()
 
     return result, next_node
 
@@ -519,11 +524,13 @@ def node_intake_confirmation() -> NodeConfig:
     }
 
 
-def node_no_service(alternate_providers: list[str]) -> NodeConfig:
+def node_no_service(alternate_providers: list[str], no_service_reason: str) -> NodeConfig:
     """Create node for handling ineligibility."""
     alternate_providers_list = ", ".join(alternate_providers)
     return {
-        **prompts.get("no_service", alternate_providers_list=alternate_providers_list),
+        **prompts.get(
+            "no_service", alternate_providers_list=alternate_providers_list, no_service_reason=no_service_reason
+        ),
         "functions": [
             end_conversation,
         ],
@@ -532,13 +539,27 @@ def node_no_service(alternate_providers: list[str]) -> NodeConfig:
 
 async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
     """End the conversation."""
-    return None, create_node_end()
+    return None, node_end_conversation()
 
 
-def create_node_end() -> NodeConfig:
+def node_end_conversation() -> NodeConfig:
     """Create the final node."""
     return {
         **prompts.get("end"),
+        "functions": [],
+        "post_actions": [{"type": "end_conversation"}],
+    }
+
+
+async def caller_ended_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
+    """The caller ended the conversation."""
+    return None, node_caller_ended_conversation()
+
+
+def node_caller_ended_conversation() -> NodeConfig:
+    """Create the final node."""
+    return {
+        **prompts.get("caller_ended_conversation"),
         "functions": [],
         "post_actions": [{"type": "end_conversation"}],
     }
