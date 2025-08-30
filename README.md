@@ -26,11 +26,10 @@ flowchart TD
     case_type -- Not handled --> exit
     check_conflict -- Conflict --> exit
     check_conflict -- No conflict --> check_income
-    check_income -- Over limit --> exit
     check_income -- Under limit --> check_assets
-    check_income -- Compelling issue --> check_citizenship
-    check_assets -- Ineligible --> exit
+    check_income -- Over limit --> exit
     check_assets -- Eligible --> check_citizenship
+    check_assets -- Ineligible --> exit
     check_citizenship -- Ineligible --> exit
     check_citizenship -- Eligible emergency --> conduct_interview
     check_citizenship -- Eligible non-emergency --> conduct_interview
