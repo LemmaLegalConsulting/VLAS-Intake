@@ -46,3 +46,31 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
     valid, formatted = await remote.valid_phone_number(phone)
     assert valid == expected_valid
     assert formatted == expected_format
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "income,period,expected_eligible,expected_monthly_income,expected_poverty_percent",
+    [
+        (0, "month", True, 0, 0),  # eligible, no income
+        (0, "year", True, 0, 0),  # eligible, no income
+        (1200, "month", True, 1200, 92),  # eligible, monthly income below 300% of poverty
+        (40000, "year", True, 3333, 255),  # eligible, yearly income below 300% of poverty
+        (5000, "month", False, 5000, 383),  # not eligible, monthly income above 300% of poverty
+        (60000, "year", False, 5000, 383),  # not eligible, yearly income above 300% of poverty
+        (3911, "month", True, 3911, 299),  # eligible, just below 300% poverty for month
+        (46932, "year", True, 3911, 299),  # eligible, just below 300% poverty for year
+        (3912, "month", True, 3912, 299),  # eligible, near 300% poverty for month (truncated to 299)
+        (46944, "year", True, 3912, 299),  # eligible, near 300% poverty for year (truncated to 299)
+        (3913, "month", False, 3913, 300),  # not eligible, just above 300% poverty for month
+        (46956, "year", False, 3913, 300),  # not eligible, just above 300% poverty for year
+        (100000, "year", False, 8333, 638),  # not eligible, high yearly income
+        (10000, "month", False, 10000, 766),  # not eligible, high monthly income
+    ],
+)
+async def test_check_income(income, period, expected_eligible, expected_monthly_income, expected_poverty_percent):
+    remote = MockRemoteSystem()
+    is_eligible, monthly_income, poverty_percent = await remote.check_income(income, period)
+    assert is_eligible == expected_eligible
+    assert monthly_income == expected_monthly_income
+    assert poverty_percent == expected_poverty_percent

@@ -40,3 +40,4 @@ minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 required_plugins = ["pytest-asyncio"]
+filterwarnings = ["ignore::DeprecationWarning:pipecat"]
