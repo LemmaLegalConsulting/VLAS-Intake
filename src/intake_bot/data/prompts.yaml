@@ -9,6 +9,7 @@ primary_role_message:
         - Be informative and comprehensive.
         - Maintain a professional and polite tone.
         - Be concise, as you are currently operating as a Voice Conversation.
+        - Read lists as sentences.
 
         [Response Guideline]
         - Present dates in a clear format (e.g., January 15, 2024).
@@ -108,34 +109,37 @@ collect_domestic_violence:
     - content: >-
         Ask the caller if they are experiencing domestic violence.
 
-# Income check
-income_check:
+# Income
+collect_income:
   task_messages:
     - content: >-
-        - We now need income information for the people who live with you and with whom you share expenses or support.
+        [Instructions]
+        Ask the caller for their total monthly or yearly income, and remind them of possible sources of income to ensure accuracy. If the caller claims no income, ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food. Use the following guidelines:
 
-        - Does anyone in your household receive any wages? Spousal support? Child support? Unemployment Income? Disability income? Social security? TANF? Veterans benefits? Pension? Enter this info into Kemps for each person.
+        [User Prompt]
+        To determine your eligibility, we need to know your total monthly or yearly income. This includes income from all sources for everyone in your household with whom you share expenses or support. Common sources of income include:
+        - Wages or salary
+        - Spousal support or alimony
+        - Child support
+        - Unemployment benefits
+        - Disability payments
+        - Social Security
+        - TANF (Temporary Assistance for Needy Families)
+        - Veterans benefits
+        - Pension or retirement income
 
-        - If the caller claims no income, ask How do you pay for your housing, utilities, and food?  Put the answer in e-notes.
-        - Is any of this income seasonal or temporary? If so, make a note of it in the e-notes.
+        [Additional Notes]
+        - If the caller indicates domestic violence in the household, exclude income or assets received or held by the alleged perpetrator.
+        - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
 
-        - Income received and assets held fully or in part by an alleged perpetrator of domestic violence against our applicant shall not be included when the applicant indicates that there is domestic violence in the household.
-
-        - Income will generally be determined by looking at the last 30 days.
-
-        - Typical Income Sources:
-          - Wages
-          - Spousal support
-          - Child support
-          - Unemployment insurance
-          - Disability payments
-          - Social security
-          - TANF
-          - Veterans benefits
-          - Pension
+# Income confirmation
+confirm_income_ineligible:
+  task_messages:
+    - content: >-
+        Advise the caller that they are over the income eligibility limit. Ask them if they wish to proceed with the intake even though Law-Line probably won't be able to help them, or if they would like to be provided with a list of alternate legal providers.
 
 # Intake confirmation
-intake_confirmation:
+confirm_intake:
   task_messages:
     - content: >-
         Confirm the intake details and ask if they need anything else.

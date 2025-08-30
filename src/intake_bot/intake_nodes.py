@@ -120,12 +120,26 @@ class MockRemoteSystem:
         else:
             return ""
 
-    async def conflict_check(self, opposing_party_members: list[str]) -> bool:
+    async def check_conflict_of_interest(self, opposing_party_members: list[str]) -> bool:
         """Check for conflict of interest with the caller's case."""
         if "Jimmy Dean" in opposing_party_members:
             return True
         else:
             return False
+
+    async def check_income(self, income: int, period: Literal["month", "year"]) -> tuple[bool, int, int]:
+        """Check the caller's income eligibility."""
+        federal_poverty_yearly = 15650
+        federal_poverty_monthly = federal_poverty_yearly / 12
+
+        if period == "month":
+            monthly_income = income
+        elif period == "year":
+            monthly_income = income / 12
+        monthly_income = monthly_income
+        poverty_percent = (monthly_income / federal_poverty_monthly) * 100
+        is_eligible = poverty_percent <= 300
+        return is_eligible, int(monthly_income), int(poverty_percent)
 
 
 # Initialize mock system
@@ -138,23 +152,23 @@ remote_system = MockRemoteSystem()
 
 
 # MODIFIED NODE FOR TESTING
-def node_initial() -> NodeConfig:
-    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
-    return {
-        **prompts.get("primary_role_message"),
-        **prompts.get("collect_name_full"),
-        "functions": [collect_name_full, caller_ended_conversation],
-    }
-
-
-# ACTUAL INITIAL NODE
 # def node_initial() -> NodeConfig:
 #     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
 #     return {
 #         **prompts.get("primary_role_message"),
-#         **prompts.get("initial"),
-#         "functions": [initial_phone_number, caller_ended_conversation],
+#         **prompts.get("collect_income"),
+#         "functions": [collect_income, caller_ended_conversation],
 #     }
+
+
+# ACTUAL INITIAL NODE
+def node_initial() -> NodeConfig:
+    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
+    return {
+        **prompts.get("primary_role_message"),
+        **prompts.get("initial"),
+        "functions": [initial_phone_number, caller_ended_conversation],
+    }
 
 
 class ResultPhoneNumber(FlowResult):
@@ -236,7 +250,7 @@ async def confirm_phone_number(flow_manager: FlowManager, confirmation: bool) ->
     """
     status = status_helper(confirmation)
     if status == "success":
-        next_node = node_partial_reset_with_summary() | collect_name_full()
+        next_node = node_partial_reset_with_summary() | node_collect_name_full()
     else:
         next_node = node_collect_phone_number()
     return None, next_node
@@ -419,7 +433,7 @@ async def collect_case_type(flow_manager: FlowManager, case_type: str) -> tuple[
         if conflict_check_required:
             next_node = node_conflict_check()
         else:
-            next_node = node_intake_confirmation()
+            next_node = node_confirm_intake()
     else:
         alternate_providers = await remote_system.get_alternative_providers()
         next_node = node_no_service(
@@ -460,7 +474,7 @@ async def conflict_check(
     # to see if they had previous cases that might disqualify.
     # Probably flag as "potential conflict" and pass them on in many cases.
 
-    there_is_a_conflict = await remote_system.conflict_check(opposing_party_members=opposing_party_members)
+    there_is_a_conflict = await remote_system.check_conflict_of_interest(opposing_party_members=opposing_party_members)
 
     status = status_helper(not there_is_a_conflict)
     result = ConflictCheckResult(status=status, there_is_a_conflict=there_is_a_conflict)
@@ -470,7 +484,7 @@ async def conflict_check(
         if flow_manager.state.get("domestic violence") == "ask":
             next_node = node_collect_domestic_violence()
         else:
-            next_node = node_intake_confirmation()
+            next_node = node_collect_income()
     else:
         alternate_providers = await remote_system.get_alternative_providers()
         next_node = node_no_service(
@@ -508,15 +522,96 @@ async def collect_domestic_violence(
 
     result = ConflictCheckResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
 
-    next_node = node_partial_reset_with_summary() | node_intake_confirmation()
+    next_node = node_partial_reset_with_summary() | node_collect_income()
 
     return result, next_node
 
 
-def node_intake_confirmation() -> NodeConfig:
+def node_collect_income() -> NodeConfig:
+    return {
+        **prompts.get("collect_income"),
+        "functions": [
+            collect_income,
+        ],
+    }
+
+
+class IncomeResult(FlowResult):
+    status: str
+    is_eligible: bool
+    monthly_income: int
+    poverty_percent: int
+    compelling_issue: str
+
+
+async def collect_income(
+    flow_manager: FlowManager, income: int, period: Literal["month", "year"]
+) -> tuple[IncomeResult, NodeConfig]:
+    """
+    Collect income information and determine eligibility of caller.
+
+    Args:
+        income (int): The amount of income the caller received per period.
+        period (str): The period in which the income is received. Must be "month" or "year".
+    """
+    logger.debug(f"""Income: {income}""")
+    logger.debug(f"""Period: {period}""")
+
+    is_eligible, monthly_income, poverty_percent = await remote_system.check_income(income=income, period=period)
+
+    logger.debug(
+        f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}, poverty: {poverty_percent}%"""
+    )
+
+    status = status_helper(is_eligible)
+    result = IncomeResult(
+        status=status,
+        is_eligible=is_eligible,
+        monthly_income=monthly_income,
+        poverty_percent=poverty_percent,
+    )
+
+    flow_manager.state["income eligible"] = is_eligible
+    flow_manager.state["income monthly"] = monthly_income
+    flow_manager.state["income percent"] = poverty_percent
+
+    if status == "success":
+        next_node = node_partial_reset_with_summary() | node_confirm_intake()
+    else:
+        next_node = node_partial_reset_with_summary() | node_confirm_income_ineligible()
+
+    return result, next_node
+
+
+def node_confirm_income_ineligible() -> NodeConfig:
+    """Create confirmation node for income exceeding the eligibility limit."""
+    return {
+        **prompts.get("confirm_income_ineligible"),
+        "functions": [
+            collect_case_type,
+            income_ineligible,
+            end_conversation,
+        ],
+    }
+
+
+async def income_ineligible(flow_manager: FlowManager) -> tuple[IncomeResult, NodeConfig]:
+    """
+    Provides alternate legal providers.
+    """
+    alternate_providers = await remote_system.get_alternative_providers()
+    next_node = node_no_service(
+        alternate_providers=alternate_providers,
+        no_service_reason="ineligible income",
+    )
+
+    return None, next_node
+
+
+def node_confirm_intake() -> NodeConfig:
     """Create confirmation node for successful intake."""
     return {
-        **prompts.get("intake_confirmation"),
+        **prompts.get("confirm_intake"),
         "functions": [
             end_conversation,
         ],
