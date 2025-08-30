@@ -1,5 +1,4 @@
 import asyncio
-import re
 from typing import Literal
 
 import phonenumbers
@@ -271,9 +270,9 @@ async def collect_name_full(
         last (str): The caller's last name.
     """
 
-    first = re.sub(r"\W", "", first)
-    middle = re.sub(r"\W", "", middle)
-    last = re.sub(r"\W", "", last)
+    first = first.strip()
+    middle = middle.strip()
+    last = last.strip()
 
     full = f"{first}{' ' + middle if middle else ''} {last}"
     logger.debug(f"""Full Name: {full}""")
