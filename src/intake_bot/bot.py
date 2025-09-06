@@ -25,13 +25,14 @@ from pipecat.services.google.stt import GoogleSTTService
 from pipecat.services.google.tts import GoogleTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transcriptions.language import Language
-from pipecat.transports.network.fastapi_websocket import (
+from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
 from pipecat_flows import (
     FlowManager,
 )
+from pipecat_whisker import WhiskerObserver
 
 from . import intake_nodes
 
@@ -121,6 +122,12 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
         ]
     )
 
+    observers = list()
+
+    if os.getenv("ENABLE_WHISKER") == "TRUE":
+        whisker = WhiskerObserver(pipeline)
+        observers.append(whisker)
+
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
@@ -130,6 +137,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
+        observers=observers,
     )
 
     # Initialize flow manager with LLM
@@ -138,11 +146,10 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
         llm=llm,
         context_aggregator=context_aggregator,
     )
+
     # Add caller_phone_number from Twilio to context
     flow_manager.state["phone"] = caller_phone_number
     logger.debug(f"""bot.py (caller_phone_number): {caller_phone_number}""")
-    # Add initial state values
-    flow_manager.state["confirming_name"] = False
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
