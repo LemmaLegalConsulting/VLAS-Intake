@@ -15,6 +15,7 @@ flowchart TD
     check_income{Income check}
     check_assets{Assets check}
     check_citizenship{Citizenship eligible}
+    check_emergency{Qualifying Emergency}
     conduct_interview{Conduct Interview}
 
 
@@ -30,7 +31,9 @@ flowchart TD
     check_income -- Over limit --> exit
     check_assets -- Eligible --> check_citizenship
     check_assets -- Ineligible --> exit
+    check_citizenship -- Eligible --> check_emergency
     check_citizenship -- Ineligible --> exit
-    check_citizenship -- Eligible emergency --> conduct_interview
-    check_citizenship -- Eligible non-emergency --> conduct_interview
+    check_emergency -- Emergency [expedited] --> conduct_interview
+    check_emergency -- Non-emergency --> conduct_interview
+
 ```
