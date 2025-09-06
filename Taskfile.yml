@@ -6,6 +6,9 @@ silent: true
 
 tasks:
   rundev:
+    deps: [runserver, runclient]
+
+  rundev-debug:
     deps: [runserver, runclient, rundebug]
 
   runclient:
