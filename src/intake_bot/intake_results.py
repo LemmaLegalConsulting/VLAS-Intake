@@ -34,7 +34,6 @@ class IncomeResult(FlowResult):
     is_eligible: bool
     monthly_income: int
     poverty_percent: int
-    compelling_issue: str
 
 
 class NameResult(FlowResult):

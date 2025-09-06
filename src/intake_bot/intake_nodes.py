@@ -15,6 +15,7 @@ from .intake_results import (
     CaseTypeResult,
     CitizenshipResult,
     ConflictCheckResult,
+    DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
     NameResult,
@@ -360,7 +361,7 @@ async def record_domestic_violence(
     """
     flow_manager.state["domestic violence"] = experiencing_domestic_violence
 
-    result = ConflictCheckResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
+    result = DomesticViolenceResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
@@ -450,7 +451,8 @@ async def record_assets(
     logger.debug(f"""Government means tested: {government_means_tested}""")
     logger.debug(f"""Assets value: {assets_value}""")
 
-    is_eligible = 10_000 > assets_value
+    max_eligible_assets_value = 10_000
+    is_eligible = max_eligible_assets_value > assets_value
 
     logger.debug(f"""Assets value results: eligible: {is_eligible}""")
 
