@@ -7,14 +7,13 @@
 import datetime
 import io
 import os
-import sys
 import wave
 
 import aiofiles
 from dotenv import load_dotenv
 from fastapi import WebSocket
-from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import EndFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -35,11 +34,9 @@ from pipecat_flows import (
 from pipecat_whisker import WhiskerObserver
 
 from . import intake_nodes
+from .server import logger
 
 load_dotenv(override=True)
-
-logger.remove(0)
-logger.add(sys.stderr, level="DEBUG")
 
 
 async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_channels: int):
@@ -80,6 +77,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
             add_wav_header=False,
             vad_analyzer=SileroVADAnalyzer(),
             serializer=serializer,
+            session_timeout=300,  # 5 minute timeout
         ),
     )
 
@@ -157,6 +155,19 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
         await audiobuffer.start_recording()
         # Kick off the conversation.
         await flow_manager.initialize(intake_nodes.node_initial())
+
+    @transport.event_handler("on_session_timeout")
+    async def handle_timeout(transport, websocket):
+        # Play timeout message before ending call
+        logger.info("Call timed out; ending.")
+        await task.queue_frames(
+            [
+                TTSSpeakFrame(
+                    "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
+                ),
+                EndFrame(),
+            ]
+        )
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
