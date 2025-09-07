@@ -1,0 +1,11 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vlas-intake-bot
+    container_name: vlas-intake-bot
+    ports:
+      - 8765:8765
+    env_file:
+      - .env
