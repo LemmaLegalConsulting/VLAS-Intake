@@ -6,8 +6,14 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
 SECRET_KEY_HEX = os.getenv("WEBSOCKET_SECURITY_TOKEN")
-SECRET_KEY = bytes.fromhex(SECRET_KEY_HEX)
+if not SECRET_KEY_HEX:
+    raise ValueError("WEBSOCKET_SECURITY_TOKEN environment variable is not set.")
+try:
+    SECRET_KEY = bytes.fromhex(SECRET_KEY_HEX)
+except (ValueError, TypeError):
+    raise ValueError("WEBSOCKET_SECURITY_TOKEN must be a valid hex string.")
 
 
 def generate_websocket_auth_code(call_sid: str) -> str:

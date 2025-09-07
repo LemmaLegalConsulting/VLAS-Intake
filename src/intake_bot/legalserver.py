@@ -1,4 +1,3 @@
-import json
 import os
 
 import requests
@@ -15,8 +14,8 @@ headers = {
 
 def test_get(url: str, headers: dict):
     try:
-        payload = json.dumps({"page_number": 1, "page_size": 1})
-        response = requests.request("GET", url, headers=headers, json=payload)
+        params = {"page_number": 1, "page_size": 1}
+        response = requests.request("GET", url, headers=headers, params=params)
         if response.status_code != 200:
             print(response.status_code, response.reason)
         print(response.text)
@@ -26,9 +25,12 @@ def test_get(url: str, headers: dict):
 
 def test_post(url: str, headers: dict):
     try:
-        payload = json.dumps(
-            {"first": "John", "last": "Doe", "case_disposition": "Incomplete Intake", "case_type": "Online Intake"}
-        )
+        payload = {
+            "first": "John",
+            "last": "Doe",
+            "case_disposition": "Incomplete Intake",
+            "case_type": "Online Intake",
+        }
         response = requests.request("POST", url, headers=headers, json=payload)
         if response.status_code != 200:
             print(response.status_code, response.reason)
