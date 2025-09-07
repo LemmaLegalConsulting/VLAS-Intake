@@ -30,7 +30,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.cartesia.tts import CartesiaTTSService
 from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.transports.network.websocket_client import (
+from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
 )
@@ -61,9 +61,7 @@ def get_stream_url_from_twiml(twiml: str) -> str:
 
 async def save_audio(client_name: str, audio: bytes, sample_rate: int, num_channels: int):
     if len(audio) > 0:
-        filename = (
-            f"{client_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        )
+        filename = f"{client_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
                 wf.setsampwidth(2)
@@ -148,9 +146,7 @@ async def run_client(client_name: str, server_url: str, duration_secs: int):
         # Start recording.
         await audiobuffer.start_recording()
 
-        message = TransportMessageUrgentFrame(
-            message={"event": "connected", "protocol": "Call", "version": "1.0.0"}
-        )
+        message = TransportMessageUrgentFrame(message={"event": "connected", "protocol": "Call", "version": "1.0.0"})
         await transport.output().send_message(message)
 
         message = TransportMessageUrgentFrame(
@@ -180,9 +176,7 @@ async def run_client(client_name: str, server_url: str, duration_secs: int):
 async def main():
     parser = argparse.ArgumentParser(description="Pipecat Twilio Chatbot Client")
     parser.add_argument("-u", "--url", type=str, required=True, help="specify the server URL")
-    parser.add_argument(
-        "-c", "--clients", type=int, required=True, help="number of concurrent clients"
-    )
+    parser.add_argument("-c", "--clients", type=int, required=True, help="number of concurrent clients")
     parser.add_argument(
         "-d",
         "--duration",
