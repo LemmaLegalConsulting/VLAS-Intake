@@ -1,13 +1,9 @@
-import os
-
-from dotenv import load_dotenv
 from fastapi import Request
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
+from .env_var import get_env_var, require_env_var
 from .server import logger
-
-load_dotenv(override=True)
 
 
 def create_twiml(url: str, body_data: dict = None) -> str:
@@ -44,13 +40,11 @@ async def validate_webhook(request: Request) -> bool:
     Returns:
         bool: True if the request is a valid Twilio webhook (signature matches), False otherwise.
     """
-    if not (auth_token := os.getenv("TWILIO_AUTH_TOKEN")):
-        raise ValueError("The TWILIO_AUTH_TOKEN environment variable must be set.")
-    if not (domain := os.getenv("DOMAIN")):
-        raise ValueError("The DOMAIN environment variable must be set.")
+    auth_token = require_env_var("TWILIO_AUTH_TOKEN")
+    domain = require_env_var("DOMAIN")
 
     # https://community.fly.io/t/redirect-uri-is-http-instead-of-https/6671/6
-    protocol = os.getenv("PROTOCOL", "https")
+    protocol = get_env_var("PROTOCOL", "https")
 
     validator = RequestValidator(auth_token)
     url = f"""{protocol}://{domain}/"""

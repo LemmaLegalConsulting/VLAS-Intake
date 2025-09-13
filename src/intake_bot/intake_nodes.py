@@ -10,7 +10,7 @@ from pipecat_flows import (
     NodeConfig,
 )
 
-from .intake_results import (
+from intake_bot.intake_results import (
     AssetsResult,
     CaseTypeResult,
     CitizenshipResult,
@@ -22,8 +22,8 @@ from .intake_results import (
     PhoneNumberResult,
     ServiceAreaResult,
 )
-from .prompts import Prompts
-from .remote import MockRemoteSystem
+from intake_bot.prompts import Prompts
+from intake_bot.remote import MockRemoteSystem
 
 
 def status_helper(status: bool) -> Literal["success", "failure"]:

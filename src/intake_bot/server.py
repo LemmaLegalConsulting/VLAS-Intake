@@ -4,23 +4,23 @@
 # SPDX-License-Identifier: BSD 2-Clause License
 #
 
-import os
+
 import sys
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from pipecat.runner.types import WebSocketRunnerArguments
 from starlette.responses import HTMLResponse
 
-from .bot import bot
-from .security import generate_websocket_auth_code
-from .twilio import create_twiml, validate_webhook
+from intake_bot.bot import bot
+from intake_bot.env_var import get_env_var, require_env_var
+from intake_bot.security import generate_websocket_auth_code
+from intake_bot.twilio import create_twiml, validate_webhook
 
-load_dotenv(override=True)
 logger.remove(0)
-logger.add(sys.stderr, level=os.getenv("LOG_LEVEL", "INFO"))
+logger.add(sys.stderr, level=get_env_var("LOG_LEVEL", "INFO"))
+# logger.add("server.log", level="TRACE")
 
 app = FastAPI()
 
@@ -43,7 +43,8 @@ async def start_call(request: Request):
         raise HTTPException(status_code=403, detail="Webhook authentication failed")
 
     form_data = await request.form()
-    url = f"""wss://{os.getenv("DOMAIN")}/ws"""
+    domain = require_env_var("DOMAIN")
+    url = f"""wss://{domain}/ws"""
     body_data = dict(
         caller_phone_number=form_data.get("From"),
         websocket_auth_code=generate_websocket_auth_code(call_id=form_data.get("CallSid")),

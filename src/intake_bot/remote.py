@@ -80,7 +80,7 @@ class MockRemoteSystem:
         # Simulate API call delay
         await asyncio.sleep(0.5)
 
-        is_eligible: bool = case_type in self.case_types
+        is_eligible: bool = str(case_type).strip().lower() in self.case_types
         conflict_check_required: bool = self.case_types.get(case_type, {}).get("conflict_check", False)
         domestic_violence: bool = self.case_types.get(case_type, {}).get("domestic_violence", False)
         return is_eligible, conflict_check_required, domestic_violence

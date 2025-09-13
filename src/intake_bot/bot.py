@@ -10,9 +10,12 @@ import os
 import wave
 
 import aiofiles
-from dotenv import load_dotenv
 from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+from pipecat.audio.vad.vad_analyzer import VADParams
+from pipecat.frames.frames import (
+    EndFrame,
+    TTSSpeakFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -35,11 +38,11 @@ from pipecat_flows import (
 )
 from pipecat_whisker import WhiskerObserver
 
-from . import intake_nodes
-from .security import verify_websocket_auth_code
-from .server import logger
-
-load_dotenv(override=True)
+from intake_bot.env_var import env_var_is_true, require_env_var
+from intake_bot.intake_nodes import node_initial
+from intake_bot.local_smart_turn import turn_analyzer
+from intake_bot.security import verify_websocket_auth_code
+from intake_bot.server import logger
 
 
 async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
@@ -64,7 +67,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     """Main function to set up and run the VLAS intake bot."""
 
     stt = GoogleSTTService(
-        credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
+        credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
         params=GoogleSTTService.InputParams(
             languages=Language.EN_US,
             model="latest_long",
@@ -73,10 +76,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         ),
     )
 
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+    llm = OpenAILLMService(api_key=require_env_var("OPENAI_API_KEY"), model="gpt-4o")
 
     tts = GoogleTTSService(
-        credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
+        credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
         voice_id="en-US-Chirp3-HD-Autonoe",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(language=Language.EN, gender="female", google_style="empathetic"),
@@ -104,7 +107,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     observers = list()
 
-    if os.getenv("ENABLE_WHISKER") == "TRUE":
+    if env_var_is_true("ENABLE_WHISKER"):
         whisker = WhiskerObserver(pipeline)
         observers.append(whisker)
 
@@ -135,7 +138,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         # Start recording.
         await audiobuffer.start_recording()
         # Kick off the conversation.
-        await flow_manager.initialize(intake_nodes.node_initial())
+        await flow_manager.initialize(node_initial())
 
     @transport.event_handler("on_session_timeout")
     async def handle_timeout(transport, websocket):
@@ -156,7 +159,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        if os.getenv("SAVE_AUDIO_RECORDINGS") == "TRUE":
+        if env_var_is_true("SAVE_AUDIO_RECORDINGS"):
             await save_audio(audio, sample_rate, num_channels)
 
     # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
@@ -169,14 +172,14 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
 
 async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
-    """Main bot entry point compatible with Pipecat Cloud."""
+    """Main bot entry point."""
 
     transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
     logger.info(f"Auto-detected transport: {transport_type}")
 
     call_id = call_data["call_id"]
 
-    if os.getenv("ALLOW_TEST_CLIENT") == "TRUE" and call_id == "ws_mock_call_sid":
+    if env_var_is_true("ALLOW_TEST_CLIENT") and call_id == "ws_mock_call_sid":
         call_data["body"]["caller_phone_number"] = "8665345243"
         call_is_valid = True
     else:
@@ -195,8 +198,8 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
     serializer = TwilioFrameSerializer(
         stream_sid=call_data["stream_id"],
         call_sid=call_data["call_id"],
-        account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
-        auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
+        account_sid=require_env_var("TWILIO_ACCOUNT_SID"),
+        auth_token=require_env_var("TWILIO_AUTH_TOKEN"),
     )
 
     transport = FastAPIWebsocketTransport(
@@ -205,9 +208,10 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            vad_analyzer=SileroVADAnalyzer(),
             serializer=serializer,
             session_timeout=300,  # 5 minute timeout
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            turn_analyzer=turn_analyzer,
         ),
     )
 

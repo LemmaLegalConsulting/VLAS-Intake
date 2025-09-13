@@ -1,15 +1,10 @@
 import base64
 import hashlib
 import hmac
-import os
 
-from dotenv import load_dotenv
+from .env_var import require_env_var
 
-load_dotenv(override=True)
-
-SECRET_KEY_HEX = os.getenv("WEBSOCKET_SECURITY_TOKEN")
-if not SECRET_KEY_HEX:
-    raise ValueError("WEBSOCKET_SECURITY_TOKEN environment variable is not set.")
+SECRET_KEY_HEX = require_env_var("WEBSOCKET_SECURITY_TOKEN")
 try:
     SECRET_KEY = bytes.fromhex(SECRET_KEY_HEX)
 except (ValueError, TypeError):

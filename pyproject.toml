@@ -26,6 +26,8 @@ dependencies = [
 
 [dependency-groups]
 dev = ["granian[reload]", "pytest-asyncio", "pytest"]
+test = ["pytest-asyncio", "pytest"]
+lst = ["pipecat-ai[local-smart-turn-v3]"]
 
 [build-system]
 requires = ["setuptools"]
@@ -35,7 +37,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-asbar = ["__assets__/*.xml"]
+intake_bot = ["data/*.yml"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"

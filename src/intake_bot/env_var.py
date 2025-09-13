@@ -1,0 +1,40 @@
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
+
+def get_env_var(key: str, default: str = None) -> str:
+    return os.getenv(key=key, default=default)
+
+
+def require_env_var(key: str) -> str:
+    """
+    Ensure that the specified environment variable is set and return its value.
+
+    Args:
+        key (str): The name of the environment variable to check.
+
+    Returns:
+        str: The value of the environment variable.
+
+    Raises:
+        ValueError: If the environment variable is not set.
+    """
+    if not (value := os.getenv(key)):
+        raise ValueError(f"The {key} environment variable must be set.")
+    return value
+
+
+def env_var_is_true(key: str) -> bool:
+    """
+    Check if the specified environment variable is set to 'true' (case-insensitive).
+
+    Args:
+        key (str): The name of the environment variable.
+
+    Returns:
+        bool: True if the environment variable is set to 'true', False otherwise.
+    """
+    return os.getenv(key, "").strip().lower() == "true"
