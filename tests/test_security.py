@@ -10,30 +10,30 @@ def mock_secret_key(monkeypatch):
 
 
 def test_generate_websocket_auth_code(mock_secret_key):
-    call_sid = "test-call-sid-123"
-    code = generate_websocket_auth_code(call_sid)
+    call_id = "test-call-sid-123"
+    code = generate_websocket_auth_code(call_id)
     assert isinstance(code, str)
     assert len(code) > 0  # Code should not be empty
 
 
 def test_verify_websocket_auth_code_valid(mock_secret_key):
-    call_sid = "test-call-sid-123"
-    code = generate_websocket_auth_code(call_sid)
-    assert verify_websocket_auth_code(call_sid, code) is True
+    call_id = "test-call-sid-123"
+    code = generate_websocket_auth_code(call_id)
+    assert verify_websocket_auth_code(call_id, code) is True
 
 
-def test_verify_websocket_auth_code_invalid_call_sid(mock_secret_key):
-    call_sid = "test-call-sid-123"
-    wrong_call_sid = "wrong-call-sid-456"
-    code = generate_websocket_auth_code(call_sid)
-    assert verify_websocket_auth_code(wrong_call_sid, code) is False
+def test_verify_websocket_auth_code_invalid_call_id(mock_secret_key):
+    call_id = "test-call-sid-123"
+    wrong_call_id = "wrong-call-sid-456"
+    code = generate_websocket_auth_code(call_id)
+    assert verify_websocket_auth_code(wrong_call_id, code) is False
 
 
 def test_verify_websocket_auth_code_tampered_code(mock_secret_key):
-    call_sid = "test-call-sid-123"
-    code = generate_websocket_auth_code(call_sid)
+    call_id = "test-call-sid-123"
+    code = generate_websocket_auth_code(call_id)
     tampered_code = code[:-1] + "x"  # Tamper the last character
-    assert verify_websocket_auth_code(call_sid, tampered_code) is False
+    assert verify_websocket_auth_code(call_id, tampered_code) is False
 
 
 def test_verify_websocket_auth_code_empty_inputs(mock_secret_key):

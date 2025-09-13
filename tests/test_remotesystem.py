@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.intake_nodes import MockRemoteSystem  # type: ignore
+from intake_bot.remote import MockRemoteSystem  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -16,9 +16,9 @@ from intake_bot.intake_nodes import MockRemoteSystem  # type: ignore
         ("Amelia County City", "Amelia County"),  # extra words
     ],
 )
-async def test_check_service_area_match_fuzzy(user_area, expected_match):
+async def test_check_service_area(user_area, expected_match):
     remote = MockRemoteSystem()
-    match = await remote.check_service_area_fuzzy(user_area)
+    match = await remote.check_service_area(user_area)
     for e in expected_match:
         assert e in match
     assert len(match) == len(expected_match)
@@ -62,8 +62,8 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
         (46932, "year", True, 3911, 299),  # eligible, just below 300% poverty for year
         (3912, "month", True, 3912, 299),  # eligible, near 300% poverty for month (truncated to 299)
         (46944, "year", True, 3912, 299),  # eligible, near 300% poverty for year (truncated to 299)
-        (3913, "month", False, 3913, 300),  # not eligible, just above 300% poverty for month
-        (46956, "year", False, 3913, 300),  # not eligible, just above 300% poverty for year
+        (3913, "month", True, 3913, 300),  # eligible, exactly 300% poverty for month
+        (46956, "year", True, 3913, 300),  # eligible, exactly 300% poverty for year
         (100000, "year", False, 8333, 638),  # not eligible, high yearly income
         (10000, "month", False, 10000, 766),  # not eligible, high monthly income
     ],
