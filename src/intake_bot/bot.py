@@ -11,7 +11,6 @@ import wave
 
 import aiofiles
 from dotenv import load_dotenv
-from fastapi import WebSocket
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import EndFrame, TTSSpeakFrame
 from pipecat.pipeline.pipeline import Pipeline
@@ -19,11 +18,14 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+from pipecat.runner.types import RunnerArguments
+from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.google.stt import GoogleSTTService
 from pipecat.services.google.tts import GoogleTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transcriptions.language import Language
+from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
@@ -34,18 +36,17 @@ from pipecat_flows import (
 from pipecat_whisker import WhiskerObserver
 
 from . import intake_nodes
+from .security import verify_websocket_auth_code
 from .server import logger
 
 load_dotenv(override=True)
 
 
-async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_channels: int):
+async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
     if len(audio) > 0:
         recordings_dir = "recordings"
         os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
-        filename = os.path.join(
-            recordings_dir, f"{server_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        )
+        filename = os.path.join(recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
                 wf.setsampwidth(2)
@@ -59,27 +60,8 @@ async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_chann
         logger.info("No audio data to save")
 
 
-async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, caller_phone_number: str):
+async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool):
     """Main function to set up and run the VLAS intake bot."""
-
-    serializer = TwilioFrameSerializer(
-        stream_sid=stream_sid,
-        call_sid=call_sid,
-        account_sid=os.getenv("TWILIO_ACCOUNT_SID"),
-        auth_token=os.getenv("TWILIO_AUTH_TOKEN"),
-    )
-
-    transport = FastAPIWebsocketTransport(
-        websocket=websocket_client,
-        params=FastAPIWebsocketParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            add_wav_header=False,
-            vad_analyzer=SileroVADAnalyzer(),
-            serializer=serializer,
-            session_timeout=300,  # 5 minute timeout
-        ),
-    )
 
     stt = GoogleSTTService(
         credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
@@ -145,9 +127,8 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
         context_aggregator=context_aggregator,
     )
 
-    # Add caller_phone_number from Twilio to context
-    flow_manager.state["phone"] = caller_phone_number
-    logger.debug(f"""bot.py (caller_phone_number): {caller_phone_number}""")
+    # Add flow manager state from Twilio's call_data
+    flow_manager.state["phone"] = call_data["body"].get("caller_phone_number")
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
@@ -176,13 +157,60 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, c
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
         if os.getenv("SAVE_AUDIO_RECORDINGS") == "TRUE":
-            server_name = f"server_{websocket_client.client.port}"
-            await save_audio(server_name, audio, sample_rate, num_channels)
+            await save_audio(audio, sample_rate, num_channels)
 
     # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
     # interruptions. We use `force_gc=True` to force garbage collection after
     # the runner finishes running a task which could be useful for long running
     # applications with multiple clients connecting.
-    runner = PipelineRunner(handle_sigint=False, force_gc=True)
+    runner = PipelineRunner(handle_sigint=handle_sigint, force_gc=True)
 
     await runner.run(task)
+
+
+async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
+    """Main bot entry point compatible with Pipecat Cloud."""
+
+    transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
+    logger.info(f"Auto-detected transport: {transport_type}")
+
+    call_id = call_data["call_id"]
+
+    if os.getenv("ALLOW_TEST_CLIENT") == "TRUE" and call_id == "ws_mock_call_sid":
+        call_data["body"]["caller_phone_number"] = "8665345243"
+        call_is_valid = True
+    else:
+        websocket_auth_code = call_data["body"].get("websocket_auth_code")
+        call_is_valid = verify_websocket_auth_code(
+            call_id=call_id,
+            received_code=websocket_auth_code,
+        )
+
+    if not call_is_valid:
+        logger.debug(f"""WebSocket connection denied for call_id: {call_id}""")
+        return {"code": 1008}
+
+    logger.debug(f"""WebSocket connection accepted for call_id: {call_id}""")
+
+    serializer = TwilioFrameSerializer(
+        stream_sid=call_data["stream_id"],
+        call_sid=call_data["call_id"],
+        account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
+        auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
+    )
+
+    transport = FastAPIWebsocketTransport(
+        websocket=runner_args.websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            vad_analyzer=SileroVADAnalyzer(),
+            serializer=serializer,
+            session_timeout=300,  # 5 minute timeout
+        ),
+    )
+
+    handle_sigint = runner_args.handle_sigint
+
+    await run_bot(transport, call_data, handle_sigint)
