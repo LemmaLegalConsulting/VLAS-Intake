@@ -37,3 +37,17 @@ flowchart TD
     check_emergency -- Non-emergency --> conduct_interview
 
 ```
+
+## Secret Key
+You will need to provide a 64 character hexidecimal secret key. You can generate one with the following methods:
+
+```bash
+# Using openssl
+openssl rand −hex 32
+```
+
+```python
+# Using python
+import secrets
+print(secrets.token_hex(32))
+```
