@@ -43,10 +43,10 @@ async def start_call(request: Request):
 
     form_data = await request.form()
     call_sid = form_data.get("CallSid")
-
     url = f"""wss://{os.getenv("DOMAIN")}/ws"""
     caller_phone_number = form_data.get("From")
     websocket_auth_code = generate_websocket_auth_code(call_sid)
+
     content = create_twiml(
         url=url,
         caller_phone_number=caller_phone_number,
@@ -83,5 +83,5 @@ async def websocket_endpoint(websocket: WebSocket):
         await run_bot(websocket, stream_sid, call_sid, caller_phone_number)
     else:
         logger.debug(f"""WebSocket connection denied for CallSid: {call_sid}""")
-        await websocket.close(code=1008)  # Close WebSocket with error code
+        await websocket.close(code=1008)
         return
