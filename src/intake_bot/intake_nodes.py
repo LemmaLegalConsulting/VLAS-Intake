@@ -49,8 +49,8 @@ remote_system = MockRemoteSystem()
 #     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
 #     return {
 #         **prompts.get("primary_role_message"),
-#         **prompts.get("record_service_area"),
-#         "functions": [record_service_area, caller_ended_conversation, end_conversation],
+#         **prompts.get("record_assets_receives_benefits"),
+#         "functions": [record_assets_receives_benefits, caller_ended_conversation, end_conversation],
 #     }
 
 
@@ -411,9 +411,9 @@ async def record_income(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_assets"),
+                **prompts.get("record_assets_receives_benefits"),
                 "functions": [
-                    record_assets,
+                    record_assets_receives_benefits,
                     caller_ended_conversation,
                     end_conversation,
                 ],
@@ -437,19 +437,64 @@ async def record_income(
     return result, next_node
 
 
-async def record_assets(
-    flow_manager: FlowManager, government_means_tested: bool, assets_value: int
+async def record_assets_receives_benefits(
+    flow_manager: FlowManager, receives_benefits: bool
 ) -> tuple[AssetsResult, NodeConfig]:
+    """
+    Record if the caller is receiving Medicaid, SSI, or TANF benefits.
+
+    Args:
+        receives_benefits (bool): The caller has receives government benefits.
+    """
+
+    logger.debug(f"""Government means tested: {receives_benefits}""")
+
+    if receives_benefits:
+        result = AssetsResult(
+            status=status_helper(True),
+            is_eligible=True,
+        )
+        flow_manager.state["assets eligible"] = True
+        flow_manager.state["assets receives_benefits"] = True
+        flow_manager.state["assets value"] = 0
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_citizenship"),
+                "functions": [
+                    record_citizenship,
+                    caller_ended_conversation,
+                    end_conversation,
+                ],
+            }
+        )
+    else:
+        result = None
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_assets_list"),
+                "functions": [
+                    record_assets_list,
+                    caller_ended_conversation,
+                    end_conversation,
+                ],
+            }
+        )
+    return result, next_node
+
+
+async def record_assets_list(flow_manager: FlowManager, assets: dict[str, int]) -> tuple[AssetsResult, NodeConfig]:
     """
     Collect assets' value and determine eligibility of caller.
 
     Args:
-        assets_value (int): The value of all non-exempt assets that the caller has.
-        government_means_tested (bool): The caller has already been means-tested by a government agency.
+        assets (dict): A dictionary listing the name and value of all non-exempt assets that the caller has.
     """
 
-    logger.debug(f"""Government means tested: {government_means_tested}""")
-    logger.debug(f"""Assets value: {assets_value}""")
+    logger.debug(f"""Assets: {assets.items()}""")
+    assets_value = sum(assets.values())
+    logger.debug(f"""Assets total value: {sum(assets.values())}""")
 
     max_eligible_assets_value = 10_000
     is_eligible = max_eligible_assets_value > assets_value
@@ -463,7 +508,7 @@ async def record_assets(
     )
 
     flow_manager.state["assets eligible"] = is_eligible
-    flow_manager.state["assets government means tested"] = government_means_tested
+    flow_manager.state["assets dict"] = assets
     flow_manager.state["assets value"] = assets_value
 
     if status == "success":

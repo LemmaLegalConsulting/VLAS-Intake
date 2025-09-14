@@ -135,32 +135,32 @@ confirm_income_over_limit:
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with a list of alternate legal providers?
 
 # Assets
-record_assets:
+record_assets_receives_benefits:
+  task_messages:
+    - content: >-
+        [User Prompt]
+        Ask you are receiving Medicaid, SSI, or TANF benefits?
+
+record_assets_list:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller receiving Medicaid, SSI, or TANF benefits.
-          - If they are:
-            - `government_means_tested` is True.
-            - The caller's `assets_value` is considered 0.
-          - If they are not:
-            - `government_means_tested` is False.
-            - Ask the caller follow-up questions to understand what assets they have. Use the following guidelines:
-              To determine your eligibility, we need to know what assets you have. Examples of assets include:
-              - Bank accounts
-              - Stocks or bonds
-              - Insurance policies with a net cash value
-              Some assets are exempt and should not be included in the total value. Exempt assets include:
-              - Your principal residence
-              - Cars used for transportation
-              - The first $2,000 of the net value of insurance policies
-              - Funds in retirement plans
-              - Funds not available to you or that would take a long time to convert to cash
-              - Assets held by a perpetrator of domestic violence against you
-              - Assets with no equity value
+        Ask the caller what assets they have and the value of each asset. Use the following guidelines:
+        To determine your eligibility, we need to know what assets you have. Examples of assets include:
+        - Bank accounts
+        - Stocks or bonds
+        - Insurance policies with a net cash value
 
-        [Additional Notes]
-        - Don't explain the eligibility criteria, goverment means testing, or the caller's assets if they are 0.
+        Some assets are exempt and should not be included. Exempt assets include:
+        - Your principal residence
+        - Cars used for transportation
+        - The first $2,000 of the net value of insurance policies
+        - Funds in retirement plans
+        - Funds not available to you or that would take a long time to convert to cash
+        - Assets held by a perpetrator of domestic violence against you
+        - Assets with no equity value
+
+        After the caller provides their list of assets and the value of each, clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process. Once the caller confirms the list is correct and complete, create a JSON object with asset names as keys and their corresponding values, and pass this object to the function as the assets argument.
 
 # Assets over limit
 confirm_assets_over_limit:
