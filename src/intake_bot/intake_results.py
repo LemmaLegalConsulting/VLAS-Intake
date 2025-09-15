@@ -10,8 +10,6 @@ class AssetsResult(FlowResult):
 class CaseTypeResult(FlowResult):
     case_type: str
     is_eligible: bool
-    conflict_check_required: bool
-    domestic_violence: str
 
 
 class CitizenshipResult(FlowResult):

@@ -160,7 +160,7 @@ record_assets_list:
         - Assets held by a perpetrator of domestic violence against you
         - Assets with no equity value
 
-        After the caller provides their list of assets and the value of each, clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process. Once the caller confirms the list is correct and complete, create a JSON object with asset names as keys and their corresponding values, and pass this object to the function as the assets argument.
+        After the caller provides their list of assets and the value of each, clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process. Once the caller confirms the list is correct and complete, create a list of dictionaries, each with the asset name as the key and its value as the value, and pass this list to the function as the assets argument.
 
 # Assets over limit
 confirm_assets_over_limit:

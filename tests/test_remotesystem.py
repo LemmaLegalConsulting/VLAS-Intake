@@ -1,4 +1,5 @@
 import pytest
+from intake_bot.intake_arg_models import HouseholdIncome, IncomeDetail, IncomePeriod, MemberIncome
 from intake_bot.remote import MockRemoteSystem  # type: ignore
 
 
@@ -70,7 +71,12 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
 )
 async def test_check_income(income, period, expected_eligible, expected_monthly_income, expected_poverty_percent):
     remote = MockRemoteSystem()
-    is_eligible, monthly_income, poverty_percent = await remote.check_income(income, period)
+    # Build HouseholdIncome input according to new model
+    # We'll use a single household member "Test Person" with a single income type "wages"
+    income_detail = IncomeDetail(amount=income, period=IncomePeriod(period))
+    member_income = MemberIncome({"wages": income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income, poverty_percent = await remote.check_income(income=household_income)
     assert is_eligible == expected_eligible
     assert monthly_income == expected_monthly_income
     assert poverty_percent == expected_poverty_percent

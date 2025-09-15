@@ -10,6 +10,7 @@ from pipecat_flows import (
     NodeConfig,
 )
 
+from intake_bot.intake_arg_models import HouseholdIncome
 from intake_bot.intake_results import (
     AssetsResult,
     CaseTypeResult,
@@ -49,8 +50,8 @@ remote_system = MockRemoteSystem()
 #     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
 #     return {
 #         **prompts.get("primary_role_message"),
-#         **prompts.get("record_assets_receives_benefits"),
-#         "functions": [record_assets_receives_benefits, caller_ended_conversation, end_conversation],
+#         **prompts.get("record_income"),
+#         "functions": [record_income, caller_ended_conversation, end_conversation],
 #     }
 
 
@@ -90,14 +91,11 @@ async def system_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberRes
         result = PhoneNumberResult(status=status, phone=phone)
     else:
         result = None
+
     next_node = NodeConfig(
         {
             **prompts.get("record_phone_number"),
-            "functions": [
-                record_phone_number,
-                caller_ended_conversation,
-                end_conversation,
-            ],
+            "functions": [record_phone_number, caller_ended_conversation, end_conversation],
         }
     )
     return result, next_node
@@ -119,6 +117,7 @@ async def record_phone_number(flow_manager: FlowManager, phone: str) -> tuple[Ph
     logger.debug(f"""Valid: {valid_phone}""")
 
     status = status_helper(valid_phone)
+
     if status == "success":
         result = PhoneNumberResult(status=status, phone=phone)
         flow_manager.state["phone"] = phone
@@ -126,11 +125,7 @@ async def record_phone_number(flow_manager: FlowManager, phone: str) -> tuple[Ph
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_name"),
-                "functions": [
-                    record_name,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_name, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -158,20 +153,17 @@ async def record_name(flow_manager: FlowManager, first: str, middle: str, last: 
     logger.debug(f"""Last: {last}""")
 
     status = status_helper(first and last)
+
     if status == "success":
         result = NameResult(status=status, first=first, middle=middle, last=last)
-        flow_manager.state["caller name first"] = first
-        flow_manager.state["caller name middle"] = middle
-        flow_manager.state["caller name last"] = last
+        flow_manager.state["name first"] = first
+        flow_manager.state["name middle"] = middle
+        flow_manager.state["name last"] = last
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_service_area"),
-                "functions": [
-                    record_service_area,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_service_area, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -193,8 +185,8 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
         is_eligible = True
     else:
         is_eligible = False
-
     status = status_helper(is_eligible)
+
     if status == "success":
         result = ServiceAreaResult(status=status, service_area=service_area, is_eligible=is_eligible, match=match)
         flow_manager.state["service area"] = service_area
@@ -202,11 +194,7 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_case_type"),
-                "functions": [
-                    record_case_type,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_case_type, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -221,9 +209,7 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
                 node_partial_reset_with_summary()
                 | {
                     **prompts.get("ineligible"),
-                    "functions": [
-                        end_conversation,
-                    ],
+                    "functions": [end_conversation],
                 }
             )
     return result, next_node
@@ -237,40 +223,20 @@ async def record_case_type(flow_manager: FlowManager, case_type: str) -> tuple[C
         case_type (str): The type of legal case that the caller has.
     """
 
-    is_eligible, conflict_check_required, domestic_violence = await remote_system.check_case_type(case_type=case_type)
-
+    is_eligible = await remote_system.check_case_type(case_type=case_type)
+    flow_manager.state["case type"] = case_type
+    flow_manager.state["case type eligible"] = is_eligible
     status = status_helper(is_eligible)
-    result = CaseTypeResult(
-        status=status, case_type=case_type, is_eligible=is_eligible, conflict_check_required=conflict_check_required
-    )
+    result = CaseTypeResult(status=status, case_type=case_type)
 
     if status == "success":
-        flow_manager.state["case type"] = case_type
-        flow_manager.state["domestic violence"] = domestic_violence
-        if conflict_check_required:
-            next_node = NodeConfig(
-                node_partial_reset_with_summary()
-                | {
-                    **prompts.get("conflict_check"),
-                    "functions": [
-                        conflict_check,
-                        caller_ended_conversation,
-                        end_conversation,
-                    ],
-                }
-            )
-        else:
-            next_node = NodeConfig(
-                node_partial_reset_with_summary()
-                | {
-                    **prompts.get("record_income"),
-                    "functions": [
-                        record_income,
-                        caller_ended_conversation,
-                        end_conversation,
-                    ],
-                }
-            )
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("conflict_check"),
+                "functions": [conflict_check, caller_ended_conversation, end_conversation],
+            }
+        )
     else:
         result["error"] = (
             f"""Ineligible case type. Alternate providers: {await remote_system.get_alternative_providers()}"""
@@ -279,9 +245,7 @@ async def record_case_type(flow_manager: FlowManager, case_type: str) -> tuple[C
             node_partial_reset_with_summary()
             | {
                 **prompts.get("ineligible"),
-                "functions": [
-                    end_conversation,
-                ],
+                "functions": [end_conversation],
             }
         )
     return result, next_node
@@ -305,35 +269,20 @@ async def conflict_check(
 
     there_is_a_conflict = await remote_system.check_conflict_of_interest(opposing_party_members=opposing_party_members)
 
+    flow_manager.state["conflict"] = there_is_a_conflict
+    flow_manager.state["conflict list"] = opposing_party_members
+
     status = status_helper(not there_is_a_conflict)
     result = ConflictCheckResult(status=status, there_is_a_conflict=there_is_a_conflict)
 
     if status == "success":
-        flow_manager.state["conflict"] = there_is_a_conflict
-        if flow_manager.state.get("domestic violence") == "ask":
-            next_node = NodeConfig(
-                node_partial_reset_with_summary()
-                | {
-                    **prompts.get("record_domestic_violence"),
-                    "functions": [
-                        record_domestic_violence,
-                        caller_ended_conversation,
-                        end_conversation,
-                    ],
-                }
-            )
-        else:
-            next_node = NodeConfig(
-                node_partial_reset_with_summary()
-                | {
-                    **prompts.get("record_income"),
-                    "functions": [
-                        record_income,
-                        caller_ended_conversation,
-                        end_conversation,
-                    ],
-                }
-            )
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_domestic_violence"),
+                "functions": [record_domestic_violence, caller_ended_conversation, end_conversation],
+            }
+        )
     else:
         result["error"] = (
             f"""There is a representation conflict. Alternate providers: {await remote_system.get_alternative_providers()}"""
@@ -342,9 +291,7 @@ async def conflict_check(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("ineligible"),
-                "functions": [
-                    end_conversation,
-                ],
+                "functions": [end_conversation],
             }
         )
     return result, next_node
@@ -359,41 +306,53 @@ async def record_domestic_violence(
     Args:
         experiencing_domestic_violence (bool): The caller's answer that they are or are not experiencing domestic violence.
     """
-    flow_manager.state["domestic violence"] = experiencing_domestic_violence
 
     result = DomesticViolenceResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
+
+    flow_manager.state["domestic violence"] = experiencing_domestic_violence
+
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
             **prompts.get("record_income"),
-            "functions": [
-                record_income,
-                caller_ended_conversation,
-                end_conversation,
-            ],
+            "functions": [record_income, caller_ended_conversation, end_conversation],
         }
     )
     return result, next_node
 
 
-async def record_income(
-    flow_manager: FlowManager, income: int, period: Literal["month", "year"]
-) -> tuple[IncomeResult, NodeConfig]:
+async def record_income(flow_manager: FlowManager, income: HouseholdIncome) -> tuple[IncomeResult, NodeConfig]:
     """
-    Collect income information and determine eligibility of caller.
+    Collect income information for all household members and determine eligibility.
 
     Args:
-        income (int): The amount of income the caller received per period.
-        period (str): The period in which the income is received. Must be "month" or "year".
+        income (HouseholdIncome):
+            A Pydantic model where each key is a household member's name (str),
+            and each value is a MemberIncome model mapping income type (str) to an IncomeDetail.
+            Example:
+                {
+                    "John Doe": {
+                        "wages": {"amount": 2000, "period": "month"},
+                        "child support": {"amount": 300, "period": "month"},
+                    },
+                    "Jane Doe": {
+                        "social security": {"amount": 1200, "period": "year"},
+                    }
+                }
     """
-    logger.debug(f"""Income: {income}""")
-    logger.debug(f"""Period: {period}""")
+    # Convert dict to HouseholdIncome Pydantic model
+    income_model = HouseholdIncome.model_validate(income)
 
-    is_eligible, monthly_income, poverty_percent = await remote_system.check_income(income=income, period=period)
+    is_eligible, monthly_income, poverty_percent = await remote_system.check_income(income=income_model)
 
     logger.debug(
         f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}, poverty: {poverty_percent}%"""
     )
+
+    flow_manager.state["income eligible"] = is_eligible
+    flow_manager.state["income monthly"] = monthly_income
+    flow_manager.state["income percent"] = poverty_percent
+    flow_manager.state["income data"] = income
 
     status = status_helper(is_eligible)
     result = IncomeResult(
@@ -403,20 +362,12 @@ async def record_income(
         poverty_percent=poverty_percent,
     )
 
-    flow_manager.state["income eligible"] = is_eligible
-    flow_manager.state["income monthly"] = monthly_income
-    flow_manager.state["income percent"] = poverty_percent
-
     if status == "success":
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_assets_receives_benefits"),
-                "functions": [
-                    record_assets_receives_benefits,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_assets_receives_benefits, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -427,11 +378,7 @@ async def record_income(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_income_over_limit"),
-                "functions": [
-                    continue_intake,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [continue_intake, caller_ended_conversation, end_conversation],
             }
         )
     return result, next_node
@@ -454,18 +401,17 @@ async def record_assets_receives_benefits(
             status=status_helper(True),
             is_eligible=True,
         )
+
         flow_manager.state["assets eligible"] = True
-        flow_manager.state["assets receives_benefits"] = True
+        flow_manager.state["assets list"] = list(dict())
         flow_manager.state["assets value"] = 0
+        flow_manager.state["assets receives_benefits"] = True
+
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_citizenship"),
-                "functions": [
-                    record_citizenship,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_citizenship, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -474,32 +420,32 @@ async def record_assets_receives_benefits(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_assets_list"),
-                "functions": [
-                    record_assets_list,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_assets_list, caller_ended_conversation, end_conversation],
             }
         )
     return result, next_node
 
 
-async def record_assets_list(flow_manager: FlowManager, assets: dict[str, int]) -> tuple[AssetsResult, NodeConfig]:
+async def record_assets_list(
+    flow_manager: FlowManager, assets: list[dict[str, int]]
+) -> tuple[AssetsResult, NodeConfig]:
     """
     Collect assets' value and determine eligibility of caller.
 
     Args:
-        assets (dict): A dictionary listing the name and value of all non-exempt assets that the caller has.
+        assets (list): A list of dicts, each with a string key representing the asset name and an integer value representing the net present value (e.g., [{"car": 5000}, {"savings": 2000}]) for all non-exempt assets that the caller has.
     """
 
-    logger.debug(f"""Assets: {assets.items()}""")
-    assets_value = sum(assets.values())
-    logger.debug(f"""Assets total value: {sum(assets.values())}""")
+    is_eligible, assets_value = await remote_system.check_assets(assets=assets)
 
-    max_eligible_assets_value = 10_000
-    is_eligible = max_eligible_assets_value > assets_value
-
+    logger.debug(f"""Assets: {[asset.items() for asset in assets]}""")
+    logger.debug(f"""Assets total value: {assets_value}""")
     logger.debug(f"""Assets value results: eligible: {is_eligible}""")
+
+    flow_manager.state["assets eligible"] = is_eligible
+    flow_manager.state["assets list"] = assets
+    flow_manager.state["assets value"] = assets_value
+    flow_manager.state["assets receives_benefits"] = False
 
     status = status_helper(is_eligible)
     result = AssetsResult(
@@ -507,20 +453,12 @@ async def record_assets_list(flow_manager: FlowManager, assets: dict[str, int]) 
         is_eligible=is_eligible,
     )
 
-    flow_manager.state["assets eligible"] = is_eligible
-    flow_manager.state["assets dict"] = assets
-    flow_manager.state["assets value"] = assets_value
-
     if status == "success":
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_citizenship"),
-                "functions": [
-                    record_citizenship,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_citizenship, caller_ended_conversation, end_conversation],
             }
         )
     else:
@@ -531,11 +469,7 @@ async def record_assets_list(flow_manager: FlowManager, assets: dict[str, int]) 
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_assets_over_limit"),
-                "functions": [
-                    continue_intake,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [continue_intake, caller_ended_conversation, end_conversation],
             }
         )
     return result, next_node
@@ -556,11 +490,7 @@ async def record_citizenship(flow_manager: FlowManager, has_citizenship: bool) -
         node_partial_reset_with_summary()
         | {
             **prompts.get("record_emergency"),
-            "functions": [
-                record_emergency,
-                caller_ended_conversation,
-                end_conversation,
-            ],
+            "functions": [record_emergency, caller_ended_conversation, end_conversation],
         }
     )
     return result, next_node
@@ -575,16 +505,14 @@ async def record_emergency(flow_manager: FlowManager, is_emergency: bool) -> tup
     """
     logger.debug(f"""Emergency: {is_emergency}""")
     flow_manager.state["emergency"] = is_emergency
-
     result = EmergencyResult(status="success", is_emergency=is_emergency)
+
     if is_emergency:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("complete_intake"),
-                "functions": [
-                    end_conversation,
-                ],
+                "functions": [end_conversation],
             }
         )
     else:
@@ -592,9 +520,7 @@ async def record_emergency(flow_manager: FlowManager, is_emergency: bool) -> tup
             node_partial_reset_with_summary()
             | {
                 **prompts.get("complete_intake"),
-                "functions": [
-                    end_conversation,
-                ],
+                "functions": [end_conversation],
             }
         )
     return result, next_node
@@ -622,9 +548,7 @@ async def continue_intake(flow_manager: FlowManager, next_step: str) -> tuple[No
         node_partial_reset_with_summary()
         | {
             **prompts.get(next_step),
-            "functions": [
-                next_function,
-            ],
+            "functions": [next_function],
         }
     )
     return None, next_node

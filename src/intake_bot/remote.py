@@ -1,8 +1,9 @@
 import asyncio
-from typing import Literal
 
 import phonenumbers
 from rapidfuzz import fuzz, process, utils
+
+from intake_bot.intake_arg_models import HouseholdIncome, IncomePeriod
 
 
 class MockRemoteSystem:
@@ -103,25 +104,33 @@ class MockRemoteSystem:
         else:
             return False
 
-    async def check_income(self, income: int, period: Literal["month", "year"]) -> tuple[bool, int, int]:
+    async def check_income(self, income: HouseholdIncome) -> tuple[bool, int, int]:
         """Check the caller's income eligibility."""
         federal_poverty_yearly = 15650
         federal_poverty_monthly = federal_poverty_yearly / 12
 
-        if period == "month":
-            monthly_income = income
-        elif period == "year":
-            monthly_income = income / 12
-        monthly_income: int = int(monthly_income)
-        poverty_percent: int = int((monthly_income / federal_poverty_monthly) * 100)
-        is_eligible: bool = poverty_percent <= 300
-        return is_eligible, monthly_income, poverty_percent
+        total_monthly = 0.0
+        for member_income in income.root.values():
+            for income_detail in member_income.root.values():
+                amt = income_detail.amount
+                period = income_detail.period
+                if period == IncomePeriod.year:
+                    total_monthly += amt / 12
+                elif period == IncomePeriod.month:
+                    total_monthly += amt
+                else:
+                    raise ValueError(f"Unknown period: {period}")
+
+        total_monthly = int(total_monthly)
+        poverty_percent = int((total_monthly / federal_poverty_monthly) * 100)
+        is_eligible = poverty_percent <= 300
+        return is_eligible, total_monthly, poverty_percent
 
     async def check_assets(self, assets: dict[str, float]) -> tuple[bool, int]:
         """Check the caller's assets eligibility."""
         vlas_assets_limit: int = 10_000
 
-        assets_total_value: int = int(sum(assets.values()))
-        is_eligible: bool = vlas_assets_limit > assets_total_value
+        assets_value: int = int(sum(value for asset in assets for value in asset.values()))
+        is_eligible: bool = vlas_assets_limit >= assets_value
 
-        return is_eligible, assets_total_value
+        return is_eligible, assets_value
