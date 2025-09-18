@@ -49,7 +49,9 @@ async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
     if len(audio) > 0:
         recordings_dir = "recordings"
         os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
-        filename = os.path.join(recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav")
+        filename = os.path.join(
+            recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+        )
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
                 wf.setsampwidth(2)
@@ -82,7 +84,9 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
         voice_id="en-US-Chirp3-HD-Autonoe",
         push_silence_after_stop=False,
-        params=GoogleTTSService.InputParams(language=Language.EN, gender="female", google_style="empathetic"),
+        params=GoogleTTSService.InputParams(
+            language=Language.EN, gender="female", google_style="empathetic"
+        ),
     )
 
     context = OpenAILLMContext()
@@ -179,7 +183,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
 
     call_id = call_data["call_id"]
 
-    if env_var_is_true("ALLOW_TEST_CLIENT") and call_id == "ws_mock_call_sid":
+    if env_var_is_true("TEST_CLIENT_ALLOWED") and call_id == "ws_mock_call_sid":
         call_data["body"]["caller_phone_number"] = "8665345243"
         call_is_valid = True
     else:
