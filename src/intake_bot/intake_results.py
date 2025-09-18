@@ -31,7 +31,6 @@ class EmergencyResult(FlowResult):
 class IncomeResult(FlowResult):
     is_eligible: bool
     monthly_income: int
-    poverty_percent: int
 
 
 class NameResult(FlowResult):

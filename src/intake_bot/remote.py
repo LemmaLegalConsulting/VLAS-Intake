@@ -3,7 +3,8 @@ import asyncio
 import phonenumbers
 from rapidfuzz import fuzz, process, utils
 
-from intake_bot.intake_arg_models import HouseholdIncome, IncomePeriod
+from intake_bot.intake_arg_models import Assets, HouseholdIncome, IncomePeriod
+from intake_bot.poverty import poverty_scale_income_qualifies
 
 
 class MockRemoteSystem:
@@ -62,7 +63,9 @@ class MockRemoteSystem:
             phone_number = phonenumbers.parse(phone, "US")
             valid = phonenumbers.is_valid_number(phone_number)
             if valid:
-                phone = phonenumbers.format_number(phone_number, phonenumbers.PhoneNumberFormat.NATIONAL)
+                phone = phonenumbers.format_number(
+                    phone_number, phonenumbers.PhoneNumberFormat.NATIONAL
+                )
         except phonenumbers.phonenumberutil.NumberParseException:
             valid = False
         return valid, phone
@@ -82,7 +85,9 @@ class MockRemoteSystem:
         await asyncio.sleep(0.5)
 
         is_eligible: bool = str(case_type).strip().lower() in self.case_types
-        conflict_check_required: bool = self.case_types.get(case_type, {}).get("conflict_check", False)
+        conflict_check_required: bool = self.case_types.get(case_type, {}).get(
+            "conflict_check", False
+        )
         domestic_violence: bool = self.case_types.get(case_type, {}).get("domestic_violence", False)
         return is_eligible, conflict_check_required, domestic_violence
 
@@ -90,7 +95,11 @@ class MockRemoteSystem:
         """Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name."""
 
         match = process.extractOne(
-            caller_area, self.service_area_names, scorer=fuzz.WRatio, score_cutoff=50, processor=utils.default_process
+            caller_area,
+            self.service_area_names,
+            scorer=fuzz.WRatio,
+            score_cutoff=50,
+            processor=utils.default_process,
         )
         if match:
             return match[0]
@@ -104,10 +113,8 @@ class MockRemoteSystem:
         else:
             return False
 
-    async def check_income(self, income: HouseholdIncome) -> tuple[bool, int, int]:
+    async def check_income(self, income: HouseholdIncome) -> tuple[bool, int]:
         """Check the caller's income eligibility."""
-        federal_poverty_yearly = 15650
-        federal_poverty_monthly = federal_poverty_yearly / 12
 
         total_monthly = 0.0
         for member_income in income.root.values():
@@ -120,17 +127,32 @@ class MockRemoteSystem:
                     total_monthly += amt
                 else:
                     raise ValueError(f"Unknown period: {period}")
-
         total_monthly = int(total_monthly)
-        poverty_percent = int((total_monthly / federal_poverty_monthly) * 100)
-        is_eligible = poverty_percent <= 300
-        return is_eligible, total_monthly, poverty_percent
+        total_members = len(income.root.keys())
+        is_eligible = poverty_scale_income_qualifies(
+            total_monthly_income=total_monthly, household_size=total_members, multiplier=3.0
+        )
+        return is_eligible, total_monthly
 
-    async def check_assets(self, assets: dict[str, float]) -> tuple[bool, int]:
-        """Check the caller's assets eligibility."""
+    async def check_assets(self, assets: Assets) -> tuple[bool, int]:
+        """Check the caller's assets eligibility.
+
+        Args:
+            assets (Assets): Pydantic RootModel wrapping a list of AssetEntry (each a dict[str,int])
+
+        Returns:
+            (is_eligible, assets_value)
+        """
         vlas_assets_limit: int = 10_000
 
-        assets_value: int = int(sum(value for asset in assets for value in asset.values()))
+        # Each item in assets.root is an AssetEntry (RootModel[dict[str,int]])
+        total_value = 0
+        for asset_entry in assets.root:
+            # asset_entry.root is the underlying dict[str, int]; sum its values
+            for value in asset_entry.root.values():
+                total_value += int(value)
+
+        assets_value: int = int(total_value)
         is_eligible: bool = vlas_assets_limit >= assets_value
 
         return is_eligible, assets_value

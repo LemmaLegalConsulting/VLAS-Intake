@@ -9,8 +9,10 @@ from pipecat_flows import (
     FlowResult,
     NodeConfig,
 )
+from pydantic import ValidationError
 
-from intake_bot.intake_arg_models import HouseholdIncome
+from intake_bot.env_var import get_env_var
+from intake_bot.intake_arg_models import Assets, HouseholdIncome
 from intake_bot.intake_results import (
     AssetsResult,
     CaseTypeResult,
@@ -45,23 +47,21 @@ remote_system = MockRemoteSystem()
 ######################################################################
 
 
-# MODIFIED NODE FOR TESTING
-# def node_initial() -> NodeConfig:
-#     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
-#     return {
-#         **prompts.get("primary_role_message"),
-#         **prompts.get("record_income"),
-#         "functions": [record_income, caller_ended_conversation, end_conversation],
-#     }
-
-
-# ACTUAL INITIAL NODE
 def node_initial() -> NodeConfig:
     """Create initial node for welcoming the caller. Allow the conversation to be ended."""
+    initial_prompt = get_env_var("TEST_INITIAL_PROMPT", default="initial")
+    try:
+        initial_function = getattr(
+            sys.modules[__name__],
+            get_env_var("TEST_INITIAL_FUNCTION", default="system_phone_number"),
+        )
+    except AttributeError:
+        raise ValueError(f"""Function '{initial_function}' does not exist.""")
+
     return {
         **prompts.get("primary_role_message"),
-        **prompts.get("initial"),
-        "functions": [system_phone_number, caller_ended_conversation, end_conversation],
+        **prompts.get(initial_prompt),
+        "functions": [initial_function, caller_ended_conversation, end_conversation],
     }
 
 
@@ -101,7 +101,9 @@ async def system_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberRes
     return result, next_node
 
 
-async def record_phone_number(flow_manager: FlowManager, phone: str) -> tuple[PhoneNumberResult, NodeConfig]:
+async def record_phone_number(
+    flow_manager: FlowManager, phone: str
+) -> tuple[PhoneNumberResult, NodeConfig]:
     """
     Collect the caller's phone number.
 
@@ -134,7 +136,9 @@ async def record_phone_number(flow_manager: FlowManager, phone: str) -> tuple[Ph
     return result, next_node
 
 
-async def record_name(flow_manager: FlowManager, first: str, middle: str, last: str) -> tuple[NameResult, NodeConfig]:
+async def record_name(
+    flow_manager: FlowManager, first: str, middle: str, last: str
+) -> tuple[NameResult, NodeConfig]:
     """
     Record the caller's name.
 
@@ -172,7 +176,9 @@ async def record_name(flow_manager: FlowManager, first: str, middle: str, last: 
     return result, next_node
 
 
-async def record_service_area(flow_manager: FlowManager, service_area: str) -> tuple[ServiceAreaResult, NodeConfig]:
+async def record_service_area(
+    flow_manager: FlowManager, service_area: str
+) -> tuple[ServiceAreaResult, NodeConfig]:
     """
     Record the service area.
 
@@ -188,7 +194,9 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
     status = status_helper(is_eligible)
 
     if status == "success":
-        result = ServiceAreaResult(status=status, service_area=service_area, is_eligible=is_eligible, match=match)
+        result = ServiceAreaResult(
+            status=status, service_area=service_area, is_eligible=is_eligible, match=match
+        )
         flow_manager.state["service area"] = service_area
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -199,7 +207,9 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
         )
     else:
         if match:
-            result = FlowResult(status=status, error=f"No exact match found. Maybe you meant {match}?")
+            result = FlowResult(
+                status=status, error=f"No exact match found. Maybe you meant {match}?"
+            )
             next_node = None
         else:
             result["error"] = (
@@ -215,7 +225,9 @@ async def record_service_area(flow_manager: FlowManager, service_area: str) -> t
     return result, next_node
 
 
-async def record_case_type(flow_manager: FlowManager, case_type: str) -> tuple[CaseTypeResult, NodeConfig]:
+async def record_case_type(
+    flow_manager: FlowManager, case_type: str
+) -> tuple[CaseTypeResult, NodeConfig]:
     """
     Check eligibility of caller's type of case.
 
@@ -267,7 +279,9 @@ async def conflict_check(
     # to see if they had previous cases that might disqualify.
     # Probably flag as "potential conflict" and pass them on in many cases.
 
-    there_is_a_conflict = await remote_system.check_conflict_of_interest(opposing_party_members=opposing_party_members)
+    there_is_a_conflict = await remote_system.check_conflict_of_interest(
+        opposing_party_members=opposing_party_members
+    )
 
     flow_manager.state["conflict"] = there_is_a_conflict
     flow_manager.state["conflict list"] = opposing_party_members
@@ -280,7 +294,11 @@ async def conflict_check(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_domestic_violence"),
-                "functions": [record_domestic_violence, caller_ended_conversation, end_conversation],
+                "functions": [
+                    record_domestic_violence,
+                    caller_ended_conversation,
+                    end_conversation,
+                ],
             }
         )
     else:
@@ -307,7 +325,9 @@ async def record_domestic_violence(
         experiencing_domestic_violence (bool): The caller's answer that they are or are not experiencing domestic violence.
     """
 
-    result = DomesticViolenceResult(status="success", experiencing_domestic_violence=experiencing_domestic_violence)
+    result = DomesticViolenceResult(
+        status="success", experiencing_domestic_violence=experiencing_domestic_violence
+    )
 
     flow_manager.state["domestic violence"] = experiencing_domestic_violence
 
@@ -321,7 +341,9 @@ async def record_domestic_violence(
     return result, next_node
 
 
-async def record_income(flow_manager: FlowManager, income: HouseholdIncome) -> tuple[IncomeResult, NodeConfig]:
+async def record_income(
+    flow_manager: FlowManager, income: HouseholdIncome
+) -> tuple[IncomeResult, NodeConfig]:
     """
     Collect income information for all household members and determine eligibility.
 
@@ -340,18 +362,21 @@ async def record_income(flow_manager: FlowManager, income: HouseholdIncome) -> t
                     }
                 }
     """
-    # Convert dict to HouseholdIncome Pydantic model
-    income_model = HouseholdIncome.model_validate(income)
+    try:
+        income_model = HouseholdIncome.model_validate(income)
+    except ValidationError as e:
+        result = IncomeResult(
+            status=status_helper(False),
+            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {HouseholdIncome.model_dump_json()}""",
+        )
+        return result, None
 
-    is_eligible, monthly_income, poverty_percent = await remote_system.check_income(income=income_model)
+    is_eligible, monthly_income = await remote_system.check_income(income=income_model)
 
-    logger.debug(
-        f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}, poverty: {poverty_percent}%"""
-    )
+    logger.debug(f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}""")
 
     flow_manager.state["income eligible"] = is_eligible
     flow_manager.state["income monthly"] = monthly_income
-    flow_manager.state["income percent"] = poverty_percent
     flow_manager.state["income data"] = income
 
     status = status_helper(is_eligible)
@@ -359,7 +384,6 @@ async def record_income(flow_manager: FlowManager, income: HouseholdIncome) -> t
         status=status,
         is_eligible=is_eligible,
         monthly_income=monthly_income,
-        poverty_percent=poverty_percent,
     )
 
     if status == "success":
@@ -367,7 +391,11 @@ async def record_income(flow_manager: FlowManager, income: HouseholdIncome) -> t
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_assets_receives_benefits"),
-                "functions": [record_assets_receives_benefits, caller_ended_conversation, end_conversation],
+                "functions": [
+                    record_assets_receives_benefits,
+                    caller_ended_conversation,
+                    end_conversation,
+                ],
             }
         )
     else:
@@ -403,9 +431,9 @@ async def record_assets_receives_benefits(
         )
 
         flow_manager.state["assets eligible"] = True
-        flow_manager.state["assets list"] = list(dict())
+        flow_manager.state["assets list"] = []
         flow_manager.state["assets value"] = 0
-        flow_manager.state["assets receives_benefits"] = True
+        flow_manager.state["assets receives benefits"] = True
 
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -433,19 +461,35 @@ async def record_assets_list(
     Collect assets' value and determine eligibility of caller.
 
     Args:
-        assets (list): A list of dicts, each with a string key representing the asset name and an integer value representing the net present value (e.g., [{"car": 5000}, {"savings": 2000}]) for all non-exempt assets that the caller has.
+        assets (Assets):
+            A Pydantic RootModel where the value is a list of AssetEntry objects.
+            Each AssetEntry maps a single asset name (str) to an integer net present value.
+            Example:
+                [
+                    {"car": 5000},
+                    {"savings": 2000}
+                ]
     """
 
-    is_eligible, assets_value = await remote_system.check_assets(assets=assets)
+    try:
+        assets_model = Assets.model_validate(assets)
+    except ValidationError as e:
+        result = IncomeResult(
+            status=status_helper(False),
+            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {Assets.model_dump_json()}""",
+        )
+        return result, None
 
-    logger.debug(f"""Assets: {[asset.items() for asset in assets]}""")
+    is_eligible, assets_value = await remote_system.check_assets(assets=assets_model)
+
+    logger.debug(f"""Assets: {[asset.items() for asset in assets_model]}""")
     logger.debug(f"""Assets total value: {assets_value}""")
     logger.debug(f"""Assets value results: eligible: {is_eligible}""")
 
     flow_manager.state["assets eligible"] = is_eligible
-    flow_manager.state["assets list"] = assets
+    flow_manager.state["assets list"] = assets_model
     flow_manager.state["assets value"] = assets_value
-    flow_manager.state["assets receives_benefits"] = False
+    flow_manager.state["assets receives benefits"] = False
 
     status = status_helper(is_eligible)
     result = AssetsResult(
@@ -475,7 +519,9 @@ async def record_assets_list(
     return result, next_node
 
 
-async def record_citizenship(flow_manager: FlowManager, has_citizenship: bool) -> tuple[None, NodeConfig]:
+async def record_citizenship(
+    flow_manager: FlowManager, has_citizenship: bool
+) -> tuple[None, NodeConfig]:
     """
     Record if the caller is a US citizen.
 
@@ -496,7 +542,9 @@ async def record_citizenship(flow_manager: FlowManager, has_citizenship: bool) -
     return result, next_node
 
 
-async def record_emergency(flow_manager: FlowManager, is_emergency: bool) -> tuple[None, NodeConfig]:
+async def record_emergency(
+    flow_manager: FlowManager, is_emergency: bool
+) -> tuple[None, NodeConfig]:
     """
     Record if the caller's case is an emergency.
 
