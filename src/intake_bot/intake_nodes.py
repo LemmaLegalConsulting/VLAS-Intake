@@ -61,7 +61,7 @@ def node_initial() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
         **prompts.get(initial_prompt),
-        "functions": [initial_function, caller_ended_conversation, end_conversation],
+        "functions": [initial_function],
     }
 
 
@@ -95,7 +95,7 @@ async def system_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberRes
     next_node = NodeConfig(
         {
             **prompts.get("record_phone_number"),
-            "functions": [record_phone_number, caller_ended_conversation, end_conversation],
+            "functions": [record_phone_number],
         }
     )
     return result, next_node
@@ -127,7 +127,7 @@ async def record_phone_number(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_name"),
-                "functions": [record_name, caller_ended_conversation, end_conversation],
+                "functions": [record_name],
             }
         )
     else:
@@ -167,7 +167,7 @@ async def record_name(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_service_area"),
-                "functions": [record_service_area, caller_ended_conversation, end_conversation],
+                "functions": [record_service_area],
             }
         )
     else:
@@ -202,7 +202,7 @@ async def record_service_area(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_case_type"),
-                "functions": [record_case_type, caller_ended_conversation, end_conversation],
+                "functions": [record_case_type],
             }
         )
     else:
@@ -246,7 +246,7 @@ async def record_case_type(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("conflict_check"),
-                "functions": [conflict_check, caller_ended_conversation, end_conversation],
+                "functions": [conflict_check],
             }
         )
     else:
@@ -294,11 +294,7 @@ async def conflict_check(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_domestic_violence"),
-                "functions": [
-                    record_domestic_violence,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_domestic_violence],
             }
         )
     else:
@@ -335,7 +331,7 @@ async def record_domestic_violence(
         node_partial_reset_with_summary()
         | {
             **prompts.get("record_income"),
-            "functions": [record_income, caller_ended_conversation, end_conversation],
+            "functions": [record_income],
         }
     )
     return result, next_node
@@ -391,11 +387,7 @@ async def record_income(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_assets_receives_benefits"),
-                "functions": [
-                    record_assets_receives_benefits,
-                    caller_ended_conversation,
-                    end_conversation,
-                ],
+                "functions": [record_assets_receives_benefits],
             }
         )
     else:
@@ -439,7 +431,7 @@ async def record_assets_receives_benefits(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_citizenship"),
-                "functions": [record_citizenship, caller_ended_conversation, end_conversation],
+                "functions": [record_citizenship],
             }
         )
     else:
@@ -448,7 +440,7 @@ async def record_assets_receives_benefits(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_assets_list"),
-                "functions": [record_assets_list, caller_ended_conversation, end_conversation],
+                "functions": [record_assets_list],
             }
         )
     return result, next_node
@@ -502,7 +494,7 @@ async def record_assets_list(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("record_citizenship"),
-                "functions": [record_citizenship, caller_ended_conversation, end_conversation],
+                "functions": [record_citizenship],
             }
         )
     else:
@@ -536,7 +528,7 @@ async def record_citizenship(
         node_partial_reset_with_summary()
         | {
             **prompts.get("record_emergency"),
-            "functions": [record_emergency, caller_ended_conversation, end_conversation],
+            "functions": [record_emergency],
         }
     )
     return result, next_node
