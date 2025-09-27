@@ -74,7 +74,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
         params=GoogleSTTService.InputParams(
             languages=Language.EN_US,
-            model="latest_long",
+            model="telephony",
             enable_automatic_punctuation=True,
             enable_interim_results=True,
         ),
@@ -84,7 +84,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     tts = GoogleTTSService(
         credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
-        voice_id="en-US-Chirp3-HD-Autonoe",
+        voice_id="en-US-Chirp3-HD-Achernar",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(
             language=Language.EN, gender="female", google_style="empathetic"
@@ -194,7 +194,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
 
     call_id = call_data["call_id"]
 
-    if env_var_is_true("TEST_CLIENT_ALLOWED") and call_id == "ws_mock_call_sid":
+    if env_var_is_true("TEST_CLIENT_ALLOWED"):
         call_data["body"]["caller_phone_number"] = "8665345243"
         call_is_valid = True
     else:
