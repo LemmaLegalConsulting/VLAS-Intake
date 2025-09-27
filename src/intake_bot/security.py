@@ -24,7 +24,6 @@ def generate_websocket_auth_code(call_id: str) -> str:
     Note:
         This function uses HMAC with SHA-256 and a secret key to generate the authentication code.
     """
-
     call_sid_bytes = str(call_id).encode("utf-8")
     digest = hmac.new(SECRET_KEY, call_sid_bytes, hashlib.sha256).digest()
     code = base64.urlsafe_b64encode(digest).decode("utf-8").rstrip("=")

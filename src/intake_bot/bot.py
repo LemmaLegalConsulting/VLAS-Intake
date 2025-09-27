@@ -66,8 +66,9 @@ async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
 
 
 async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool):
-    """Main function to set up and run the VLAS intake bot."""
-
+    """
+    Main function to set up and run the VLAS intake bot.
+    """
     stt = GoogleSTTService(
         credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
         params=GoogleSTTService.InputParams(
@@ -176,8 +177,9 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
 
 async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
-    """Main bot entry point."""
-
+    """
+    Main bot entry point.
+    """
     transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
     logger.info(f"Auto-detected transport: {transport_type}")
 

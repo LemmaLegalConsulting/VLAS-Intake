@@ -35,7 +35,9 @@ app.add_middleware(
 
 @app.post("/")
 async def start_call(request: Request):
-    """Handle Twilio webhook and return TwiML with WebSocket streaming."""
+    """
+    Handle Twilio webhook and return TwiML with WebSocket streaming.
+    """
     logger.debug("POST TwiML")
 
     valid_request = await validate_webhook(request=request)
@@ -59,7 +61,9 @@ async def start_call(request: Request):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """Handle WebSocket connections for inbound calls."""
+    """
+    Handle WebSocket connections for inbound calls.
+    """
     logger.info("Started call via websocket")
     await websocket.accept()
 

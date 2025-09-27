@@ -8,7 +8,9 @@ from intake_bot.poverty import poverty_scale_income_qualifies
 
 
 class MockRemoteSystem:
-    """Simulates a remote system API."""
+    """
+    Simulates a remote system API.
+    """
 
     def __init__(self):
         self.service_area_names = [
@@ -71,7 +73,9 @@ class MockRemoteSystem:
         return valid, phone
 
     async def get_alternative_providers(self) -> list[str]:
-        """Alternative legal providers for the caller."""
+        """
+        Alternative legal providers for the caller.
+        """
         alternatives = [
             "Center for Legal Help",
             "Local Legal Help",
@@ -79,8 +83,9 @@ class MockRemoteSystem:
         return alternatives
 
     async def check_case_type(self, case_type: str) -> tuple[bool, bool, bool]:
-        """Check if the caller's legal problem is a type of case that we can handle."""
-
+        """
+        Check if the caller's legal problem is a type of case that we can handle.
+        """
         # Simulate API call delay
         await asyncio.sleep(0.5)
 
@@ -92,8 +97,9 @@ class MockRemoteSystem:
         return is_eligible, conflict_check_required, domestic_violence
 
     async def check_service_area(self, caller_area: str) -> str:
-        """Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name."""
-
+        """
+        Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
+        """
         match = process.extractOne(
             caller_area,
             self.service_area_names,
@@ -107,15 +113,18 @@ class MockRemoteSystem:
             return ""
 
     async def check_conflict_of_interest(self, opposing_party_members: list[str]) -> bool:
-        """Check for conflict of interest with the caller's case."""
+        """
+        Check for conflict of interest with the caller's case.
+        """
         if "Jimmy Dean" in opposing_party_members:
             return True
         else:
             return False
 
     async def check_income(self, income: HouseholdIncome) -> tuple[bool, int]:
-        """Check the caller's income eligibility."""
-
+        """
+        Check the caller's income eligibility.
+        """
         total_monthly = 0.0
         for member_income in income.root.values():
             for income_detail in member_income.root.values():
@@ -135,7 +144,8 @@ class MockRemoteSystem:
         return is_eligible, total_monthly
 
     async def check_assets(self, assets: Assets) -> tuple[bool, int]:
-        """Check the caller's assets eligibility.
+        """
+        Check the caller's assets eligibility.
 
         Args:
             assets (Assets): Pydantic RootModel wrapping a list of AssetEntry (each a dict[str,int])

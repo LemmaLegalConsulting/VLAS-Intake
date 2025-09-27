@@ -48,7 +48,9 @@ remote_system = MockRemoteSystem()
 
 
 def node_initial() -> NodeConfig:
-    """Create initial node for welcoming the caller. Allow the conversation to be ended."""
+    """
+    Create initial node for welcoming the caller. Allow the conversation to be ended.
+    """
     initial_prompt = get_env_var("TEST_INITIAL_PROMPT", default="initial")
     try:
         initial_function = getattr(
@@ -110,7 +112,6 @@ async def record_phone_number(
     Args:
         phone (str): The caller's 10 digit phone number.
     """
-
     logger.debug(f"""Twilio phone number: {flow_manager.state.get("phone")}""")
 
     valid_phone, phone = await remote_system.valid_phone_number(phone=phone)
@@ -147,7 +148,6 @@ async def record_name(
         middle (str): The caller's middle name.
         last (str): The caller's last name.
     """
-
     first = first.strip()
     middle = middle.strip()
     last = last.strip()
@@ -185,7 +185,6 @@ async def record_service_area(
     Args:
         service_area (str): The location of the caller or the legal incident. Must be a city or county.
     """
-
     match = await remote_system.check_service_area(service_area)
     if match == service_area:
         is_eligible = True
@@ -234,7 +233,6 @@ async def record_case_type(
     Args:
         case_type (str): The type of legal case that the caller has.
     """
-
     is_eligible = await remote_system.check_case_type(case_type=case_type)
     flow_manager.state["case type"] = case_type
     flow_manager.state["case type eligible"] = is_eligible
@@ -272,7 +270,6 @@ async def conflict_check(
     Args:
         opposing_party_members (list[str]): The members of the opposing party.
     """
-
     # TODO: Need to see what LegalServer's conflict-check API looks like;
     # may need to ask for other related names, not just adverse;
     # may need to perform additional searches/checks for the caller
@@ -320,7 +317,6 @@ async def record_domestic_violence(
     Args:
         experiencing_domestic_violence (bool): The caller's answer that they are or are not experiencing domestic violence.
     """
-
     result = DomesticViolenceResult(
         status="success", experiencing_domestic_violence=experiencing_domestic_violence
     )
@@ -413,7 +409,6 @@ async def record_assets_receives_benefits(
     Args:
         receives_benefits (bool): The caller has receives government benefits.
     """
-
     logger.debug(f"""Government means tested: {receives_benefits}""")
 
     if receives_benefits:
@@ -462,7 +457,6 @@ async def record_assets_list(
                     {"savings": 2000}
                 ]
     """
-
     try:
         assets_model = Assets.model_validate(assets)
     except ValidationError as e:
@@ -595,12 +589,16 @@ async def continue_intake(flow_manager: FlowManager, next_step: str) -> tuple[No
 
 
 async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
-    """End the conversation."""
+    """
+    End the conversation.
+    """
     return None, node_end_conversation()
 
 
 def node_end_conversation() -> NodeConfig:
-    """Create the final node."""
+    """
+    Create the final node.
+    """
     return {
         **prompts.get("end"),
         "functions": [],
@@ -609,12 +607,16 @@ def node_end_conversation() -> NodeConfig:
 
 
 async def caller_ended_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
-    """The caller ended the conversation."""
+    """
+    The caller ended the conversation.
+    """
     return None, node_caller_ended_conversation()
 
 
 def node_caller_ended_conversation() -> NodeConfig:
-    """Create the final node."""
+    """
+    Create the final node.
+    """
     return {
         **prompts.get("caller_ended_conversation"),
         "functions": [],
