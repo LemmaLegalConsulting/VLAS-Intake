@@ -5,13 +5,9 @@ description = "Virginia Legal Aid Society (VLAS) Telephone Intake Bot"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aiofiles",
-    "anthropic>=0.66.0",
     "fastapi",
     "granian",
     "loguru",
-    "numba",
-    "onnxruntime",
     "phonenumberslite",
     "pipecat-ai-flows",
     "pipecat-ai-whisker",
