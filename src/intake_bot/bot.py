@@ -19,7 +19,8 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
-from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
@@ -90,8 +91,8 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         ),
     )
 
-    context = OpenAILLMContext()
-    context_aggregator = llm.create_context_aggregator(context)
+    context = LLMContext()
+    context_aggregator = LLMContextAggregatorPair(context)
 
     # NOTE: Watch out! This will save all the conversation in memory. You can
     # pass `buffer_size` to get periodic callbacks.
@@ -161,6 +162,14 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
         await task.cancel()
+
+    @task.event_handler("on_pipeline_finished")
+    async def on_pipeline_finished(task, frame):
+        logger.debug("----------------------------------------")
+        logger.debug("flow_manager.state:")
+        for key, value in flow_manager.state.items():
+            logger.debug(f"""{key}: {value}""")
+        logger.debug("----------------------------------------")
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
