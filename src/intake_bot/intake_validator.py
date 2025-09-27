@@ -1,5 +1,3 @@
-import asyncio
-
 import phonenumbers
 from rapidfuzz import fuzz, process, utils
 
@@ -7,9 +5,9 @@ from intake_bot.intake_arg_models import Assets, HouseholdIncome, IncomePeriod
 from intake_bot.poverty import poverty_scale_income_qualifies
 
 
-class MockRemoteSystem:
+class IntakeValidator:
     """
-    Simulates a remote system API.
+    Provides a set of asynchronous validation methods for intake screening.
     """
 
     def __init__(self):
@@ -40,27 +38,15 @@ class MockRemoteSystem:
             "Suffolk City",
             "Sussex County",
         ]
-        # case_type: conflict_check
-        self.case_types = {
-            "bankruptcy": {
-                "conflict_check": True,
-                "domestic_violence": "yes",
-            },
-            "citation": {
-                "conflict_check": False,
-                "domestic_violence": "no",
-            },
-            "divorce": {
-                "conflict_check": True,
-                "domestic_violence": "ask",
-            },
-            "domestic violence": {
-                "conflict_check": True,
-                "domestic_violence": "yes",
-            },
-        }
 
-    async def valid_phone_number(self, phone: str) -> tuple[bool, str]:
+        self.case_types = [
+            "bankruptcy",
+            "citation",
+            "divorce",
+            "domestic violence",
+        ]
+
+    async def check_phone_number(self, phone: str) -> tuple[bool, str]:
         try:
             phone_number = phonenumbers.parse(phone, "US")
             valid = phonenumbers.is_valid_number(phone_number)
@@ -72,36 +58,19 @@ class MockRemoteSystem:
             valid = False
         return valid, phone
 
-    async def get_alternative_providers(self) -> list[str]:
-        """
-        Alternative legal providers for the caller.
-        """
-        alternatives = [
-            "Center for Legal Help",
-            "Local Legal Help",
-        ]
-        return alternatives
-
-    async def check_case_type(self, case_type: str) -> tuple[bool, bool, bool]:
+    async def check_case_type(self, case_type: str) -> bool:
         """
         Check if the caller's legal problem is a type of case that we can handle.
         """
-        # Simulate API call delay
-        await asyncio.sleep(0.5)
-
         is_eligible: bool = str(case_type).strip().lower() in self.case_types
-        conflict_check_required: bool = self.case_types.get(case_type, {}).get(
-            "conflict_check", False
-        )
-        domestic_violence: bool = self.case_types.get(case_type, {}).get("domestic_violence", False)
-        return is_eligible, conflict_check_required, domestic_violence
+        return is_eligible
 
-    async def check_service_area(self, caller_area: str) -> str:
+    async def check_service_area(self, service_area: str) -> str:
         """
         Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
         """
         match = process.extractOne(
-            caller_area,
+            service_area,
             self.service_area_names,
             scorer=fuzz.WRatio,
             score_cutoff=50,
@@ -166,3 +135,13 @@ class MockRemoteSystem:
         is_eligible: bool = vlas_assets_limit >= assets_value
 
         return is_eligible, assets_value
+
+    async def get_alternative_providers(self) -> list[str]:
+        """
+        Alternative legal providers for the caller.
+        """
+        alternatives = [
+            "Center for Legal Help",
+            "Local Legal Help",
+        ]
+        return alternatives

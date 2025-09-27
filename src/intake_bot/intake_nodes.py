@@ -25,8 +25,8 @@ from intake_bot.intake_results import (
     PhoneNumberResult,
     ServiceAreaResult,
 )
+from intake_bot.intake_validator import IntakeValidator
 from intake_bot.prompts import Prompts
-from intake_bot.remote import MockRemoteSystem
 
 
 def status_helper(status: bool) -> Literal["success", "failure"]:
@@ -38,8 +38,8 @@ def status_helper(status: bool) -> Literal["success", "failure"]:
 prompts = Prompts()
 
 
-# Initialize mock system
-remote_system = MockRemoteSystem()
+# Initialize IntakeValidator
+validator = IntakeValidator()
 
 
 ######################################################################
@@ -114,7 +114,7 @@ async def record_phone_number(
     """
     logger.debug(f"""Twilio phone number: {flow_manager.state.get("phone")}""")
 
-    valid_phone, phone = await remote_system.valid_phone_number(phone=phone)
+    valid_phone, phone = await validator.check_phone_number(phone=phone)
 
     logger.debug(f"""Phone: {phone}""")
     logger.debug(f"""Valid: {valid_phone}""")
@@ -185,7 +185,7 @@ async def record_service_area(
     Args:
         service_area (str): The location of the caller or the legal incident. Must be a city or county.
     """
-    match = await remote_system.check_service_area(service_area)
+    match = await validator.check_service_area(service_area=service_area)
     if match == service_area:
         is_eligible = True
     else:
@@ -196,7 +196,7 @@ async def record_service_area(
         result = ServiceAreaResult(
             status=status, service_area=service_area, is_eligible=is_eligible, match=match
         )
-        flow_manager.state["service area"] = service_area
+        flow_manager.state["service_area"] = service_area
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -212,7 +212,7 @@ async def record_service_area(
             next_node = None
         else:
             result["error"] = (
-                f"""Not in our service area. Alternate providers: {await remote_system.get_alternative_providers()}"""
+                f"""Not in our service area. Alternate providers: {await validator.get_alternative_providers()}"""
             )
             next_node = NodeConfig(
                 node_partial_reset_with_summary()
@@ -233,9 +233,9 @@ async def record_case_type(
     Args:
         case_type (str): The type of legal case that the caller has.
     """
-    is_eligible = await remote_system.check_case_type(case_type=case_type)
-    flow_manager.state["case type"] = case_type
-    flow_manager.state["case type eligible"] = is_eligible
+    is_eligible = await validator.check_case_type(case_type=case_type)
+    flow_manager.state["case_type type"] = case_type
+    flow_manager.state["case_type eligible"] = is_eligible
     status = status_helper(is_eligible)
     result = CaseTypeResult(status=status, case_type=case_type)
 
@@ -249,7 +249,7 @@ async def record_case_type(
         )
     else:
         result["error"] = (
-            f"""Ineligible case type. Alternate providers: {await remote_system.get_alternative_providers()}"""
+            f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
         )
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -276,11 +276,11 @@ async def conflict_check(
     # to see if they had previous cases that might disqualify.
     # Probably flag as "potential conflict" and pass them on in many cases.
 
-    there_is_a_conflict = await remote_system.check_conflict_of_interest(
+    there_is_a_conflict = await validator.check_conflict_of_interest(
         opposing_party_members=opposing_party_members
     )
 
-    flow_manager.state["conflict"] = there_is_a_conflict
+    flow_manager.state["conflict bool"] = there_is_a_conflict
     flow_manager.state["conflict list"] = opposing_party_members
 
     status = status_helper(not there_is_a_conflict)
@@ -296,7 +296,7 @@ async def conflict_check(
         )
     else:
         result["error"] = (
-            f"""There is a representation conflict. Alternate providers: {await remote_system.get_alternative_providers()}"""
+            f"""There is a representation conflict. Alternate providers: {await validator.get_alternative_providers()}"""
         )
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -321,7 +321,7 @@ async def record_domestic_violence(
         status="success", experiencing_domestic_violence=experiencing_domestic_violence
     )
 
-    flow_manager.state["domestic violence"] = experiencing_domestic_violence
+    flow_manager.state["domestic_violence bool"] = experiencing_domestic_violence
 
     next_node = NodeConfig(
         node_partial_reset_with_summary()
@@ -363,7 +363,7 @@ async def record_income(
         )
         return result, None
 
-    is_eligible, monthly_income = await remote_system.check_income(income=income_model)
+    is_eligible, monthly_income = await validator.check_income(income=income_model)
 
     logger.debug(f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}""")
 
@@ -388,7 +388,7 @@ async def record_income(
         )
     else:
         result["error"] = (
-            f"""Over the household income limit. Alternate providers: {await remote_system.get_alternative_providers()}"""
+            f"""Over the household income limit. Alternate providers: {await validator.get_alternative_providers()}"""
         )
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -420,7 +420,7 @@ async def record_assets_receives_benefits(
         flow_manager.state["assets eligible"] = True
         flow_manager.state["assets list"] = []
         flow_manager.state["assets value"] = 0
-        flow_manager.state["assets receives benefits"] = True
+        flow_manager.state["assets receives_benefits"] = True
 
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -466,7 +466,7 @@ async def record_assets_list(
         )
         return result, None
 
-    is_eligible, assets_value = await remote_system.check_assets(assets=assets_model)
+    is_eligible, assets_value = await validator.check_assets(assets=assets_model)
 
     logger.debug(f"""Assets: {[asset.items() for asset in assets_model]}""")
     logger.debug(f"""Assets total value: {assets_value}""")
@@ -475,7 +475,7 @@ async def record_assets_list(
     flow_manager.state["assets eligible"] = is_eligible
     flow_manager.state["assets list"] = assets_model
     flow_manager.state["assets value"] = assets_value
-    flow_manager.state["assets receives benefits"] = False
+    flow_manager.state["assets receives_benefits"] = False
 
     status = status_helper(is_eligible)
     result = AssetsResult(
@@ -493,7 +493,7 @@ async def record_assets_list(
         )
     else:
         result["error"] = (
-            f"""Over the household assets' value limit. Alternate providers: {await remote_system.get_alternative_providers()}"""
+            f"""Over the household assets' value limit. Alternate providers: {await validator.get_alternative_providers()}"""
         )
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -515,7 +515,7 @@ async def record_citizenship(
         has_citizenship (bool): The caller's answer that they are or are not a US citizen.
     """
     logger.debug(f"""Citizenship: {has_citizenship}""")
-    flow_manager.state["us citizenship"] = has_citizenship
+    flow_manager.state["has_citizenship"] = has_citizenship
 
     result = CitizenshipResult(status="success", has_citizenship=has_citizenship)
     next_node = NodeConfig(

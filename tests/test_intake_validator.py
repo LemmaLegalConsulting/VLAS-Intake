@@ -7,7 +7,7 @@ from intake_bot.intake_arg_models import (
     IncomePeriod,
     MemberIncome,
 )
-from intake_bot.remote import MockRemoteSystem  # type: ignore
+from intake_bot.intake_validator import IntakeValidator  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -25,8 +25,8 @@ from intake_bot.remote import MockRemoteSystem  # type: ignore
     ],
 )
 async def test_check_service_area(user_area, expected_match):
-    remote = MockRemoteSystem()
-    match = await remote.check_service_area(user_area)
+    validator = IntakeValidator()
+    match = await validator.check_service_area(user_area)
     for e in expected_match:
         assert e in match
     assert len(match) == len(expected_match)
@@ -50,8 +50,8 @@ async def test_check_service_area(user_area, expected_match):
     ],
 )
 async def test_valid_phone_number(phone, expected_valid, expected_format):
-    remote = MockRemoteSystem()
-    valid, formatted = await remote.valid_phone_number(phone)
+    validator = IntakeValidator()
+    valid, formatted = await validator.check_phone_number(phone)
     assert valid == expected_valid
     assert formatted == expected_format
 
@@ -92,13 +92,13 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
     ],
 )
 async def test_check_income(income, period, expected_eligible, expected_monthly_income):
-    remote = MockRemoteSystem()
+    validator = IntakeValidator()
     # Build HouseholdIncome input according to new model
     # We'll use a single household member "Test Person" with a single income type "wages"
     income_detail = IncomeDetail(amount=income, period=IncomePeriod(period))
     member_income = MemberIncome({"wages": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
-    is_eligible, monthly_income = await remote.check_income(income=household_income)
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert is_eligible == expected_eligible
     assert monthly_income == expected_monthly_income
 
@@ -128,11 +128,11 @@ async def test_check_income(income, period, expected_eligible, expected_monthly_
     ],
 )
 async def test_check_assets(assets_data, expected_eligible, expected_value):
-    remote = MockRemoteSystem()
+    validator = IntakeValidator()
     # Build Assets model from the test data
     asset_entries = [AssetEntry(asset) for asset in assets_data]
     assets = Assets(asset_entries)
 
-    is_eligible, assets_value = await remote.check_assets(assets=assets)
+    is_eligible, assets_value = await validator.check_assets(assets=assets)
     assert is_eligible == expected_eligible
     assert assets_value == expected_value
