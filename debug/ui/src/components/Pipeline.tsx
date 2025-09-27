@@ -10,7 +10,21 @@ import dagre from "cytoscape-dagre";
 import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "../state.store";
 
-const layoutOptions: cytoscape.LayoutOptions = {
+// Dagre layout options - extending BaseLayoutOptions with dagre-specific options
+interface DagreLayoutOptions extends cytoscape.BaseLayoutOptions {
+  name: "dagre";
+  fit?: boolean;
+  padding?: number;
+  spacingFactor?: number;
+  nodeDimensionsIncludeLabels?: boolean;
+  rankDir?: "TB" | "BT" | "LR" | "RL";
+  rankSep?: number;
+  nodeSep?: number;
+  edgeSep?: number;
+  minlen?: number;
+}
+
+const layoutOptions: DagreLayoutOptions = {
   name: "dagre",
   nodeDimensionsIncludeLabels: true, // Ensures labels are considered in layout
   fit: false,
@@ -25,7 +39,7 @@ const layoutOptions: cytoscape.LayoutOptions = {
 
 cytoscape.use(dagre);
 
-export function Graph() {
+export function Pipeline() {
   const processors = useStore((s) => s.processors);
   const connections = useStore((s) => s.connections);
   const selectedProcessor = useStore((s) => s.selectedProcessor);
@@ -33,8 +47,6 @@ export function Graph() {
   const setSelectedFrame = useStore((s) => s.setSelectedFrame);
   const setSelectedFramePath = useStore((s) => s.setSelectedFramePath);
   const frames = useStore((s) => s.frames);
-
-  const prevRef = useRef<Record<string, number>>({});
 
   const cyRef = useRef<cytoscape.Core | null>(null);
 
@@ -63,26 +75,32 @@ export function Graph() {
   }, [selectedProcessor]);
 
   // Flash processors that get traffic
+  const FLASH_DURATION_MS = 150;
+  const lastTimesRef = useRef<Record<string, number>>({});
+
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
+
     const flash = (id: string) => {
       const el = cy.$(`#${CSS.escape(id)}`);
       el.removeClass("flash"); // reset if still there
       el.addClass("flash");
-      setTimeout(() => el.removeClass("flash"), 100); // fade back
+      setTimeout(() => el.removeClass("flash"), FLASH_DURATION_MS);
     };
 
-    // Flash only if frames increased
-    Object.entries(frames).forEach(([pid, list]) => {
-      const prev = prevRef.current[pid] || 0;
-      const curr = list?.length || 0;
-      if (curr > prev) flash(pid);
-      prevRef.current[pid] = curr;
+    const now = Date.now();
+
+    Object.keys(frames).forEach((pid) => {
+      const last = lastTimesRef.current[pid] || 0;
+      if (now - last > FLASH_DURATION_MS) {
+        flash(pid);
+        lastTimesRef.current[pid] = now;
+      }
     });
   }, [frames]);
 
-  const stylesheet: cytoscape.Stylesheet[] = [
+  const stylesheet: cytoscape.StylesheetJson = [
     {
       selector: "node",
       style: {
@@ -102,7 +120,7 @@ export function Graph() {
       selector: "node.flash",
       style: {
         "transition-property": "background-color",
-        "transition-duration": "0.12s",
+        "transition-duration": 120,
         "background-color": "#38B2AC", // teal flash
       },
     },
@@ -142,9 +160,9 @@ export function Graph() {
         const layout = cy.layout(layoutOptions);
         layout.run();
       }}
-      elements={elements as any}
+      elements={elements}
       style={{ width: "100%", height: "100%" }}
-      stylesheet={stylesheet as any}
+      stylesheet={stylesheet}
     />
   );
 }
