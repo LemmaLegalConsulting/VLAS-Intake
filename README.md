@@ -39,7 +39,7 @@ flowchart TD
 ```
 
 ## Secret Key
-You will need to provide a 64 character hexidecimal secret key. You can generate one with the following methods:
+You will need to provide a 64 character hexadecimal secret key. You can generate one with the following methods:
 
 Using openssl:
 ```
@@ -61,29 +61,31 @@ uv sync --group dev
 
 2. Activate the Python `.venv` (depends on your system)
 
-3. Run the server with reload:
+3. Copy and rename the `.env.dist` file to `.env` and fill it out.
+
+4. Run the server with reload:
 ```
 granian intake_bot.server:app --interface asgi --host 0.0.0.0 --port 8765 --reload --reload-paths ./src/intake_bot
 ```
 
-4. Install the local websocket test client:
+5. Install the local websocket test client:
 ```
 cd ./client/typescript
 npm install
 ```
 
-5. Run the local websocket test client (from project root):
+6. Run the local websocket test client (from project root):
 ```
 npm run --prefix ./client/typescript dev -- --port 5173
 ```
 
-6. Install the Whisker (Pipecat) debugger:
+7. Install the Whisker (Pipecat) debugger:
 ```
 cd ./debug/ui
 npm install
 ```
 
-7. Run the Whisker (Pipecat) debugger (from project root):
+8. Run the Whisker (Pipecat) debugger (from project root):
 ```
 npm run --prefix ./debug/ui dev -- --port 5174
 ```
