@@ -14,13 +14,14 @@ from pipecat.runner.types import WebSocketRunnerArguments
 from starlette.responses import HTMLResponse
 
 from intake_bot.bot import bot
-from intake_bot.env_var import get_env_var, require_env_var
+from intake_bot.env_var import env_var_is_true, get_env_var, require_env_var
 from intake_bot.security import generate_websocket_auth_code
 from intake_bot.twilio import create_twiml, validate_webhook
 
 logger.remove(0)
 logger.add(sys.stderr, level=get_env_var("LOG_LEVEL", "INFO"))
-# logger.add("server.log", level="TRACE")
+if env_var_is_true("LOG_TO_FILE"):
+    logger.add("server.log", level=get_env_var("LOG_LEVEL", "INFO"))
 
 app = FastAPI()
 
