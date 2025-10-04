@@ -30,14 +30,8 @@ from pipecat.services.google.tts import GoogleTTSService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.transports.websocket.fastapi import (
-    FastAPIWebsocketParams,
-    FastAPIWebsocketTransport,
-)
-from pipecat_flows import (
-    FlowManager,
-)
-from pipecat_whisker import WhiskerObserver
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
+from pipecat_flows import FlowManager
 
 from intake_bot.env_var import env_var_is_true, require_env_var
 from intake_bot.intake_nodes import node_initial
@@ -114,6 +108,8 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     observers = list()
 
     if env_var_is_true("ENABLE_WHISKER"):
+        from pipecat_whisker import WhiskerObserver
+
         whisker = WhiskerObserver(pipeline)
         observers.append(whisker)
 
@@ -176,13 +172,20 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         if env_var_is_true("SAVE_AUDIO_RECORDINGS"):
             await save_audio(audio, sample_rate, num_channels)
 
-    # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
-    # interruptions. We use `force_gc=True` to force garbage collection after
-    # the runner finishes running a task which could be useful for long running
-    # applications with multiple clients connecting.
-    runner = PipelineRunner(handle_sigint=handle_sigint, force_gc=True)
+    # We use `handle_sigint=False` because `uvicorn` (not sure if this
+    # applies since we're using `granian` now) is controlling keyboard
+    # interruptions. We use `force_gc=True` to force garbage collection
+    # after the runner finishes running a task which could be useful for
+    # long running applications with multiple clients connecting.
 
-    await runner.run(task)
+    if env_var_is_true("ENABLE_TAIL"):
+        from pipecat_tail.runner import TailRunner
+
+        runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
+        await runner.run(task)
+    else:
+        runner = PipelineRunner(handle_sigint=handle_sigint, force_gc=True)
+        await runner.run(task)
 
 
 async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
