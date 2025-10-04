@@ -10,7 +10,7 @@ dependencies = [
     "loguru",
     "phonenumberslite",
     "pipecat-ai-flows",
-    "pipecat-ai[openai,google,websocket]",
+    "pipecat-ai[openai,google,local-smart-turn-v3,websocket]",
     "python-dotenv",
     "python-multipart",
     "pyyaml",
@@ -22,7 +22,6 @@ dependencies = [
 [dependency-groups]
 dev = ["granian[reload]", "pipecat-ai-tail", "pipecat-ai-whisker", "pytest-asyncio", "pytest"]
 test = ["pytest-asyncio", "pytest"]
-lst = ["pipecat-ai[local-smart-turn-v3]"]
 
 [build-system]
 requires = ["setuptools"]
