@@ -3,7 +3,7 @@ import sys
 from .env_var import env_var_is_true
 from .server import logger
 
-if env_var_is_true("LOCAL_SMART_TURN"):
+if not env_var_is_true("DISABLE_LOCAL_SMART_TURN"):
     try:
         from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 
