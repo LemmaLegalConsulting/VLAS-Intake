@@ -1,49 +1,77 @@
-from pipecat_flows import (
-    FlowResult,
-)
+from enum import Enum
+
+from pydantic import BaseModel, ConfigDict
 
 
-class AssetsResult(FlowResult):
+class Status(str, Enum):
+    SUCCESS = "success"
+    ERROR = "error"
+
+
+class IntakeFlowResult(BaseModel):
+    status: Status
+    error: str = None
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class AssetsResult(IntakeFlowResult):
     is_eligible: bool
+    listing: list
+    total_value: int
+    receives_benefits: bool
 
 
-class CaseTypeResult(FlowResult):
+class CaseTypeResult(IntakeFlowResult):
+    is_eligible: bool
     case_type: str
-    is_eligible: bool
 
 
-class CitizenshipResult(FlowResult):
+class CitizenshipResult(IntakeFlowResult):
     has_citizenship: bool
 
 
-class ConflictCheckResult(FlowResult):
+class ConflictCheckResult(IntakeFlowResult):
     there_is_a_conflict: bool
+    opposing_party_members: list[str]
 
 
-class DomesticViolenceResult(FlowResult):
-    experiencing_domestic_violence: bool
+class DomesticViolenceResult(IntakeFlowResult):
+    is_experiencing: bool
+    perpetrators: list[str]
 
 
-class EmergencyResult(FlowResult):
+class EmergencyResult(IntakeFlowResult):
     is_emergency: bool
 
 
-class IncomeResult(FlowResult):
+class IncomeResult(IntakeFlowResult):
     is_eligible: bool
-    monthly_income: int
+    monthly_amount: int
+    listing: dict
 
 
-class NameResult(FlowResult):
+class NameResult(IntakeFlowResult):
     first: str
     middle: str
     last: str
 
 
-class PhoneNumberResult(FlowResult):
-    phone: str
+class PhoneNumberResult(IntakeFlowResult):
+    is_valid: bool
+    phone_number: str
 
 
-class ServiceAreaResult(FlowResult):
-    service_area: str
+class ServiceAreaResult(IntakeFlowResult):
+    location: str
     is_eligible: bool
-    match: str
+
+
+######################################################################
+# Functions - Utility
+######################################################################
+
+
+def status_helper(status: bool) -> Status:
+    """Helper for FlowResult's `status` value."""
+    return Status.SUCCESS if status else Status.ERROR

@@ -99,7 +99,16 @@ conflict_check:
 record_domestic_violence:
   task_messages:
     - content: >-
-        Ask the caller if they are experiencing domestic violence.
+        [Instructions]
+        Ask the caller if they are experiencing domestic violence. If the caller says yes, ask them to provide the names of all individuals who have perpetrated domestic violence against them. Collect these names as a list. If the caller is not experiencing domestic violence, proceed with an empty list.
+
+        [User Prompt]
+        Are you experiencing domestic violence? If yes, please provide the names of all individuals who have perpetrated domestic violence against you.
+
+        [Additional Notes]
+        - If the caller is not experiencing domestic violence, call the function with an empty list.
+        - If the caller is experiencing domestic violence, collect the names of all perpetrators as a list and call the function with that list.
+        - ALWAYS call the function after confirming the caller's response, passing the list of perpetrators (which may be empty).
 
 # Income
 record_income:
@@ -123,9 +132,11 @@ record_income:
         [Additional Notes]
         - If the caller indicates domestic violence in the household, exclude income or assets received or held by the alleged perpetrator.
         - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
-        - After collecting the income details for each household member, summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
+        - If the caller or any household member reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
+        - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
+        - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
 
-        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information.
+        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported.
 
 # Income over limit
 confirm_income_over_limit:
@@ -163,7 +174,11 @@ record_assets_list:
         - Assets held by a perpetrator of domestic violence against you
         - Assets with no equity value
 
-        After the caller provides their list of assets and the value of each, clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process. Once the caller confirms the list is correct and complete, create a list of dictionaries, each with the asset name as the key and its value as the value, and pass this list to the function as the assets argument.
+        If the caller reports that they do not have any assets, or only has exempt assets, this is a valid response. If all assets are held by a perpetrator of domestic violence, exclude those assets and proceed as usual.
+
+        After the caller provides their list of assets and the value of each (including if the list is empty), clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process.
+
+        Once the caller confirms the list is correct and complete, ALWAYS call the function to record the assets, and ALWAYS pass the argument assets as a list (for example, assets: [] if the list is empty, or assets: [{"bank account": 0}] if not). Never call the function without the assets argument.
 
 # Assets over limit
 confirm_assets_over_limit:

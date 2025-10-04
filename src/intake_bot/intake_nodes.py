@@ -1,12 +1,10 @@
 import sys
-from typing import Literal
 
 from loguru import logger
 from pipecat_flows import (
     ContextStrategy,
     ContextStrategyConfig,
     FlowManager,
-    FlowResult,
     NodeConfig,
 )
 from pydantic import ValidationError
@@ -21,18 +19,16 @@ from intake_bot.intake_results import (
     DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
+    IntakeFlowResult,
     NameResult,
     PhoneNumberResult,
     ServiceAreaResult,
+    Status,
+    status_helper,
 )
+from intake_bot.intake_utils import convert_and_log_result
 from intake_bot.intake_validator import IntakeValidator
 from intake_bot.prompts import Prompts
-
-
-def status_helper(status: bool) -> Literal["success", "failure"]:
-    """Helper for FlowResult's _status_ value."""
-    return "success" if status else "failure"
-
 
 # Initialize Prompts
 prompts = Prompts()
@@ -63,7 +59,11 @@ def node_initial() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
         **prompts.get(initial_prompt),
-        "functions": [initial_function],
+        "functions": [
+            initial_function,
+            end_conversation,
+            caller_ended_conversation,
+        ],
     }
 
 
@@ -82,18 +82,17 @@ def node_partial_reset_with_summary() -> NodeConfig:
 ######################################################################
 
 
-async def system_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberResult, NodeConfig]:
+async def system_phone_number(
+    flow_manager: FlowManager,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     This function checks if the phone system recieved the caller's phone number; if so, confirms the number with the caller; if not, collects the caller's phone number.
     """
-    phone = flow_manager.state.get("phone")
-    logger.debug(f"""System phone number: {phone}""")
-    status = status_helper(phone)
-    if status == "success":
-        result = PhoneNumberResult(status=status, phone=phone)
-    else:
-        result = None
+    caller_id_phone_number = flow_manager.state.get("phone")
+    logger.debug(f"""Caller ID phone number: {caller_id_phone_number}""")
 
+    status = status_helper(caller_id_phone_number)
+    result = dict(status=status.value, phone_number=caller_id_phone_number)
     next_node = NodeConfig(
         {
             **prompts.get("record_phone_number"),
@@ -103,27 +102,24 @@ async def system_phone_number(flow_manager: FlowManager) -> tuple[PhoneNumberRes
     return result, next_node
 
 
+@convert_and_log_result("phone")
 async def record_phone_number(
-    flow_manager: FlowManager, phone: str
-) -> tuple[PhoneNumberResult, NodeConfig]:
+    flow_manager: FlowManager, phone_number: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Collect the caller's phone number.
+    Collect the caller's US phone number.
 
     Args:
-        phone (str): The caller's 10 digit phone number.
+        phone_number (str): The caller's 10 digit US phone number.
     """
-    logger.debug(f"""Twilio phone number: {flow_manager.state.get("phone")}""")
+    is_valid, validated_phone_number = await validator.check_phone_number(phone_number=phone_number)
 
-    valid_phone, phone = await validator.check_phone_number(phone=phone)
+    status = status_helper(is_valid)
+    result = PhoneNumberResult(
+        status=status, is_valid=is_valid, phone_number=validated_phone_number
+    )
 
-    logger.debug(f"""Phone: {phone}""")
-    logger.debug(f"""Valid: {valid_phone}""")
-
-    status = status_helper(valid_phone)
-
-    if status == "success":
-        result = PhoneNumberResult(status=status, phone=phone)
-        flow_manager.state["phone"] = phone
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -132,14 +128,15 @@ async def record_phone_number(
             }
         )
     else:
-        result = FlowResult(status=status, error="Invalid phone number")
+        result.error = "Not a valid US phone number"
         next_node = None
     return result, next_node
 
 
+@convert_and_log_result("name")
 async def record_name(
     flow_manager: FlowManager, first: str, middle: str, last: str
-) -> tuple[NameResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record the caller's name.
 
@@ -152,17 +149,10 @@ async def record_name(
     middle = middle.strip()
     last = last.strip()
 
-    logger.debug(f"""First: {first}""")
-    logger.debug(f"""Middle: {middle}""")
-    logger.debug(f"""Last: {last}""")
-
     status = status_helper(first and last)
+    result = NameResult(status=status, first=first, middle=middle, last=last)
 
-    if status == "success":
-        result = NameResult(status=status, first=first, middle=middle, last=last)
-        flow_manager.state["name first"] = first
-        flow_manager.state["name middle"] = middle
-        flow_manager.state["name last"] = last
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -171,32 +161,28 @@ async def record_name(
             }
         )
     else:
-        result = FlowResult(status=status, error="Required: first name and last name")
+        result.error = "Required: first name and last name"
         next_node = None
     return result, next_node
 
 
+@convert_and_log_result("service_area")
 async def record_service_area(
-    flow_manager: FlowManager, service_area: str
-) -> tuple[ServiceAreaResult, NodeConfig]:
+    flow_manager: FlowManager, location: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record the service area.
+    Record the service area location.
 
     Args:
-        service_area (str): The location of the caller or the legal incident. Must be a city or county.
+        location (str): The location of the caller's home or the legal incident. Must be a city or county.
     """
-    match = await validator.check_service_area(service_area=service_area)
-    if match == service_area:
-        is_eligible = True
-    else:
-        is_eligible = False
-    status = status_helper(is_eligible)
+    match = await validator.check_service_area(location=location)
+    is_eligible = match == location
 
-    if status == "success":
-        result = ServiceAreaResult(
-            status=status, service_area=service_area, is_eligible=is_eligible, match=match
-        )
-        flow_manager.state["service_area"] = service_area
+    status = status_helper(is_eligible)
+    result = ServiceAreaResult(status=status, is_eligible=is_eligible, location=location)
+
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -206,14 +192,10 @@ async def record_service_area(
         )
     else:
         if match:
-            result = FlowResult(
-                status=status, error=f"No exact match found. Maybe you meant {match}?"
-            )
+            result.error = f"No exact match found. Maybe you meant {match}?"
             next_node = None
         else:
-            result["error"] = (
-                f"""Not in our service area. Alternate providers: {await validator.get_alternative_providers()}"""
-            )
+            result.error = f"""Not in our service area. Alternate providers: {await validator.get_alternative_providers()}"""
             next_node = NodeConfig(
                 node_partial_reset_with_summary()
                 | {
@@ -224,9 +206,10 @@ async def record_service_area(
     return result, next_node
 
 
+@convert_and_log_result("case_type")
 async def record_case_type(
     flow_manager: FlowManager, case_type: str
-) -> tuple[CaseTypeResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Check eligibility of caller's type of case.
 
@@ -234,12 +217,10 @@ async def record_case_type(
         case_type (str): The type of legal case that the caller has.
     """
     is_eligible = await validator.check_case_type(case_type=case_type)
-    flow_manager.state["case_type type"] = case_type
-    flow_manager.state["case_type eligible"] = is_eligible
-    status = status_helper(is_eligible)
-    result = CaseTypeResult(status=status, case_type=case_type)
 
-    if status == "success":
+    status = status_helper(is_eligible)
+    result = CaseTypeResult(status=status, is_eligible=is_eligible, case_type=case_type)
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -248,9 +229,7 @@ async def record_case_type(
             }
         )
     else:
-        result["error"] = (
-            f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
-        )
+        result.error = f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -261,9 +240,10 @@ async def record_case_type(
     return result, next_node
 
 
+@convert_and_log_result("conflict_check")
 async def conflict_check(
     flow_manager: FlowManager, opposing_party_members: list[str]
-) -> tuple[CaseTypeResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Check for conflicts of interest with the caller's case.
 
@@ -280,13 +260,13 @@ async def conflict_check(
         opposing_party_members=opposing_party_members
     )
 
-    flow_manager.state["conflict bool"] = there_is_a_conflict
-    flow_manager.state["conflict list"] = opposing_party_members
-
     status = status_helper(not there_is_a_conflict)
-    result = ConflictCheckResult(status=status, there_is_a_conflict=there_is_a_conflict)
-
-    if status == "success":
+    result = ConflictCheckResult(
+        status=status,
+        there_is_a_conflict=there_is_a_conflict,
+        opposing_party_members=opposing_party_members,
+    )
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -295,9 +275,7 @@ async def conflict_check(
             }
         )
     else:
-        result["error"] = (
-            f"""There is a representation conflict. Alternate providers: {await validator.get_alternative_providers()}"""
-        )
+        result.error = f"""There is a representation conflict. Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -308,21 +286,22 @@ async def conflict_check(
     return result, next_node
 
 
+@convert_and_log_result("domestic_violence")
 async def record_domestic_violence(
-    flow_manager: FlowManager, experiencing_domestic_violence: bool
-) -> tuple[None, NodeConfig]:
+    flow_manager: FlowManager, perpetrators: list[str]
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record if the caller experiencing domestic violence or not.
+    Record the names of perpetrators of domestic violence if the caller is xperiencing domestic violence.
 
     Args:
-        experiencing_domestic_violence (bool): The caller's answer that they are or are not experiencing domestic violence.
+        perpetrators_of_domestic_violence (list): The individuals perpetrating domestic violence on the caller.
     """
+    is_experiencing = bool(perpetrators)
     result = DomesticViolenceResult(
-        status="success", experiencing_domestic_violence=experiencing_domestic_violence
+        status=Status.SUCCESS,
+        is_experiencing=is_experiencing,
+        perpetrators=perpetrators,
     )
-
-    flow_manager.state["domestic_violence bool"] = experiencing_domestic_violence
-
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
@@ -333,9 +312,10 @@ async def record_domestic_violence(
     return result, next_node
 
 
+@convert_and_log_result("income")
 async def record_income(
     flow_manager: FlowManager, income: HouseholdIncome
-) -> tuple[IncomeResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect income information for all household members and determine eligibility.
 
@@ -355,30 +335,23 @@ async def record_income(
                 }
     """
     try:
-        income_model = HouseholdIncome.model_validate(income)
+        income_validated = HouseholdIncome.model_validate(income)
+        is_eligible, income_monthly = await validator.check_income(income=income_validated)
     except ValidationError as e:
-        result = IncomeResult(
+        result = IntakeFlowResult(
             status=status_helper(False),
-            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {HouseholdIncome.model_dump_json()}""",
+            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {HouseholdIncome.model_json_schema()}""",
         )
         return result, None
-
-    is_eligible, monthly_income = await validator.check_income(income=income_model)
-
-    logger.debug(f"""Income results: eligible: {is_eligible}, monthly income: {monthly_income}""")
-
-    flow_manager.state["income eligible"] = is_eligible
-    flow_manager.state["income monthly"] = monthly_income
-    flow_manager.state["income data"] = income
 
     status = status_helper(is_eligible)
     result = IncomeResult(
         status=status,
         is_eligible=is_eligible,
-        monthly_income=monthly_income,
+        monthly_amount=income_monthly,
+        listing=income_validated.model_dump(),
     )
-
-    if status == "success":
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -387,9 +360,7 @@ async def record_income(
             }
         )
     else:
-        result["error"] = (
-            f"""Over the household income limit. Alternate providers: {await validator.get_alternative_providers()}"""
-        )
+        result.error = f"""Over the household income limit. Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -400,28 +371,24 @@ async def record_income(
     return result, next_node
 
 
+@convert_and_log_result("assets")
 async def record_assets_receives_benefits(
     flow_manager: FlowManager, receives_benefits: bool
-) -> tuple[AssetsResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller is receiving Medicaid, SSI, or TANF benefits.
 
     Args:
         receives_benefits (bool): The caller has receives government benefits.
     """
-    logger.debug(f"""Government means tested: {receives_benefits}""")
-
     if receives_benefits:
         result = AssetsResult(
             status=status_helper(True),
             is_eligible=True,
+            listing=[],
+            total_value=0,
+            receives_benefits=True,
         )
-
-        flow_manager.state["assets eligible"] = True
-        flow_manager.state["assets list"] = []
-        flow_manager.state["assets value"] = 0
-        flow_manager.state["assets receives_benefits"] = True
-
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -441,9 +408,10 @@ async def record_assets_receives_benefits(
     return result, next_node
 
 
+@convert_and_log_result("assets")
 async def record_assets_list(
     flow_manager: FlowManager, assets: list[dict[str, int]]
-) -> tuple[AssetsResult, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect assets' value and determine eligibility of caller.
 
@@ -458,32 +426,24 @@ async def record_assets_list(
                 ]
     """
     try:
-        assets_model = Assets.model_validate(assets)
+        assets_validated = Assets.model_validate(assets)
+        is_eligible, assets_value = await validator.check_assets(assets=assets_validated)
     except ValidationError as e:
-        result = IncomeResult(
+        result = IntakeFlowResult(
             status=status_helper(False),
-            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {Assets.model_dump_json()}""",
+            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {Assets.model_json_schema()}""",
         )
         return result, None
-
-    is_eligible, assets_value = await validator.check_assets(assets=assets_model)
-
-    logger.debug(f"""Assets: {[asset.items() for asset in assets_model]}""")
-    logger.debug(f"""Assets total value: {assets_value}""")
-    logger.debug(f"""Assets value results: eligible: {is_eligible}""")
-
-    flow_manager.state["assets eligible"] = is_eligible
-    flow_manager.state["assets list"] = assets_model
-    flow_manager.state["assets value"] = assets_value
-    flow_manager.state["assets receives_benefits"] = False
 
     status = status_helper(is_eligible)
     result = AssetsResult(
         status=status,
         is_eligible=is_eligible,
+        listing=assets_validated.model_dump(),
+        total_value=assets_value,
+        receives_benefits=False,
     )
-
-    if status == "success":
+    if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -492,9 +452,7 @@ async def record_assets_list(
             }
         )
     else:
-        result["error"] = (
-            f"""Over the household assets' value limit. Alternate providers: {await validator.get_alternative_providers()}"""
-        )
+        result.error = f"""Over the household assets' value limit. Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -505,19 +463,17 @@ async def record_assets_list(
     return result, next_node
 
 
+@convert_and_log_result("citizenship")
 async def record_citizenship(
     flow_manager: FlowManager, has_citizenship: bool
-) -> tuple[None, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller is a US citizen.
 
     Args:
         has_citizenship (bool): The caller's answer that they are or are not a US citizen.
     """
-    logger.debug(f"""Citizenship: {has_citizenship}""")
-    flow_manager.state["has_citizenship"] = has_citizenship
-
-    result = CitizenshipResult(status="success", has_citizenship=has_citizenship)
+    result = CitizenshipResult(status=Status.SUCCESS, has_citizenship=has_citizenship)
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
@@ -528,19 +484,17 @@ async def record_citizenship(
     return result, next_node
 
 
+@convert_and_log_result("emergency")
 async def record_emergency(
     flow_manager: FlowManager, is_emergency: bool
-) -> tuple[None, NodeConfig]:
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller's case is an emergency.
 
     Args:
         is_emergency (bool): The caller's case is or is not an emergency.
     """
-    logger.debug(f"""Emergency: {is_emergency}""")
-    flow_manager.state["emergency"] = is_emergency
-    result = EmergencyResult(status="success", is_emergency=is_emergency)
-
+    result = EmergencyResult(status=Status.SUCCESS, is_emergency=is_emergency)
     if is_emergency:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -561,11 +515,13 @@ async def record_emergency(
 
 
 ######################################################################
-# Functions - Utility
+# Utility Nodes
 ######################################################################
 
 
-async def continue_intake(flow_manager: FlowManager, next_step: str) -> tuple[None, NodeConfig]:
+async def continue_intake(
+    flow_manager: FlowManager, next_step: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Continue the intake even though the caller may be ineligible.
 
@@ -588,7 +544,9 @@ async def continue_intake(flow_manager: FlowManager, next_step: str) -> tuple[No
     return None, next_node
 
 
-async def end_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
+async def end_conversation(
+    flow_manager: FlowManager,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     End the conversation.
     """
@@ -606,7 +564,9 @@ def node_end_conversation() -> NodeConfig:
     }
 
 
-async def caller_ended_conversation(flow_manager: FlowManager) -> tuple[None, NodeConfig]:
+async def caller_ended_conversation(
+    flow_manager: FlowManager,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     The caller ended the conversation.
     """
