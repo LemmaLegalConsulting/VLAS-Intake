@@ -6,30 +6,25 @@
 
 import argparse
 import asyncio
-import datetime
-import io
 import os
 import sys
-import wave
-import xml.etree.ElementTree as ET
 from uuid import uuid4
 
-import aiofiles
-import aiohttp
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import EndFrame, TransportMessageUrgentFrame
+from pipecat.frames.frames import EndFrame, OutputTransportMessageUrgentFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.google.tts import GoogleTTSService
 from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.openai.stt import OpenAISTTService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
@@ -41,75 +36,51 @@ logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
 
-DEFAULT_CLIENT_DURATION = 30
+DEFAULT_CLIENT_DURATION = 600
 
 
-async def download_twiml(server_url: str) -> str:
-    # TODO(aleix): add error checking.
-    async with aiohttp.ClientSession() as session:
-        async with session.post(server_url) as response:
-            return await response.text()
-
-
-def get_stream_url_from_twiml(twiml: str) -> str:
-    root = ET.fromstring(twiml)
-    # TODO(aleix): add error checking.
-    stream_element = root.find(".//Stream")  # Finds the first <Stream> element
-    url = stream_element.get("url")
-    return url
-
-
-async def save_audio(client_name: str, audio: bytes, sample_rate: int, num_channels: int):
-    if len(audio) > 0:
-        filename = (
-            f"{client_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        )
-        with io.BytesIO() as buffer:
-            with wave.open(buffer, "wb") as wf:
-                wf.setsampwidth(2)
-                wf.setnchannels(num_channels)
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio)
-            async with aiofiles.open(filename, "wb") as file:
-                await file.write(buffer.getvalue())
-        logger.info(f"Merged audio saved to {filename}")
-    else:
-        logger.info("No audio data to save")
-
-
-async def run_client(client_name: str, server_url: str, duration_secs: int):
-    twiml = await download_twiml(server_url)
-
-    stream_url = get_stream_url_from_twiml(twiml)
-
+async def run_client(client_name: str, websocket_url: str, duration_secs: int):
     stream_sid = str(uuid4())
     call_sid = str(uuid4())
 
     transport = WebsocketClientTransport(
-        uri=stream_url,
+        uri=websocket_url,
         params=WebsocketClientParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            serializer=TwilioFrameSerializer(stream_sid=stream_sid, call_sid=call_sid),
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=1.0)),
+            serializer=TwilioFrameSerializer(
+                stream_sid=stream_sid,
+                call_sid=call_sid,
+                params=TwilioFrameSerializer.InputParams(auto_hang_up=False),
+            ),
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS")))
+            ),
         ),
     )
 
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
+    stt = OpenAISTTService(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-transcribe",
+        prompt="Expect words related law, legal situations, and information about people.",
+    )
 
-    stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"))
+    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
 
-    tts = CartesiaTTSService(
-        api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="e13cae5c-ec59-4f71-b0a6-266df3c9bb8e",  # Madame Mischief
-        push_silence_after_stop=True,
+    tts = GoogleTTSService(
+        credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
+        voice_id="en-US-Chirp3-HD-Despina",
+        push_silence_after_stop=False,
+        params=GoogleTTSService.InputParams(
+            language=Language.EN, gender="female", google_style="empathetic"
+        ),
     )
 
     messages = [
         {
             "role": "system",
-            "content": "You are an 8 year old child. A teacher will explain you new concepts you want to know about. Feel free to change topics whnever you want. Once you are taught something you need to keep asking for clarifications if you think someone your age would not understand what you are being taught.",
+            "content": "This conversation is being converted to voice. You are an adult woman, calling a legal aid service, seeking help with your divorce. You will need to answer questions to complete your legal aid intake. Wait until you are asked a question, then respond with the appropriate information. The following is the information about you that you will use to answer the questions: Your phone number is (866) 534-5243. Your name is Celeste Caroline Campbell. You live in Amelia County. Your husband's name is Dexter Robert Campbell. You don't have any income because you're a stay at home mom. You don't have any of your own assets since he makes all of the money. Your husband has yelled at you and thrown things, but never hit you or the kids. You are a US citizen. This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.",
         },
     ]
 
@@ -148,12 +119,12 @@ async def run_client(client_name: str, server_url: str, duration_secs: int):
         # Start recording.
         await audiobuffer.start_recording()
 
-        message = TransportMessageUrgentFrame(
+        message = OutputTransportMessageUrgentFrame(
             message={"event": "connected", "protocol": "Call", "version": "1.0.0"}
         )
         await transport.output().send_message(message)
 
-        message = TransportMessageUrgentFrame(
+        message = OutputTransportMessageUrgentFrame(
             message={
                 "event": "start",
                 "streamSid": stream_sid,
@@ -162,10 +133,6 @@ async def run_client(client_name: str, server_url: str, duration_secs: int):
             }
         )
         await transport.output().send_message(message)
-
-    @audiobuffer.event_handler("on_audio_data")
-    async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        await save_audio(client_name, audio, sample_rate, num_channels)
 
     async def end_call():
         await asyncio.sleep(duration_secs)
@@ -179,9 +146,19 @@ async def run_client(client_name: str, server_url: str, duration_secs: int):
 
 async def main():
     parser = argparse.ArgumentParser(description="Pipecat Twilio Chatbot Client")
-    parser.add_argument("-u", "--url", type=str, required=True, help="specify the server URL")
     parser.add_argument(
-        "-c", "--clients", type=int, required=True, help="number of concurrent clients"
+        "-u",
+        "--url",
+        type=str,
+        default="ws://localhost:8765/ws",
+        help="specify the websocket URL",
+    )
+    parser.add_argument(
+        "-c",
+        "--clients",
+        type=int,
+        default=1,
+        help="number of concurrent clients",
     )
     parser.add_argument(
         "-d",
@@ -194,7 +171,15 @@ async def main():
 
     clients = []
     for i in range(args.clients):
-        clients.append(asyncio.create_task(run_client(f"client_{i}", args.url, args.duration)))
+        clients.append(
+            asyncio.create_task(
+                run_client(
+                    client_name=f"client_{i}",
+                    websocket_url=args.url,
+                    duration_secs=args.duration,
+                )
+            )
+        )
     await asyncio.gather(*clients)
 
 

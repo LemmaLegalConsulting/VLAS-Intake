@@ -25,15 +25,15 @@ from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.services.google.stt import GoogleSTTService
 from pipecat.services.google.tts import GoogleTTSService
 from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 from pipecat_flows import FlowManager
 
-from intake_bot.env_var import env_var_is_true, require_env_var
+from intake_bot.env_var import env_var_is_true, get_env_var, require_env_var
 from intake_bot.intake_nodes import node_initial
 from intake_bot.local_smart_turn import turn_analyzer
 from intake_bot.security import verify_websocket_auth_code
@@ -64,14 +64,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     """
     Main function to set up and run the VLAS intake bot.
     """
-    stt = GoogleSTTService(
-        credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
-        params=GoogleSTTService.InputParams(
-            languages=Language.EN_US,
-            model="telephony",
-            enable_automatic_punctuation=True,
-            enable_interim_results=True,
-        ),
+    stt = OpenAISTTService(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-transcribe",
+        prompt="Expect words related law, legal situations, and information about people.",
     )
 
     llm = OpenAILLMService(api_key=require_env_var("OPENAI_API_KEY"), model="gpt-4o")
@@ -227,8 +223,9 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=serializer,
-            session_timeout=300,  # 5 minute timeout
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(stop_secs=0.2)),
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(stop_secs=float(get_env_var("VAD_STOP_SECS")))
+            ),
             turn_analyzer=turn_analyzer,
         ),
     )
