@@ -46,17 +46,20 @@ class IntakeValidator:
             "domestic violence",
         ]
 
-    async def check_phone_number(self, phone: str) -> tuple[bool, str]:
+    async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         try:
-            phone_number = phonenumbers.parse(phone, "US")
-            valid = phonenumbers.is_valid_number(phone_number)
+            parsed = phonenumbers.parse(phone_number, "US")
+            valid = (
+                phonenumbers.is_valid_number(parsed)
+                and phonenumbers.region_code_for_number(parsed) == "US"
+            )
             if valid:
-                phone = phonenumbers.format_number(
-                    phone_number, phonenumbers.PhoneNumberFormat.NATIONAL
+                phone_number = phonenumbers.format_number(
+                    parsed, phonenumbers.PhoneNumberFormat.NATIONAL
                 )
         except phonenumbers.phonenumberutil.NumberParseException:
             valid = False
-        return valid, phone
+        return valid, phone_number
 
     async def check_case_type(self, case_type: str) -> bool:
         """
@@ -65,12 +68,12 @@ class IntakeValidator:
         is_eligible: bool = str(case_type).strip().lower() in self.case_types
         return is_eligible
 
-    async def check_service_area(self, service_area: str) -> str:
+    async def check_service_area(self, location: str) -> str:
         """
         Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
         """
         match = process.extractOne(
-            service_area,
+            location,
             self.service_area_names,
             scorer=fuzz.WRatio,
             score_cutoff=50,
