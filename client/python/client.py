@@ -71,7 +71,7 @@ async def run_client(client_name: str, websocket_url: str, duration_secs: int):
             add_wav_header=False,
             serializer=serializer,
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS")))
+                params=VADParams(stop_secs=float(os.getenv("VAD_STOP_SECS", 2.0)))
             ),
             turn_analyzer=turn_analyzer,
         ),
