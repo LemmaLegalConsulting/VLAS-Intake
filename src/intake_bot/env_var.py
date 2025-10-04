@@ -29,12 +29,13 @@ def require_env_var(key: str) -> str:
 
 def env_var_is_true(key: str) -> bool:
     """
-    Check if the specified environment variable is set to 'true' (case-insensitive).
+    Check if the specified environment variable is set to 'true' (case-insensitive) or '1'.
 
     Args:
         key (str): The name of the environment variable.
 
     Returns:
-        bool: True if the environment variable is set to 'true', False otherwise.
+        bool: True if the environment variable is set to 'true' or '1', False otherwise.
     """
-    return os.getenv(key, "").strip().lower() == "true"
+    value = os.getenv(key, "").strip().lower()
+    return value == "true" or value == "1"
