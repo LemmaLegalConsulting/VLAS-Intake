@@ -1,9 +1,9 @@
 from fastapi import Request
+from loguru import logger
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
-from .env_var import get_env_var, require_env_var
-from .server import logger
+from intake_bot.env_var import get_env_var, require_env_var
 
 
 def create_twiml(url: str, body_data: dict = None) -> str:

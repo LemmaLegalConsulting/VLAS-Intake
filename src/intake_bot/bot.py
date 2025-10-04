@@ -10,6 +10,7 @@ import os
 import wave
 
 import aiofiles
+from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
@@ -35,9 +36,9 @@ from pipecat_flows import FlowManager
 
 from intake_bot.env_var import env_var_is_true, get_env_var, require_env_var
 from intake_bot.intake_nodes import node_initial
+from intake_bot.intake_utils import log_flow_manager_state
 from intake_bot.local_smart_turn import turn_analyzer
 from intake_bot.security import verify_websocket_auth_code
-from intake_bot.server import logger
 
 
 async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
@@ -157,11 +158,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
-        logger.debug("----------------------------------------")
-        logger.debug("flow_manager.state:")
-        for key, value in flow_manager.state.items():
-            logger.debug(f"""{key}: {value}""")
-        logger.debug("----------------------------------------")
+        log_flow_manager_state(flow_manager)
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
