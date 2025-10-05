@@ -28,7 +28,7 @@ class CaseTypeResult(IntakeFlowResult):
 
 
 class CitizenshipResult(IntakeFlowResult):
-    has_citizenship: bool
+    is_citizen: bool
 
 
 class ConflictCheckResult(IntakeFlowResult):

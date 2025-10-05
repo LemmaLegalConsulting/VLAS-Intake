@@ -319,7 +319,7 @@ async def test_record_assets_list_invalid(flow_manager):
 async def test_record_citizenship(flow_manager):
     result, next_node = await record_citizenship(flow_manager, True)
     assert isinstance(result, dict)
-    assert flow_manager.state["citizenship"]["has_citizenship"] is True
+    assert flow_manager.state["citizenship"]["is_citizen"] is True
     assert "record_emergency_prompt" in next_node
 
 

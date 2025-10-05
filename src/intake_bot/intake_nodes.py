@@ -465,7 +465,7 @@ async def record_assets_list(
 
 @convert_and_log_result("citizenship")
 async def record_citizenship(
-    flow_manager: FlowManager, has_citizenship: bool
+    flow_manager: FlowManager, is_a_us_citizen: bool
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller is a US citizen.
@@ -473,7 +473,7 @@ async def record_citizenship(
     Args:
         has_citizenship (bool): The caller's answer that they are or are not a US citizen.
     """
-    result = CitizenshipResult(status=Status.SUCCESS, has_citizenship=has_citizenship)
+    result = CitizenshipResult(status=Status.SUCCESS, is_citizen=is_a_us_citizen)
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
