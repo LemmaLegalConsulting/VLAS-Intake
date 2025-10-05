@@ -16,3 +16,4 @@ python client.py
 
 - `-u`: Server's websocket URL (default is `ws://localhost:8765/ws`)
 - `-c`: Number of concurrent client connections (default is `1`)
+- `-s`: The script from `scripts.yml` that you want to use

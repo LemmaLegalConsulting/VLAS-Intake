@@ -10,6 +10,7 @@ import os
 import sys
 from uuid import uuid4
 
+import yaml
 from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -52,7 +53,7 @@ else:
     turn_analyzer = None
 
 
-async def run_client(client_name: str, websocket_url: str, duration_secs: int):
+async def run_client(client_name: str, websocket_url: str, script: str, duration_secs: int):
     stream_sid = str(uuid4())
     call_sid = str(uuid4())
 
@@ -94,23 +95,13 @@ async def run_client(client_name: str, websocket_url: str, duration_secs: int):
         ),
     )
 
+    with open("scripts.yml") as f:
+        scripts: dict = yaml.safe_load(f)
+
     messages = [
         {
             "role": "system",
-            "content": "This conversation is being converted to voice."
-            "You are an adult woman seeking help with your divorce and you are calling a legal aid service."
-            "You will need to answer questions to complete your legal aid intake."
-            "When you are asked a question please respond with the appropriate information."
-            "The following is information about you:"
-            "Your phone number is (866) 534-5243."
-            "Your name is Celeste Caroline Campbell."
-            "You live in Amelia County."
-            "Your husband's name is Dexter Robert Campbell."
-            "Your husband has yelled at you and thrown things, but never hit you or the kids."
-            "You don't have any income because you're a stay at home mom."
-            "You don't have any of your own assets since he makes all of the money."
-            "You are a US citizen."
-            "This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.",
+            "content": scripts[script],
         },
     ]
 
@@ -198,6 +189,13 @@ async def main():
         help="number of concurrent clients",
     )
     parser.add_argument(
+        "-s",
+        "--script",
+        type=str,
+        default="celeste",
+        help="specify the script to use from `scripts.yml`",
+    )
+    parser.add_argument(
         "-d",
         "--duration",
         type=int,
@@ -213,6 +211,7 @@ async def main():
                 run_client(
                     client_name=f"client_{i}",
                     websocket_url=args.url,
+                    script=args.script,
                     duration_secs=args.duration,
                 )
             )
