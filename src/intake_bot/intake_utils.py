@@ -1,9 +1,7 @@
 from functools import wraps
 
 from loguru import logger
-from pipecat_flows import (
-    FlowManager,
-)
+from pipecat_flows import FlowManager
 from pydantic import BaseModel
 
 
