@@ -5,17 +5,24 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-url = f"""https://{os.getenv("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v1/matters"""
+API_URL = f"""https://{os.getenv("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v1/"""
 headers = {
     "Authorization": f"""Bearer {os.getenv("LEGAL_SERVER_BEARER_TOKEN")}""",
     "Content-Type": "application/json",
+    "Accept": "application/json, text/html",
 }
 
 
-def test_get(url: str, headers: dict):
+def test_get(endpoint_url: str, headers: dict):
+    url = API_URL + endpoint_url
     try:
-        params = {"page_number": 1, "page_size": 1}
-        response = requests.request("GET", url, headers=headers, params=params)
+        params = {
+            "page_number": 1,
+            "page_size": 1,
+            "first": "Celeste",
+            "last": "Campbell",
+        }
+        response = requests.get(url, headers=headers, params=params)
         if response.status_code != 200:
             print(response.status_code, response.reason)
         print(response.text)
@@ -23,15 +30,50 @@ def test_get(url: str, headers: dict):
         print("HTTP Request failed", e)
 
 
-def test_post(url: str, headers: dict):
+def test_post(endpoint_url: str, headers: dict):
+    url = API_URL + endpoint_url
+    try:
+        # payload = {
+        #     "first": "Jimmy",
+        #     "last": "Dean",
+        #     "case_disposition": "Incomplete Intake",
+        # }
+
+        payload = {
+            "first": "Celeste",
+            "last": "Campbell",
+            "middle": "Caroline",
+            "is_group": False,
+            "case_disposition": "Incomplete Intake",
+            "mobile_phone": "8665345243",
+            "mobile_phone_safe": True,
+            "county_of_dispute": {
+                "county_name": "Amelia",
+                "county_state": "VA",
+            },
+            "percentage_of_poverty": "0%",
+            "asset_eligible": True,
+            "lsc_eligible": True,
+            "income_eligible": True,
+            "victim_of_domestic_violence": True,
+        }
+
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code != 200:
+            print(response.status_code, response.reason)
+        print(response.text)
+    except requests.exceptions.RequestException as e:
+        print("HTTP Request failed", e)
+
+
+def test_conflict_check(endpoint_url: str, headers: dict):
+    url = API_URL + endpoint_url
     try:
         payload = {
-            "first": "John",
-            "last": "Doe",
-            "case_disposition": "Incomplete Intake",
-            "case_type": "Online Intake",
+            "first": "Jimmy",
+            "last": "Dean",
         }
-        response = requests.request("POST", url, headers=headers, json=payload)
+        response = requests.post(url, headers=headers, json=payload)
         if response.status_code != 200:
             print(response.status_code, response.reason)
         print(response.text)
@@ -40,6 +82,8 @@ def test_post(url: str, headers: dict):
 
 
 if __name__ == "__main__":
-    test_get(url, headers)
-    print()
-    test_post(url, headers)
+    # test_post("matters", headers)
+    # print()
+    # test_get("matters", headers)
+    # print()
+    test_conflict_check("conflict_check", headers)
