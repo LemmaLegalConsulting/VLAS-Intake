@@ -103,7 +103,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     )
 
     observers = list()
+    if env_var_is_true("ENABLE_TAIL_OBSERVER"):
+        from pipecat_tail.observer import TailObserver
 
+        observers.append(TailObserver())
     if env_var_is_true("ENABLE_WHISKER"):
         from pipecat_whisker import WhiskerObserver
 
@@ -171,7 +174,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     # after the runner finishes running a task which could be useful for
     # long running applications with multiple clients connecting.
 
-    if env_var_is_true("ENABLE_TAIL"):
+    if env_var_is_true("ENABLE_TAIL_RUNNER"):
         from pipecat_tail.runner import TailRunner
 
         runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)

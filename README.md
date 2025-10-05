@@ -79,7 +79,32 @@ npm install
 npm run --prefix ./client/typescript dev -- --port 5174
 ```
 
-7. **Run the Whisker (Pipecat) debugger:**
+7. **Run Pipecat Tail (monitor):**
+    #### ⚡ Option A: Pipeline runner
+
+    Enable Pipecat Tail directly in your server console by setting `ENABLE_TAIL_RUNNER=TRUE` in your `.env`.
+
+    #### 🏠 Option B: Standalone app
+
+    You can also start Tail as a standalone application. This lets you connect to a running session, whether local or remote.
+
+    Enable Pipecat Tail connectivity by setting `ENABLE_TAIL_OBSERVER=TRUE` in your `.env`.
+
+    Then start the app:
+
+    ```sh
+    pctail [--uri URI]
+    ```
+
+    or
+
+    ```sh
+    pipecat-tail [--uri URI]
+    ```
+
+    By default, it will connect to `ws://localhost:9292`.
+
+8. **Run Pipecat Whisker (debugger):**
     #### 🌐 Option A: Use the hosted UI (Recommended)
 
     1. **Expose your local server with ngrok:**
