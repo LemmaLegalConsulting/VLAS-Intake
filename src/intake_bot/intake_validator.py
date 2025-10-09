@@ -161,10 +161,8 @@ class IntakeValidator:
         """
         vlas_assets_limit: int = 10_000
 
-        # Each item in assets.root is an AssetEntry (RootModel[dict[str,int]])
         total_value = 0
         for asset_entry in assets.root:
-            # asset_entry.root is the underlying dict[str, int]; sum its values
             for value in asset_entry.root.values():
                 total_value += int(value)
 

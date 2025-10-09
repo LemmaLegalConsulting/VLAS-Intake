@@ -232,11 +232,7 @@ async def record_case_type(
 
     is_eligible = bool(best_match["legal_problem_code"])
     status = status_helper(is_eligible)
-    result = CaseTypeResult(
-        status=status,
-        is_eligible=is_eligible,
-        **best_match,
-    )
+    result = CaseTypeResult(status=status, is_eligible=is_eligible, **best_match)
     if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
