@@ -1,14 +1,17 @@
 import csv
-from typing import Any, Dict, List, Optional
 
 import httpx
 import phonenumbers
-from pydantic import BaseModel, Field
 from rapidfuzz import fuzz, process, utils
 
 from intake_bot.env_var import require_env_var
 from intake_bot.globals import ROOT_DIR
-from intake_bot.intake_arg_models import Assets, HouseholdIncome, IncomePeriod
+from intake_bot.intake_arg_models import (
+    Assets,
+    ClassificationResponse,
+    HouseholdIncome,
+    IncomePeriod,
+)
 from intake_bot.poverty import poverty_scale_income_qualifies
 
 
@@ -179,41 +182,6 @@ class IntakeValidator:
             "Local Legal Help",
         ]
         return alternatives
-
-
-class Label(BaseModel):
-    """A predicted taxonomy label with optional confidence."""
-
-    label: str
-    confidence: Optional[float] = None
-    legal_problem_code: Optional[str] = None
-
-
-class FollowUpQuestion(BaseModel):
-    """A follow-up question to refine classification."""
-
-    question: str
-    format: Optional[str] = None
-    options: Optional[List[str]] = None
-
-
-class ClassificationResponse(BaseModel):
-    """Response payload with aggregated labels and follow-up questions."""
-
-    labels: List[Label]
-    follow_up_questions: List[FollowUpQuestion]
-
-    # Debug fields, populated when include_debug_details is True
-    raw_provider_results: Optional[Dict[str, Any]] = Field(
-        default=None,
-        description="Raw results from each classifier provider (debug mode only)",
-    )
-    weighted_label_scores: Optional[Dict[str, float]] = Field(
-        default=None, description="Weighted scores for each label (debug mode only)"
-    )
-    weighted_question_scores: Optional[Dict[str, float]] = Field(
-        default=None, description="Weighted scores for each question (debug mode only)"
-    )
 
 
 def check_case_type(case_description: str) -> dict:

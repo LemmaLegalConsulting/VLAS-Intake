@@ -51,6 +51,7 @@ class IncomeResult(IntakeFlowResult):
     is_eligible: bool
     monthly_amount: int
     listing: dict
+    household_size: int
 
 
 class NameResult(IntakeFlowResult):

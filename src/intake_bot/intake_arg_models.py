@@ -1,6 +1,51 @@
 from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, RootModel
+
+######################################################################
+# Classification
+######################################################################
+
+
+class Label(BaseModel):
+    """A predicted taxonomy label with optional confidence."""
+
+    label: str
+    confidence: Optional[float] = None
+    legal_problem_code: Optional[str] = None
+
+
+class FollowUpQuestion(BaseModel):
+    """A follow-up question to refine classification."""
+
+    question: str
+    format: Optional[str] = None
+    options: Optional[List[str]] = None
+
+
+class ClassificationResponse(BaseModel):
+    """Response payload with aggregated labels and follow-up questions."""
+
+    labels: List[Label]
+    follow_up_questions: List[FollowUpQuestion]
+
+    # Debug fields, populated when include_debug_details is True
+    raw_provider_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw results from each classifier provider (debug mode only)",
+    )
+    weighted_label_scores: Optional[Dict[str, float]] = Field(
+        default=None, description="Weighted scores for each label (debug mode only)"
+    )
+    weighted_question_scores: Optional[Dict[str, float]] = Field(
+        default=None, description="Weighted scores for each question (debug mode only)"
+    )
+
+
+######################################################################
+# Income
+######################################################################
 
 
 class IncomePeriod(str, Enum):
@@ -21,6 +66,11 @@ class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_type -> Income
 
 class HouseholdIncome(RootModel[dict[str, MemberIncome]]):  # person_name -> MemberIncome
     pass
+
+
+######################################################################
+# Asset
+######################################################################
 
 
 class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value (int)

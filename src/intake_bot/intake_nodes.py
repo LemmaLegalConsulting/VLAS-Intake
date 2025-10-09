@@ -353,6 +353,7 @@ async def record_income(
     """
     try:
         income_validated = HouseholdIncome.model_validate(income)
+        household_size = len(income_validated.root.keys())
         is_eligible, income_monthly = await validator.check_income(income=income_validated)
     except ValidationError as e:
         result = IntakeFlowResult(
@@ -367,6 +368,7 @@ async def record_income(
         is_eligible=is_eligible,
         monthly_amount=income_monthly,
         listing=income_validated.model_dump(),
+        household_size=household_size,
     )
     if status == Status.SUCCESS:
         next_node = NodeConfig(

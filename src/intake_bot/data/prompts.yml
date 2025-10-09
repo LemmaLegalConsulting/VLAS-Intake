@@ -122,7 +122,7 @@ record_income:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller to provide the total monthly or yearly income for themselves and each member of their household individually. Remind them of possible sources of income to ensure accuracy. If the caller or any household member claims no income, ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food. Use the following guidelines:
+        Ask the caller to provide the total number of people in the household (including all children, family members, or friends who reside in the home). Then ask for the monthly or yearly income for each member of their household individually. Remind them of possible sources of income to ensure accuracy. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food. Use the following guidelines:
 
         [User Prompt]
         To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. Please provide the income for each person individually. Common sources of income include:
@@ -139,7 +139,7 @@ record_income:
         [Additional Notes]
         - If the caller indicates domestic violence in the household, exclude income or assets received or held by the alleged perpetrator.
         - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
-        - If the caller or any household member reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
+        - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
 
@@ -150,7 +150,7 @@ confirm_income_over_limit:
   task_messages:
     - content: >-
         [Instructions]
-        The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_assets")`, or they may ask for a list of alternate legal providers.
+        The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_assets_receives_benefits")`, or they may ask for a list of alternate legal providers.
 
         [User Prompt]
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with a list of alternate legal providers?
