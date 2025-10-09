@@ -1,6 +1,13 @@
+import csv
+from typing import Any, Dict, List, Optional
+
+import httpx
 import phonenumbers
+from pydantic import BaseModel, Field
 from rapidfuzz import fuzz, process, utils
 
+from intake_bot.env_var import require_env_var
+from intake_bot.globals import ROOT_DIR
 from intake_bot.intake_arg_models import Assets, HouseholdIncome, IncomePeriod
 from intake_bot.poverty import poverty_scale_income_qualifies
 
@@ -10,7 +17,7 @@ class IntakeValidator:
     Provides a set of asynchronous validation methods for intake screening.
     """
 
-    def __init__(self):
+    def __init__(self, **kwargs):
         self.service_area_names = [
             "Amelia County",
             "Amherst County",
@@ -38,13 +45,15 @@ class IntakeValidator:
             "Suffolk City",
             "Sussex County",
         ]
+        self.case_type_taxonomy = self._load_case_type_taxonomy(**kwargs)
 
-        self.case_types = [
-            "bankruptcy",
-            "citation",
-            "divorce",
-            "domestic violence",
-        ]
+    def _load_case_type_taxonomy(
+        self, taxonomy_file_path: str = f"""{ROOT_DIR}/data/fetch_taxonomy.csv"""
+    ) -> dict:
+        with open(taxonomy_file_path, newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            taxonomy = {row["label"]: row for row in reader}
+            return taxonomy
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         try:
@@ -61,13 +70,6 @@ class IntakeValidator:
             valid = False
         return valid, phone_number
 
-    async def check_case_type(self, case_type: str) -> bool:
-        """
-        Check if the caller's legal problem is a type of case that we can handle.
-        """
-        is_eligible: bool = str(case_type).strip().lower() in self.case_types
-        return is_eligible
-
     async def check_service_area(self, location: str) -> str:
         """
         Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
@@ -83,6 +85,35 @@ class IntakeValidator:
             return match[0]
         else:
             return ""
+
+    async def check_case_type(self, case_description: str) -> dict:
+        """
+        Check if the caller's legal problem is a type of case that we can handle.
+        """
+        headers = {"Authorization": f"Bearer {require_env_var('FETCH_API_KEY')}"}
+        payload = {
+            "problem_description": case_description,
+            "include_debug_details": False,
+            "decision_mode": "vote",
+        }
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                response = await client.post(
+                    require_env_var("FETCH_URL"), headers=headers, json=payload
+                )
+            response.raise_for_status()
+            response_validated = ClassificationResponse.model_validate(response.json())
+        except Exception as e:
+            raise RuntimeError(f"Error during classification: {e}")
+
+        for label in response_validated.labels:
+            if label.label in self.case_type_taxonomy.keys():
+                label.legal_problem_code = self.case_type_taxonomy[label.label][
+                    "legal_problem_code"
+                ]
+            else:
+                label.legal_problem_code = ""
+        return response_validated.model_dump(exclude_none=True)
 
     async def check_conflict_of_interest(self, opposing_party_members: list[str]) -> bool:
         """
@@ -148,3 +179,48 @@ class IntakeValidator:
             "Local Legal Help",
         ]
         return alternatives
+
+
+class Label(BaseModel):
+    """A predicted taxonomy label with optional confidence."""
+
+    label: str
+    confidence: Optional[float] = None
+    legal_problem_code: Optional[str] = None
+
+
+class FollowUpQuestion(BaseModel):
+    """A follow-up question to refine classification."""
+
+    question: str
+    format: Optional[str] = None
+    options: Optional[List[str]] = None
+
+
+class ClassificationResponse(BaseModel):
+    """Response payload with aggregated labels and follow-up questions."""
+
+    labels: List[Label]
+    follow_up_questions: List[FollowUpQuestion]
+
+    # Debug fields, populated when include_debug_details is True
+    raw_provider_results: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Raw results from each classifier provider (debug mode only)",
+    )
+    weighted_label_scores: Optional[Dict[str, float]] = Field(
+        default=None, description="Weighted scores for each label (debug mode only)"
+    )
+    weighted_question_scores: Optional[Dict[str, float]] = Field(
+        default=None, description="Weighted scores for each question (debug mode only)"
+    )
+
+
+def check_case_type(case_description: str) -> dict:
+    import asyncio
+
+    async def _check_case_type_async(case_description: str) -> dict:
+        validator = IntakeValidator()
+        return await validator.check_case_type(case_description)
+
+    return asyncio.run(_check_case_type_async(case_description))

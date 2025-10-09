@@ -208,18 +208,35 @@ async def record_service_area(
 
 @convert_and_log_result("case_type")
 async def record_case_type(
-    flow_manager: FlowManager, case_type: str
+    flow_manager: FlowManager, case_description: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Check eligibility of caller's type of case.
+    Check eligibility of caller's legal case.
 
     Args:
-        case_type (str): The type of legal case that the caller has.
+        case_description (str): The description of the legal case that the caller has.
     """
-    is_eligible = await validator.check_case_type(case_type=case_type)
+    case_response = await validator.check_case_type(case_description=case_description)
+    logger.debug(f"""case_response: {case_response}""")
+    best_match = case_response["labels"][0]
+    logger.debug(f"""best_match: {best_match}""")
+    if float(best_match["confidence"]) < 2.5 and "follow_up_questions" in case_response:
+        follow_up_questions = [
+            f"""Question: {item["question"]}"""
+            + (f"""Options: {item["options"]}""" if "options" in item else "")
+            for item in case_response["follow_up_questions"]
+        ]
+        error_text = f"""Use these questions to gather additional information and then resubmit the case description with the additional questions and answers. {follow_up_questions}"""
+        result = CaseTypeResult(status=status_helper(False), **best_match, error=error_text)
+        return result, None
 
+    is_eligible = bool(best_match["legal_problem_code"])
     status = status_helper(is_eligible)
-    result = CaseTypeResult(status=status, is_eligible=is_eligible, case_type=case_type)
+    result = CaseTypeResult(
+        status=status,
+        is_eligible=is_eligible,
+        **best_match,
+    )
     if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()

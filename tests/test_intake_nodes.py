@@ -135,21 +135,76 @@ async def test_record_service_area_ineligible_no_match(flow_manager, patch_valid
 
 @pytest.mark.asyncio
 async def test_record_case_type_eligible(flow_manager, patch_validator):
-    patch_validator.check_case_type = AsyncMock(return_value=True)
+    patch_validator.check_case_type = AsyncMock(
+        return_value={
+            "labels": [
+                {
+                    "label": "Bankruptcy > Document Review",
+                    "confidence": 3.4,
+                    "legal_problem_code": "01 Bankruptcy/Debtor Relief",
+                }
+            ],
+            "follow_up_questions": [],
+        }
+    )
+
     result, next_node = await record_case_type(flow_manager, "divorce")
+
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
-    assert flow_manager.state["case_type"]["case_type"] == "divorce"
+    assert flow_manager.state["case_type"]["label"] == "Bankruptcy > Document Review"
+    assert flow_manager.state["case_type"]["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
     assert "conflict_check_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_case_type_ineligible(flow_manager, patch_validator):
-    patch_validator.check_case_type = AsyncMock(return_value=False)
+    patch_validator.check_case_type = AsyncMock(
+        return_value={
+            "labels": [
+                {
+                    "label": "Unknown Label",
+                    "confidence": 3.0,
+                    "legal_problem_code": "",
+                }
+            ],
+            "follow_up_questions": [],
+        }
+    )
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
+
     result, next_node = await record_case_type(flow_manager, "aliens")
+
+    assert result["status"] == Status.ERROR
     assert "Alternate providers" in result["error"]
+    assert flow_manager.state["case_type"]["label"] == "Unknown Label"
+    assert flow_manager.state["case_type"]["legal_problem_code"] == ""
     assert "ineligible_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_case_type_follow_up_needed(flow_manager, patch_validator):
+    patch_validator.check_case_type = AsyncMock(
+        return_value={
+            "labels": [
+                {
+                    "label": "Housing > Follow Up",
+                    "confidence": 1.1,
+                    "legal_problem_code": "",
+                }
+            ],
+            "follow_up_questions": [
+                {"question": "Is there a court date?"},
+            ],
+        }
+    )
+
+    result, next_node = await record_case_type(flow_manager, "needs help")
+
+    assert result["status"] == Status.ERROR
+    assert "Use these questions" in result["error"]
+    assert flow_manager.state["case_type"]["label"] == "Housing > Follow Up"
+    assert next_node is None
 
 
 @pytest.mark.asyncio

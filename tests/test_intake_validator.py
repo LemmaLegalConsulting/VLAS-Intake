@@ -1,3 +1,4 @@
+import httpx
 import pytest
 from intake_bot.intake_arg_models import (
     AssetEntry,
@@ -159,25 +160,110 @@ async def test_check_assets(assets_data, expected_eligible, expected_value):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "case_type,expected",
-    [
-        ("bankruptcy", True),
-        ("Bankruptcy", True),
-        ("divorce", True),
-        ("DIVORCE", True),
-        (" citation ", True),
-        ("domestic violence", True),
-        ("criminal", False),
-        ("eviction", False),
-        ("", False),
-        ("unknown", False),
-    ],
-)
-async def test_check_case_type(case_type, expected):
+async def test_check_case_type_enriches_labels(monkeypatch):
+    monkeypatch.setenv("FETCH_API_KEY", "fake-key")
+    monkeypatch.setenv("FETCH_URL", "https://example.com/fetch")
+
+    response_payload = {
+        "labels": [
+            {
+                "label": "Bankruptcy > Document Review",
+                "confidence": 0.92,
+            }
+        ],
+        "follow_up_questions": [],
+    }
+    captured_request: dict = {}
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            captured_request["url"] = url
+            captured_request["headers"] = headers
+            captured_request["json"] = json
+            return MockResponse(response_payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
     validator = IntakeValidator()
-    result = await validator.check_case_type(case_type)
-    assert result == expected
+    result = await validator.check_case_type("bankruptcy relief")
+
+    assert captured_request["url"] == "https://example.com/fetch"
+    assert captured_request["headers"]["Authorization"] == "Bearer fake-key"
+    assert captured_request["json"]["problem_description"] == "bankruptcy relief"
+    assert result["labels"][0]["label"] == "Bankruptcy > Document Review"
+    assert result["labels"][0]["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
+    assert result["labels"][0]["confidence"] == 0.92
+
+
+@pytest.mark.asyncio
+async def test_check_case_type_handles_unknown_labels(monkeypatch):
+    monkeypatch.setenv("FETCH_API_KEY", "fake-key")
+    monkeypatch.setenv("FETCH_URL", "https://example.com/fetch")
+
+    response_payload = {
+        "labels": [
+            {
+                "label": "Unmapped Label",
+                "confidence": 0.51,
+            }
+        ],
+        "follow_up_questions": [
+            {
+                "question": "Please provide more information.",
+            }
+        ],
+    }
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            return MockResponse(response_payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    validator = IntakeValidator()
+    result = await validator.check_case_type("unknown issue")
+
+    assert result["labels"][0]["label"] == "Unmapped Label"
+    assert result["labels"][0]["legal_problem_code"] == ""
+    assert result["follow_up_questions"][0]["question"] == "Please provide more information."
 
 
 @pytest.mark.asyncio

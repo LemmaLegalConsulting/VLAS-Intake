@@ -23,8 +23,10 @@ class AssetsResult(IntakeFlowResult):
 
 
 class CaseTypeResult(IntakeFlowResult):
-    is_eligible: bool
-    case_type: str
+    is_eligible: bool = None
+    label: str = None
+    confidence: float = None
+    legal_problem_code: str = None
 
 
 class CitizenshipResult(IntakeFlowResult):

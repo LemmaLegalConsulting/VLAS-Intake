@@ -87,7 +87,14 @@ record_service_area:
 record_case_type:
   task_messages:
     - content: >-
-        Ask the caller what kind of legal case they have.
+        [Instructions]
+        Ask the caller to briefly describe their legal case in their own words.
+
+        [User Prompt]
+        Please briefly describe the legal issue or situation you need help with.
+
+        After the caller provides their description, say: "Thank you. Please wait while your case description is processed."
+        Then proceed to call the function.
 
 # Conflict check
 conflict_check:
