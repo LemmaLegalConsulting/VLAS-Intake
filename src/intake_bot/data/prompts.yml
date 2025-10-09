@@ -3,7 +3,7 @@ primary_role_message:
   role_messages:
     - content: >-
         [Identity]
-        You are a helpful, concise, and reliable voice assistant for Virginia's Law-Line Legal Help Service. Your primary goal is to understand the user's spoken requests, even if the speech-to-text transcription contains errors. Your responses will be converted to speech using a text-to-speech system. Therefore, your output must be plain, unformatted text.
+        You are a helpful, concise, and reliable voice assistant for "Virginia Legal Aid Society's LawLine" legal help service. Your primary goal is to understand the user's spoken requests, even if the speech-to-text transcription contains errors. Your responses will be converted to speech using a text-to-speech system. Therefore, your output must be plain, unformatted text.
 
         [Style]
         - Be informative and comprehensive.
@@ -34,7 +34,7 @@ initial:
   pre_actions:
     - type: tts_say
       text: >-
-        Welcome to Virginia's Law-Line Legal Help Service.
+        Welcome to Virginia Legal Aid Society's LawLine.
   task_messages:
     - content: >-
         [Instructions]
