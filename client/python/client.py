@@ -7,7 +7,9 @@
 import argparse
 import asyncio
 import os
+import random
 import sys
+from pathlib import Path
 from uuid import uuid4
 
 import yaml
@@ -39,18 +41,27 @@ logger.add(sys.stderr, level="DEBUG")
 
 DEFAULT_CLIENT_DURATION = 600
 
-if os.getenv("LOCAL_SMART_TURN") == "TRUE":
+
+# Load scripts.yml from the same directory as this script
+script_dir = Path(__file__).parent
+scripts_file = script_dir / "scripts.yml"
+
+with open(scripts_file) as f:
+    scripts: dict = yaml.safe_load(f)
+
+
+if os.getenv("DISABLE_LOCAL_SMART_TURN") == "TRUE":
+    logger.info("LocalSmartTurnAnalyzerV3 is not enabled.")
+    turn_analyzer = None
+else:
     try:
         from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 
         turn_analyzer = LocalSmartTurnAnalyzerV3()
     except Exception:
         sys.exit(
-            "[INFO] intake-bot: You can also use `uv sync --group lst` to install the modules for LocalSmartTurnAnalyzerV3"
+            "[INFO] intake-bot: You are missing the module 'LocalSmartTurnAnalyzerV3'. You use `uv sync` to install the module."
         )
-else:
-    logger.info("LocalSmartTurnAnalyzerV3 is not enabled.")
-    turn_analyzer = None
 
 
 async def run_client(client_name: str, websocket_url: str, script: str, duration_secs: int):
@@ -94,9 +105,6 @@ async def run_client(client_name: str, websocket_url: str, script: str, duration
             language=Language.EN, gender="female", google_style="empathetic"
         ),
     )
-
-    with open("scripts.yml") as f:
-        scripts: dict = yaml.safe_load(f)
 
     messages = [
         {
@@ -192,7 +200,6 @@ async def main():
         "-s",
         "--script",
         type=str,
-        default="celeste",
         help="specify the script to use from `scripts.yml`",
     )
     parser.add_argument(
@@ -203,6 +210,15 @@ async def main():
         help=f"duration of each client in seconds (default: {DEFAULT_CLIENT_DURATION})",
     )
     args, _ = parser.parse_known_args()
+
+    # Validate script argument if provided
+    if args.script is None:
+        args.script = random.choice(list(scripts.keys()))
+    elif args.script not in scripts.keys():
+        parser.error(
+            f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(scripts.keys())}"""
+        )
+    logger.info(f"""Using script: '{args.script}'""")
 
     clients = []
     for i in range(args.clients):
@@ -216,6 +232,7 @@ async def main():
                 )
             )
         )
+
     await asyncio.gather(*clients)
 
 
