@@ -34,11 +34,11 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 from pipecat_flows import FlowManager
 
-from intake_bot.env_var import env_var_is_true, get_env_var, require_env_var
-from intake_bot.intake_nodes import node_initial
-from intake_bot.intake_utils import log_flow_manager_state
-from intake_bot.local_smart_turn import turn_analyzer
-from intake_bot.security import verify_websocket_auth_code
+from intake_bot.nodes.nodes import node_initial
+from intake_bot.nodes.utils import log_flow_manager_state
+from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.local_smart_turn import turn_analyzer
+from intake_bot.utils.security import verify_websocket_auth_code
 
 
 async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
@@ -71,10 +71,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         prompt="Expect words related law, legal situations, and information about people.",
     )
 
-    llm = OpenAILLMService(api_key=require_env_var("OPENAI_API_KEY"), model="gpt-4o")
+    llm = OpenAILLMService(api_key=require_ev("OPENAI_API_KEY"), model="gpt-4o")
 
     tts = GoogleTTSService(
-        credentials=require_env_var("GOOGLE_ACCESS_CREDENTIALS"),
+        credentials=require_ev("GOOGLE_ACCESS_CREDENTIALS"),
         voice_id="en-US-Chirp3-HD-Achernar",
         push_silence_after_stop=False,
         params=GoogleTTSService.InputParams(
@@ -103,11 +103,11 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     )
 
     observers = list()
-    if env_var_is_true("ENABLE_TAIL_OBSERVER"):
+    if ev_is_true("ENABLE_TAIL_OBSERVER"):
         from pipecat_tail.observer import TailObserver
 
         observers.append(TailObserver())
-    if env_var_is_true("ENABLE_WHISKER"):
+    if ev_is_true("ENABLE_WHISKER"):
         from pipecat_whisker import WhiskerObserver
 
         whisker = WhiskerObserver(pipeline)
@@ -165,7 +165,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        if env_var_is_true("SAVE_AUDIO_RECORDINGS"):
+        if ev_is_true("SAVE_AUDIO_RECORDINGS"):
             await save_audio(audio, sample_rate, num_channels)
 
     # We use `handle_sigint=False` because `uvicorn` (not sure if this
@@ -174,7 +174,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     # after the runner finishes running a task which could be useful for
     # long running applications with multiple clients connecting.
 
-    if env_var_is_true("ENABLE_TAIL_RUNNER"):
+    if ev_is_true("ENABLE_TAIL_RUNNER"):
         from pipecat_tail.runner import TailRunner
 
         runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
@@ -193,7 +193,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
 
     call_id = call_data["call_id"]
 
-    if env_var_is_true("TEST_CLIENT_ALLOWED"):
+    if ev_is_true("TEST_CLIENT_ALLOWED"):
         call_data["body"]["caller_phone_number"] = "8665345243"
         call_is_valid = True
     else:
@@ -212,8 +212,8 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
     serializer = TwilioFrameSerializer(
         stream_sid=call_data["stream_id"],
         call_sid=call_data["call_id"],
-        account_sid=require_env_var("TWILIO_ACCOUNT_SID"),
-        auth_token=require_env_var("TWILIO_AUTH_TOKEN"),
+        account_sid=require_ev("TWILIO_ACCOUNT_SID"),
+        auth_token=require_ev("TWILIO_AUTH_TOKEN"),
     )
 
     transport = FastAPIWebsocketTransport(
@@ -224,7 +224,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
             add_wav_header=False,
             serializer=serializer,
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=float(get_env_var("VAD_STOP_SECS", 0.2)))
+                params=VADParams(stop_secs=float(get_ev("VAD_STOP_SECS", 0.2)))
             ),
             turn_analyzer=turn_analyzer,
         ),

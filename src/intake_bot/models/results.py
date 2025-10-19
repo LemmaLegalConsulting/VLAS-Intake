@@ -1,5 +1,6 @@
 from enum import Enum
 
+from intake_bot.models.validators import ConflictCheckResponses, PotentialConflicts
 from pydantic import BaseModel, ConfigDict
 
 
@@ -33,9 +34,10 @@ class CitizenshipResult(IntakeFlowResult):
     is_citizen: bool
 
 
-class ConflictCheckResult(IntakeFlowResult):
-    there_is_a_conflict: bool
-    opposing_party_members: list[str]
+class ConflictResult(IntakeFlowResult):
+    has_highest_conflict: bool
+    responses: ConflictCheckResponses
+    opposing_parties: PotentialConflicts
 
 
 class DomesticViolenceResult(IntakeFlowResult):

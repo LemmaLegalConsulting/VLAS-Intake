@@ -97,10 +97,21 @@ record_case_type:
         Then proceed to call the function.
 
 # Conflict check
-conflict_check:
+record_conflict:
   task_messages:
     - content: >-
-        Explain to the caller that Law-Line is legally obligated to ensure that there is no conflict of interest. Ask the caller for the names of the people in the opposing party and then use the function.
+        [Instructions]
+        Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest. Ask the caller to provide the full names of all individuals who may be opposing parties in their legal case. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business). Collect these details for each opposing parties.
+
+        [User Prompt]
+        Please provide the name, date of birth, and phone number of each opposing parties in this legal case.
+
+        [Additional Notes]
+        - If there are no opposing parties involved in the legal case, `opposing_parties` should be an empty list.
+        - If there are opposing parties involved in the legal case, collect their information in a list `opposing_parties` and call the function with that list.
+        - Omit any fields that you don't have a value for.
+        - If the opposing party's dob or phone isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
+        - ALWAYS call the `record_conflict` function, passing the list of `opposing_parties`.
 
 # Domestic violence
 record_domestic_violence:
@@ -113,9 +124,9 @@ record_domestic_violence:
         Are you experiencing domestic violence? If yes, please provide the names of all individuals who have perpetrated domestic violence against you.
 
         [Additional Notes]
-        - If the caller is not experiencing domestic violence, call the function with an empty list.
-        - If the caller is experiencing domestic violence, collect the names of all perpetrators as a list and call the function with that list.
-        - ALWAYS call the function after confirming the caller's response, passing the list of perpetrators (which may be empty).
+        - If the caller is not experiencing domestic violence, `perpetrators` should be an empty list.
+        - If the caller is experiencing domestic violence, collect the names of all perpetrators as a list `perpetrators` and call the function with that list.
+        - ALWAYS call the `record_domestic_violence` function after confirming the caller's response, passing the list of `perpetrators`.
 
 # Income
 record_income:
@@ -185,7 +196,7 @@ record_assets_list:
 
         After the caller provides their list of assets and the value of each (including if the list is empty), clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process.
 
-        Once the caller confirms the list is correct and complete, ALWAYS call the function to record the assets, and ALWAYS pass the argument assets as a list (for example, assets: [] if the list is empty, or assets: [{"bank account": 0}] if not). Never call the function without the assets argument.
+        Once the caller confirms the list is correct and complete, ALWAYS call the `record_assets_list` function to record the assets, and ALWAYS pass the argument assets as a list (for example, assets: [] if the list is empty, or assets: [{"bank account": 0}] if not). Never call the function without the `assets` argument.
 
 # Assets over limit
 confirm_assets_over_limit:

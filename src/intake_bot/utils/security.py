@@ -2,9 +2,9 @@ import base64
 import hashlib
 import hmac
 
-from .env_var import require_env_var
+from intake_bot.utils.ev import require_ev
 
-SECRET_KEY_HEX = require_env_var("WEBSOCKET_SECURITY_TOKEN")
+SECRET_KEY_HEX = require_ev("WEBSOCKET_SECURITY_TOKEN")
 try:
     SECRET_KEY = bytes.fromhex(SECRET_KEY_HEX)
 except (ValueError, TypeError):

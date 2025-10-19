@@ -1,6 +1,6 @@
 import httpx
 import pytest
-from intake_bot.intake_arg_models import (
+from intake_bot.models.validators import (
     AssetEntry,
     Assets,
     HouseholdIncome,
@@ -8,7 +8,7 @@ from intake_bot.intake_arg_models import (
     IncomePeriod,
     MemberIncome,
 )
-from intake_bot.intake_validator import IntakeValidator  # type: ignore
+from intake_bot.validator.validator import IntakeValidator  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -267,21 +267,232 @@ async def test_check_case_type_handles_unknown_labels(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "opposing_party_members,expected",
-    [
-        (["Jimmy Dean"], True),
-        (["Jane Doe", "Jimmy Dean"], True),
-        (["Jane Doe"], False),
-        ([], False),
-        (["jimmy dean"], False),  # case-sensitive
-        (["Jimmy", "Dean"], False),
-    ],
-)
-async def test_check_conflict_of_interest(opposing_party_members, expected):
+async def test_check_conflict_returns_conflict_responses(monkeypatch):
+    """Test that check_conflict returns a ConflictCheckResponses object with proper structure."""
+    from intake_bot.models.validators import (
+        ConflictCheckResponse,
+        PotentialConflict,
+        PotentialConflicts,
+    )
+
+    response_payload = {
+        "status": 200,
+        "message": "Conflict check completed",
+        "interval": "high",
+        "score": 75,
+    }
+
+    captured_requests: list = []
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            captured_requests.append({"url": url, "json": json})
+            return MockResponse(response_payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
     validator = IntakeValidator()
-    result = await validator.check_conflict_of_interest(opposing_party_members)
-    assert result == expected
+    potential_conflicts = PotentialConflicts(
+        [
+            PotentialConflict(first="Jimmy", last="Dean"),
+            PotentialConflict(first="Jane", last="Doe"),
+        ]
+    )
+
+    result = await validator.check_conflict(potential_conflicts)
+
+    # Verify the structure
+    assert hasattr(result, "counts")
+    assert hasattr(result, "results")
+    assert isinstance(result.results, list)
+    assert len(result.results) == 2
+    assert all(isinstance(r, ConflictCheckResponse) for r in result.results)
+
+    # Verify the counts were aggregated
+    assert result.counts["high"] == 2
+    assert result.counts["low"] == 0
+    assert result.counts["lowest"] == 0
+    assert result.counts["highest"] == 0
+
+    # Verify API was called for each conflict
+    assert len(captured_requests) == 2
+    assert captured_requests[0]["json"]["first"] == "Jimmy"
+    assert captured_requests[1]["json"]["first"] == "Jane"
+
+
+@pytest.mark.asyncio
+async def test_check_conflict_aggregates_intervals(monkeypatch):
+    """Test that check_conflict properly aggregates conflict intervals."""
+    from intake_bot.models.validators import PotentialConflict, PotentialConflicts
+
+    responses_payloads = [
+        {"status": 200, "message": "OK", "interval": "highest", "score": 95},
+        {"status": 200, "message": "OK", "interval": "low", "score": 25},
+        {"status": 200, "message": "OK", "interval": "high", "score": 65},
+    ]
+
+    call_count = 0
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            nonlocal call_count
+            response = MockResponse(responses_payloads[call_count])
+            call_count += 1
+            return response
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    validator = IntakeValidator()
+    potential_conflicts = PotentialConflicts(
+        [
+            PotentialConflict(first="Person", last="A"),
+            PotentialConflict(first="Person", last="B"),
+            PotentialConflict(first="Person", last="C"),
+        ]
+    )
+
+    result = await validator.check_conflict(potential_conflicts)
+
+    # Verify correct aggregation
+    assert result.counts["highest"] == 1
+    assert result.counts["high"] == 1
+    assert result.counts["low"] == 1
+    assert result.counts["lowest"] == 0
+    assert len(result.results) == 3
+
+
+@pytest.mark.asyncio
+async def test_check_conflict_with_zero_score(monkeypatch):
+    """Test that check_conflict handles conflicts with score of 0."""
+    from intake_bot.models.validators import PotentialConflict, PotentialConflicts
+
+    response_payload = {
+        "status": 200,
+        "message": "OK",
+        "interval": "lowest",
+        "score": 0,
+    }
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            return MockResponse(response_payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    validator = IntakeValidator()
+    potential_conflicts = PotentialConflicts([PotentialConflict(first="No", last="Conflict")])
+
+    result = await validator.check_conflict(potential_conflicts)
+
+    assert len(result.results) == 1
+    assert result.results[0].score == 0
+    assert result.results[0].interval == "lowest"
+    assert result.counts["lowest"] == 1
+
+
+@pytest.mark.asyncio
+async def test_check_conflict_with_max_score(monkeypatch):
+    """Test that check_conflict handles conflicts with score of 100."""
+    from intake_bot.models.validators import PotentialConflict, PotentialConflicts
+
+    response_payload = {
+        "status": 200,
+        "message": "OK",
+        "interval": "highest",
+        "score": 100,
+    }
+
+    class MockResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def json(self):
+            return self._payload
+
+        def raise_for_status(self):
+            return None
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, headers=None, json=None):
+            return MockResponse(response_payload)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockAsyncClient)
+
+    validator = IntakeValidator()
+    potential_conflicts = PotentialConflicts([PotentialConflict(first="Direct", last="Conflict")])
+
+    result = await validator.check_conflict(potential_conflicts)
+
+    assert len(result.results) == 1
+    assert result.results[0].score == 100
+    assert result.results[0].interval == "highest"
+    assert result.counts["highest"] == 1
 
 
 @pytest.mark.asyncio

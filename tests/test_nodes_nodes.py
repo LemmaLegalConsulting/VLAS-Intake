@@ -1,10 +1,12 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from intake_bot.intake_arg_models import Assets, HouseholdIncome
-from intake_bot.intake_nodes import (
+from intake_bot.models.results import (
+    Status,
+)
+from intake_bot.models.validators import Assets, HouseholdIncome
+from intake_bot.nodes.nodes import (
     caller_ended_conversation,
-    conflict_check,
     continue_intake,
     end_conversation,
     node_caller_ended_conversation,
@@ -13,6 +15,7 @@ from intake_bot.intake_nodes import (
     record_assets_receives_benefits,
     record_case_type,
     record_citizenship,
+    record_conflict,
     record_domestic_violence,
     record_emergency,
     record_income,
@@ -20,9 +23,6 @@ from intake_bot.intake_nodes import (
     record_phone_number,
     record_service_area,
     system_phone_number,
-)
-from intake_bot.intake_results import (
-    Status,
 )
 
 
@@ -36,7 +36,7 @@ def flow_manager():
 @pytest.fixture(autouse=True)
 def patch_validator(monkeypatch):
     validator_mock = MagicMock()
-    monkeypatch.setattr("intake_bot.intake_nodes.validator", validator_mock)
+    monkeypatch.setattr("intake_bot.nodes.nodes.validator", validator_mock)
     return validator_mock
 
 
@@ -44,7 +44,7 @@ def patch_validator(monkeypatch):
 def patch_prompts(monkeypatch):
     prompts_mock = MagicMock()
     prompts_mock.get.side_effect = lambda k: {f"{k}_prompt": True}
-    monkeypatch.setattr("intake_bot.intake_nodes.prompts", prompts_mock)
+    monkeypatch.setattr("intake_bot.nodes.nodes.prompts", prompts_mock)
     return prompts_mock
 
 
@@ -154,7 +154,7 @@ async def test_record_case_type_eligible(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["case_type"]["label"] == "Bankruptcy > Document Review"
     assert flow_manager.state["case_type"]["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
-    assert "conflict_check_prompt" in next_node
+    assert "record_conflict_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -208,19 +208,36 @@ async def test_record_case_type_follow_up_needed(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_conflict_check_no_conflict(flow_manager, patch_validator):
-    patch_validator.check_conflict_of_interest = AsyncMock(return_value=False)
-    result, next_node = await conflict_check(flow_manager, ["Bob"])
+async def test_record_conflict_no_conflict(flow_manager, patch_validator):
+    from intake_bot.models.validators import ConflictCheckResponses
+
+    # Mock check_conflict to return responses with no highest conflicts
+    mock_responses = ConflictCheckResponses(
+        counts={"lowest": 1, "low": 0, "high": 0, "highest": 0}, results=[]
+    )
+    patch_validator.check_conflict = AsyncMock(return_value=mock_responses)
+
+    result, next_node = await record_conflict(flow_manager, [{"first": "Bob", "last": "Smith"}])
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
+    assert result["has_highest_conflict"] is False
     assert "record_domestic_violence_prompt" in next_node
 
 
 @pytest.mark.asyncio
-async def test_conflict_check_conflict(flow_manager, patch_validator):
-    patch_validator.check_conflict_of_interest = AsyncMock(return_value=True)
+async def test_record_conflict_conflict(flow_manager, patch_validator):
+    from intake_bot.models.validators import ConflictCheckResponses
+
+    # Mock check_conflict to return responses with a highest conflict
+    mock_responses = ConflictCheckResponses(
+        counts={"lowest": 0, "low": 0, "high": 0, "highest": 1}, results=[]
+    )
+    patch_validator.check_conflict = AsyncMock(return_value=mock_responses)
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
-    result, next_node = await conflict_check(flow_manager, ["Bob"])
+
+    result, next_node = await record_conflict(flow_manager, [{"first": "Bob", "last": "Smith"}])
+    assert result["status"] == Status.ERROR
+    assert result["has_highest_conflict"] is True
     assert "Alternate providers" in result["error"]
     assert "ineligible_prompt" in next_node
 
@@ -246,7 +263,7 @@ async def test_record_domestic_violence_false(flow_manager):
 @pytest.mark.asyncio
 async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch_validator):
     patch_validator.check_income = AsyncMock(return_value=(True, 1000))
-    with patch("intake_bot.intake_nodes.HouseholdIncome", HouseholdIncome):
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
                 "wages": {"amount": 1000, "period": "month"},
@@ -263,7 +280,7 @@ async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch
 @pytest.mark.asyncio
 async def test_record_income_multiple_members(flow_manager, patch_validator):
     patch_validator.check_income = AsyncMock(return_value=(True, 3200))
-    with patch("intake_bot.intake_nodes.HouseholdIncome", HouseholdIncome):
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
                 "wages": {"amount": 3200, "period": "month"},
@@ -282,7 +299,7 @@ async def test_record_income_multiple_members(flow_manager, patch_validator):
 async def test_record_income_valid_ineligible(flow_manager, patch_validator):
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     patch_validator.check_income = AsyncMock(return_value=(False, 6000))
-    with patch("intake_bot.intake_nodes.HouseholdIncome", HouseholdIncome):
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
                 "wages": {"amount": 6000, "period": "month"},
@@ -300,7 +317,7 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
 
 @pytest.mark.asyncio
 async def test_record_income_invalid(flow_manager):
-    with patch("intake_bot.intake_nodes.HouseholdIncome", HouseholdIncome):
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {"bad": "data"}
     result, next_node = await record_income(flow_manager, income)
     assert isinstance(result, dict)
@@ -332,7 +349,7 @@ async def test_record_assets_receives_benefits_false(flow_manager):
 @pytest.mark.asyncio
 async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
     patch_validator.check_assets = AsyncMock(return_value=(True, 7000))
-    with patch("intake_bot.intake_nodes.Assets", Assets):
+    with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"car": 5000}, {"savings": 2000}]
     result, next_node = await record_assets_list(flow_manager, assets)
     assert isinstance(result, dict)
@@ -348,7 +365,7 @@ async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
 async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator):
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     patch_validator.check_assets = AsyncMock(return_value=(False, 12000))
-    with patch("intake_bot.intake_nodes.Assets", Assets):
+    with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"car": 5000}, {"savings": 7000}]
     result, next_node = await record_assets_list(flow_manager, assets)
     assert isinstance(result, dict)
@@ -363,7 +380,7 @@ async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator
 
 @pytest.mark.asyncio
 async def test_record_assets_list_invalid(flow_manager):
-    with patch("intake_bot.intake_nodes.Assets", Assets):
+    with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"bad": "data"}]
     result, next_node = await record_assets_list(flow_manager, assets)
     assert result["status"] == Status.ERROR
@@ -388,7 +405,7 @@ async def test_record_emergency(flow_manager):
 
 @pytest.mark.asyncio
 async def test_continue_intake_valid(flow_manager):
-    with patch("intake_bot.intake_nodes.prompts.get", return_value={"record_name": True}):
+    with patch("intake_bot.nodes.nodes.prompts.get", return_value={"record_name": True}):
         result, next_node = await continue_intake(flow_manager, "record_name")
     assert result is None
     assert "record_name" in next_node

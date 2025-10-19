@@ -5,11 +5,11 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
-def get_env_var(key: str, default: str = None) -> str:
+def get_ev(key: str, default: str = None) -> str:
     return os.getenv(key=key, default=default)
 
 
-def require_env_var(key: str) -> str:
+def require_ev(key: str) -> str:
     """
     Ensure that the specified environment variable is set and return its value.
 
@@ -27,7 +27,7 @@ def require_env_var(key: str) -> str:
     return value
 
 
-def env_var_is_true(key: str) -> bool:
+def ev_is_true(key: str) -> bool:
     """
     Check if the specified environment variable is set to 'true' (case-insensitive) or '1'.
 

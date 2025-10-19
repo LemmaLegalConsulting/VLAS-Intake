@@ -1,10 +1,11 @@
 import yaml
-
-from intake_bot.globals import ROOT_DIR
+from intake_bot.utils.globals import ROOT_DIR
 
 
 class Prompts:
-    def __init__(self, path: str = f"""{ROOT_DIR}/data/prompts.yml""", default_role: str = "system"):
+    def __init__(
+        self, path: str = f"""{ROOT_DIR}/data/prompts.yml""", default_role: str = "system"
+    ):
         self.prompts = self._load_prompts(path, default_role)
 
     def _load_prompts(self, path: str, default_role: str) -> dict:

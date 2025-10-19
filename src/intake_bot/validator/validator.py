@@ -1,18 +1,20 @@
 import csv
 
 import httpx
-import phonenumbers
-from rapidfuzz import fuzz, process, utils
-
-from intake_bot.env_var import require_env_var
-from intake_bot.globals import ROOT_DIR
-from intake_bot.intake_arg_models import (
+from intake_bot.models.validators import (
     Assets,
     ClassificationResponse,
+    ConflictCheckResponse,
+    ConflictCheckResponses,
     HouseholdIncome,
     IncomePeriod,
+    PotentialConflicts,
 )
-from intake_bot.poverty import poverty_scale_income_qualifies
+from intake_bot.utils.ev import require_ev
+from intake_bot.utils.globals import LEGALSERVER_API_BASE_URL, LEGALSERVER_HEADERS, ROOT_DIR
+from intake_bot.validator.phone_number import phone_number_is_valid
+from intake_bot.validator.poverty import poverty_scale_income_qualifies
+from rapidfuzz import fuzz, process, utils
 
 
 class IntakeValidator:
@@ -59,18 +61,7 @@ class IntakeValidator:
             return taxonomy
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
-        try:
-            parsed = phonenumbers.parse(phone_number, "US")
-            valid = (
-                phonenumbers.is_valid_number(parsed)
-                and phonenumbers.region_code_for_number(parsed) == "US"
-            )
-            if valid:
-                phone_number = phonenumbers.format_number(
-                    parsed, phonenumbers.PhoneNumberFormat.NATIONAL
-                )
-        except phonenumbers.phonenumberutil.NumberParseException:
-            valid = False
+        valid, phone_number = phone_number_is_valid(phone_number=phone_number)
         return valid, phone_number
 
     async def check_service_area(self, location: str) -> str:
@@ -93,7 +84,7 @@ class IntakeValidator:
         """
         Check if the caller's legal problem is a type of case that we can handle.
         """
-        headers = {"Authorization": f"Bearer {require_env_var('FETCH_API_KEY')}"}
+        headers = {"Authorization": f"Bearer {require_ev('FETCH_API_KEY')}"}
         payload = {
             "problem_description": case_description,
             "include_debug_details": False,
@@ -101,13 +92,11 @@ class IntakeValidator:
         }
         try:
             async with httpx.AsyncClient(timeout=60) as client:
-                response = await client.post(
-                    require_env_var("FETCH_URL"), headers=headers, json=payload
-                )
+                response = await client.post(require_ev("FETCH_URL"), headers=headers, json=payload)
             response.raise_for_status()
             response_validated = ClassificationResponse.model_validate(response.json())
         except Exception as e:
-            raise RuntimeError(f"Error during classification: {e}")
+            raise RuntimeError(f"Error during conflict check: {e}")
 
         for label in response_validated.labels:
             if label.label in self.case_type_taxonomy.keys():
@@ -118,14 +107,29 @@ class IntakeValidator:
                 label.legal_problem_code = ""
         return response_validated.model_dump(exclude_none=True)
 
-    async def check_conflict_of_interest(self, opposing_party_members: list[str]) -> bool:
+    async def check_conflict(
+        self, potential_conflicts: PotentialConflicts
+    ) -> ConflictCheckResponses:
         """
         Check for conflict of interest with the caller's case.
         """
-        if "Jimmy Dean" in opposing_party_members:
-            return True
-        else:
-            return False
+        responses = ConflictCheckResponses()
+        try:
+            for potential_conflict in potential_conflicts.root:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    post_args = {
+                        "url": LEGALSERVER_API_BASE_URL + "conflict_check",
+                        "headers": LEGALSERVER_HEADERS,
+                        "json": potential_conflict.model_dump(mode="json", exclude_none=True),
+                    }
+                    response = await client.post(**post_args)
+                response.raise_for_status()
+                response_validated = ConflictCheckResponse.model_validate(response.json())
+                responses.results.append(response_validated)
+                responses.counts[response_validated.interval] += 1
+        except Exception as e:
+            raise RuntimeError(f"Error during conflict check: {e}")
+        return responses
 
     async def check_income(self, income: HouseholdIncome) -> tuple[bool, int]:
         """
@@ -180,13 +184,3 @@ class IntakeValidator:
             "Local Legal Help",
         ]
         return alternatives
-
-
-def check_case_type(case_description: str) -> dict:
-    import asyncio
-
-    async def _check_case_type_async(case_description: str) -> dict:
-        validator = IntakeValidator()
-        return await validator.check_case_type(case_description)
-
-    return asyncio.run(_check_case_type_async(case_description))

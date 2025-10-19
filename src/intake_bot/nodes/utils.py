@@ -1,8 +1,24 @@
+import re
 from functools import wraps
 
 from loguru import logger
 from pipecat_flows import FlowManager
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
+
+
+def clean_pydantic_error_message(error: ValidationError) -> str:
+    """
+    Clean up Pydantic ValidationError message to remove the documentation URL.
+
+    Converts from:
+        "1 validation error for PotentialConflicts\n0.phones.0.number\n  Value error, Invalid US phone number: 111-111-1111 [type=value_error, input_value='111-111-1111', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.12/v/value_error"
+
+    To:
+        "1 validation error for PotentialConflicts\n0.phones.0.number\n  Value error, Invalid US phone number: 111-111-1111 [type=value_error, input_value='111-111-1111', input_type=str]"
+    """
+    error_message = str(error)
+    cleaned = re.sub(r"""\n\s*For further information visit https://[^\s]+""", "", error_message)
+    return cleaned
 
 
 def log_flow_manager_state(flow_manager: FlowManager):

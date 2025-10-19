@@ -1,9 +1,9 @@
 import sys
 
-from .env_var import env_var_is_true
-from .server import logger
+from intake_bot.server import logger
+from intake_bot.utils.ev import ev_is_true
 
-if env_var_is_true("DISABLE_LOCAL_SMART_TURN"):
+if ev_is_true("DISABLE_LOCAL_SMART_TURN"):
     logger.info("LocalSmartTurnAnalyzerV3 is not enabled.")
     turn_analyzer = None
 else:

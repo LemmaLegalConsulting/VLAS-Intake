@@ -1,7 +1,7 @@
 import json
 from typing import Union
 
-from intake_bot.globals import ROOT_DIR
+from intake_bot.utils.globals import ROOT_DIR
 
 # vendored: https://github.com/SuffolkLITLab/docassemble-PovertyScale/commit/afbe6b1d5c445acbdf9cd95c388ad34cb21b40fe
 

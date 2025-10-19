@@ -1,7 +1,86 @@
+from datetime import date
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, RootModel
+from intake_bot.validator.phone_number import phone_number_is_valid
+from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
+
+######################################################################
+# Conflict Check
+######################################################################
+
+
+class PhoneType(str, Enum):
+    BUSINESS = "business"
+    OTHER = "other"
+    HOME = "home"
+    MOBILE = "mobile"
+    FAX = "fax"
+
+
+class Phone(BaseModel):
+    number: str
+    type: PhoneType
+
+    @field_validator("number", mode="after")
+    @classmethod
+    def validate_phone_number(cls, v):
+        is_valid, formatted = phone_number_is_valid(v)
+        if not is_valid:
+            raise ValueError(f"""Invalid US phone number: {v}""")
+        return formatted
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class PotentialConflict(BaseModel):
+    first: str
+    middle: Optional[str] = None
+    last: str
+    dob: Optional[date] = None
+    visa_number: Optional[str] = None
+    phones: Optional[List[Phone]] = None
+
+    @field_validator("middle", "dob", "visa_number", "phones", mode="before")
+    def falsy_to_none(cls, v):
+        if not v:
+            return None
+        return v
+
+
+class PotentialConflicts(RootModel[List[PotentialConflict]]):
+    """A list of PotentialConflict objects."""
+
+    pass
+
+
+class ConflictInterval(str, Enum):
+    LOWEST = "lowest"
+    LOW = "low"
+    HIGH = "high"
+    HIGHEST = "highest"
+
+
+class ConflictCheckResponse(BaseModel):
+    status: int = Field(..., description="HTTP status code")
+    message: str = Field(..., description="Status message")
+    interval: ConflictInterval = Field(..., description="Conflict interval")
+    score: int = Field(..., ge=0, le=100, description="Conflict score (0-100 inclusive)")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class ConflictCheckResponses(BaseModel):
+    counts: Dict[str, int] = Field(
+        default_factory=lambda: {
+            "lowest": 0,
+            "low": 0,
+            "high": 0,
+            "highest": 0,
+        }
+    )
+    results: List[ConflictCheckResponse] = Field(default_factory=lambda: [])
+
 
 ######################################################################
 # Classification

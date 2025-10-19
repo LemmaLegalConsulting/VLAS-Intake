@@ -3,7 +3,7 @@ from loguru import logger
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
 
-from intake_bot.env_var import get_env_var, require_env_var
+from intake_bot.utils.ev import get_ev, require_ev
 
 
 def create_twiml(url: str, body_data: dict = None) -> str:
@@ -40,11 +40,11 @@ async def validate_webhook(request: Request) -> bool:
     Returns:
         bool: True if the request is a valid Twilio webhook (signature matches), False otherwise.
     """
-    auth_token = require_env_var("TWILIO_AUTH_TOKEN")
-    domain = require_env_var("DOMAIN")
+    auth_token = require_ev("TWILIO_AUTH_TOKEN")
+    domain = require_ev("DOMAIN")
 
     # https://community.fly.io/t/redirect-uri-is-http-instead-of-https/6671/6
-    protocol = get_env_var("PROTOCOL", "https")
+    protocol = get_ev("PROTOCOL", "https")
 
     validator = RequestValidator(auth_token)
     url = f"""{protocol}://{domain}/"""

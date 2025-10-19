@@ -14,14 +14,14 @@ from pipecat.runner.types import WebSocketRunnerArguments
 from starlette.responses import HTMLResponse
 
 from intake_bot.bot import bot
-from intake_bot.env_var import env_var_is_true, get_env_var, require_env_var
-from intake_bot.security import generate_websocket_auth_code
-from intake_bot.twilio import create_twiml, validate_webhook
+from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.security import generate_websocket_auth_code
+from intake_bot.utils.twilio import create_twiml, validate_webhook
 
 logger.remove(0)
-logger.add(sys.stderr, level=get_env_var("LOG_LEVEL", "INFO"))
-if env_var_is_true("LOG_TO_FILE"):
-    logger.add("server.log", level=get_env_var("LOG_LEVEL", "INFO"))
+logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"))
+if ev_is_true("LOG_TO_FILE"):
+    logger.add("server.log", level=get_ev("LOG_LEVEL", "INFO"))
 
 app = FastAPI()
 
@@ -46,7 +46,7 @@ async def start_call(request: Request):
         raise HTTPException(status_code=403, detail="Webhook authentication failed")
 
     form_data = await request.form()
-    domain = require_env_var("DOMAIN")
+    domain = require_ev("DOMAIN")
     url = f"""wss://{domain}/ws"""
     body_data = dict(
         caller_phone_number=form_data.get("From"),

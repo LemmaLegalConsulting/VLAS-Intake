@@ -1,21 +1,10 @@
 import sys
 
-from loguru import logger
-from pipecat_flows import (
-    ContextStrategy,
-    ContextStrategyConfig,
-    FlowManager,
-    NodeConfig,
-)
-from pydantic import ValidationError
-
-from intake_bot.env_var import get_env_var
-from intake_bot.intake_arg_models import Assets, HouseholdIncome
-from intake_bot.intake_results import (
+from intake_bot.models.results import (
     AssetsResult,
     CaseTypeResult,
     CitizenshipResult,
-    ConflictCheckResult,
+    ConflictResult,
     DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
@@ -26,15 +15,22 @@ from intake_bot.intake_results import (
     Status,
     status_helper,
 )
-from intake_bot.intake_utils import convert_and_log_result
-from intake_bot.intake_validator import IntakeValidator
-from intake_bot.prompts import Prompts
+from intake_bot.models.validators import Assets, HouseholdIncome, PotentialConflicts
+from intake_bot.nodes.utils import clean_pydantic_error_message, convert_and_log_result
+from intake_bot.utils.ev import get_ev
+from intake_bot.utils.prompts import Prompts
+from intake_bot.validator.validator import IntakeValidator
+from loguru import logger
+from pipecat_flows import (
+    ContextStrategy,
+    ContextStrategyConfig,
+    FlowManager,
+    NodeConfig,
+)
+from pydantic import ValidationError
 
-# Initialize Prompts
+# Initialize
 prompts = Prompts()
-
-
-# Initialize IntakeValidator
 validator = IntakeValidator()
 
 
@@ -47,11 +43,11 @@ def node_initial() -> NodeConfig:
     """
     Create initial node for welcoming the caller. Allow the conversation to be ended.
     """
-    initial_prompt = get_env_var("TEST_INITIAL_PROMPT", default="initial")
+    initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
     try:
         initial_function = getattr(
             sys.modules[__name__],
-            get_env_var("TEST_INITIAL_FUNCTION", default="system_phone_number"),
+            get_ev("TEST_INITIAL_FUNCTION", default="system_phone_number"),
         )
     except AttributeError:
         raise ValueError(f"""Function '{initial_function}' does not exist.""")
@@ -237,8 +233,8 @@ async def record_case_type(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("conflict_check"),
-                "functions": [conflict_check],
+                **prompts.get("record_conflict"),
+                "functions": [record_conflict],
             }
         )
     else:
@@ -253,31 +249,52 @@ async def record_case_type(
     return result, next_node
 
 
-@convert_and_log_result("conflict_check")
-async def conflict_check(
-    flow_manager: FlowManager, opposing_party_members: list[str]
+@convert_and_log_result("record_conflict")
+async def record_conflict(
+    flow_manager: FlowManager, opposing_parties: list[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Check for conflicts of interest with the caller's case.
+    Collect information about the opposing parties.
 
     Args:
-        opposing_party_members (list[str]): The members of the opposing party.
+        opposing_parties (list):
+            A Pydantic model `PotentialConflicts` with a list of people who may be involved as opposing parties in the legal case. Each person should include their first, middle, and last name, date of birth, visa number (if applicable), and a list of phone numbers with types.
+
+            Example:
+                [
+                    {
+                        "first": "Deanna",
+                        "middle": "Julie",
+                        "last": "Troi",
+                        "dob": "1974-12-25",
+                        "phones": [
+                            {
+                                "number": "5555551212",
+                                "type": "mobile"
+                            },
+                        ],
+                    },
+                ]
     """
-    # TODO: Need to see what LegalServer's conflict-check API looks like;
-    # may need to ask for other related names, not just adverse;
-    # may need to perform additional searches/checks for the caller
-    # to see if they had previous cases that might disqualify.
-    # Probably flag as "potential conflict" and pass them on in many cases.
+    try:
+        opposing_parties_validated = PotentialConflicts.model_validate(opposing_parties)
+        responses = await validator.check_conflict(potential_conflicts=opposing_parties_validated)
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=status_helper(False),
+            error=f"""There was an error validating the `opposing_parties`: {cleaned_error}.""",
+        )
+        return result, None
 
-    there_is_a_conflict = await validator.check_conflict_of_interest(
-        opposing_party_members=opposing_party_members
-    )
-
-    status = status_helper(not there_is_a_conflict)
-    result = ConflictCheckResult(
+    has_highest_conflict = responses.counts["highest"] > 0
+    status = status_helper(not has_highest_conflict)
+    result = ConflictResult(
         status=status,
-        there_is_a_conflict=there_is_a_conflict,
-        opposing_party_members=opposing_party_members,
+        has_highest_conflict=has_highest_conflict,
+        responses=responses,
+        opposing_parties=opposing_parties_validated,
     )
     if status == Status.SUCCESS:
         next_node = NodeConfig(
@@ -327,7 +344,7 @@ async def record_domestic_violence(
 
 @convert_and_log_result("income")
 async def record_income(
-    flow_manager: FlowManager, income: HouseholdIncome
+    flow_manager: FlowManager, income: dict[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect income information for all household members and determine eligibility.
@@ -352,9 +369,11 @@ async def record_income(
         household_size = len(income_validated.root.keys())
         is_eligible, income_monthly = await validator.check_income(income=income_validated)
     except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
         result = IntakeFlowResult(
             status=status_helper(False),
-            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {HouseholdIncome.model_json_schema()}""",
+            error=f"""There was an error validating the `income`: {cleaned_error}.""",
         )
         return result, None
 
@@ -425,7 +444,7 @@ async def record_assets_receives_benefits(
 
 @convert_and_log_result("assets")
 async def record_assets_list(
-    flow_manager: FlowManager, assets: list[dict[str, int]]
+    flow_manager: FlowManager, assets: list[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect assets' value and determine eligibility of caller.
@@ -444,9 +463,11 @@ async def record_assets_list(
         assets_validated = Assets.model_validate(assets)
         is_eligible, assets_value = await validator.check_assets(assets=assets_validated)
     except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
         result = IntakeFlowResult(
             status=status_helper(False),
-            error=f"""There was an error validating the `income`: {e}. Expected `income` format is this pydantic model: {Assets.model_json_schema()}""",
+            error=f"""There was an error validating the `assets`: {cleaned_error}.""",
         )
         return result, None
 
