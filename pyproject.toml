@@ -1,6 +1,6 @@
 [project]
 name = "intake-bot"
-version = "0.1.6"
+version = "0.1.7"
 description = "Virginia Legal Aid Society (VLAS) Telephone Intake Bot"
 readme = "README.md"
 requires-python = ">=3.12"
