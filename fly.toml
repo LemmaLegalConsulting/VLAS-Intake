@@ -20,8 +20,9 @@ processes = ['app']
 DOMAIN = 'vlas-intake.fly.dev'
 PROTOCOL = 'https'
 LOG_LEVEL = 'DEBUG'
-TRANSFORMERS_NO_ADVISORY_WARNINGS = '1'
 FETCH_URL = 'https://lemma-intake.fly.dev/api/classify'
+LEGAL_SERVER_SUBDOMAIN = 'vlas-demo'
+TRANSFORMERS_NO_ADVISORY_WARNINGS = '1'
 
 [[vm]]
 memory = '1gb'
