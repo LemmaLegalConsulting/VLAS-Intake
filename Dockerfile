@@ -1,5 +1,6 @@
 # Stage 1: Build with uv
-FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim AS builder
+FROM python:3.12-slim-bookworm AS builder
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1
@@ -18,14 +19,12 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Stage 2: Final image
 FROM python:3.12-slim-bookworm
 
-WORKDIR /app
-
 COPY --from=builder /app /app
-
+WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8765
-
 ENTRYPOINT []
+
 CMD ["granian", "intake_bot.server:app", "--interface", "asgi", "--host", "0.0.0.0", "--port", "8765"]
