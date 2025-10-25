@@ -90,16 +90,15 @@ npm run --prefix ./client/typescript dev -- --port 5174
 
     Enable Pipecat Tail connectivity by setting `ENABLE_TAIL_OBSERVER=TRUE` in your `.env`.
 
+    Install the Pipecat-CLI:
+    ```sh
+    uv tool install pipecat-ai-cli
+    ```
+
     Then start the app:
 
     ```sh
-    pctail [--uri URI]
-    ```
-
-    or
-
-    ```sh
-    pipecat-tail [--uri URI]
+    pipecat tail [--url URL]
     ```
 
     By default, it will connect to `ws://localhost:9292`.
