@@ -85,18 +85,21 @@ def dev_legalserver():
                 "first": "Dexter",
                 "last": "Campbell",
             }
+            print(payload)
             response = httpx.post(url, headers=LEGALSERVER_HEADERS, json=payload)
             if response.status_code != 200:
                 print(response.status_code, response.reason)
             print(response.text)
         except httpx.exceptions.RequestException as e:
             print("HTTP Request failed", e)
+        except Exception as e:
+            print("Exception", e)
 
     # test_post_matters()
     # print()
     # test_get_matters()
     # print()
-    # test_post_conflict_check()
+    test_post_record_conflict()
 
 
 if __name__ == "__main__":
