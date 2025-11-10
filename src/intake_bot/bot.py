@@ -159,6 +159,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
+        idle_timeout_secs=None,  # Disable idle timeout; Twilio's on_session_timeout handles timeouts
         observers=observers,
     )
 
