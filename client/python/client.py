@@ -17,7 +17,11 @@ from dotenv import load_dotenv
 from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
-from pipecat.frames.frames import EndFrame, LLMRunFrame, OutputTransportMessageUrgentFrame
+from pipecat.frames.frames import (
+    EndFrame,
+    LLMRunFrame,
+    OutputTransportMessageUrgentFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
