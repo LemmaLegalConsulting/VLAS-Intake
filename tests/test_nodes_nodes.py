@@ -1,21 +1,19 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from intake_bot.models.results import (
-    Status,
-)
-from intake_bot.models.validators import Assets, HouseholdIncome
+from intake_bot.models.intake_flow_result import Status
+from intake_bot.models.validator import Assets, HouseholdIncome
 from intake_bot.nodes.nodes import (
     caller_ended_conversation,
     continue_intake,
     end_conversation,
     node_caller_ended_conversation,
     node_end_conversation,
+    record_adverse_parties,
     record_assets_list,
     record_assets_receives_benefits,
     record_case_type,
     record_citizenship,
-    record_conflict,
     record_domestic_violence,
     record_emergency,
     record_income,
@@ -135,111 +133,66 @@ async def test_record_service_area_ineligible_no_match(flow_manager, patch_valid
 
 @pytest.mark.asyncio
 async def test_record_case_type_eligible(flow_manager, patch_validator):
+    from intake_bot.models.classifier import ClassificationResponse
+
     patch_validator.check_case_type = AsyncMock(
-        return_value={
-            "labels": [
-                {
-                    "label": "Bankruptcy > Document Review",
-                    "confidence": 3.4,
-                    "legal_problem_code": "01 Bankruptcy/Debtor Relief",
-                }
-            ],
-            "follow_up_questions": [],
-        }
+        return_value=ClassificationResponse(
+            legal_problem_code="01 Bankruptcy/Debtor Relief",
+            confidence=0.95,
+            is_eligible=True,
+            follow_up_questions=[],
+        )
     )
 
-    result, next_node = await record_case_type(flow_manager, "divorce")
+    result, next_node = await record_case_type(flow_manager, "bankruptcy")
 
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
-    assert flow_manager.state["case_type"]["label"] == "Bankruptcy > Document Review"
-    assert flow_manager.state["case_type"]["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
-    assert "record_conflict_prompt" in next_node
+    assert result["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
+    assert result["is_eligible"] is True
+    assert "record_domestic_violence_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_case_type_ineligible(flow_manager, patch_validator):
+    from intake_bot.models.classifier import ClassificationResponse
+
     patch_validator.check_case_type = AsyncMock(
-        return_value={
-            "labels": [
-                {
-                    "label": "Unknown Label",
-                    "confidence": 3.0,
-                    "legal_problem_code": "",
-                }
-            ],
-            "follow_up_questions": [],
-        }
+        return_value=ClassificationResponse(
+            legal_problem_code="00 Criminal Defense",
+            confidence=0.95,
+            is_eligible=False,
+            follow_up_questions=[],
+        )
     )
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
 
-    result, next_node = await record_case_type(flow_manager, "aliens")
+    result, next_node = await record_case_type(flow_manager, "criminal")
 
     assert result["status"] == Status.ERROR
     assert "Alternate providers" in result["error"]
-    assert flow_manager.state["case_type"]["label"] == "Unknown Label"
-    assert flow_manager.state["case_type"]["legal_problem_code"] == ""
+    assert result["is_eligible"] is False
     assert "ineligible_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_case_type_follow_up_needed(flow_manager, patch_validator):
+    from intake_bot.models.classifier import ClassificationResponse, FollowUpQuestion
+
     patch_validator.check_case_type = AsyncMock(
-        return_value={
-            "labels": [
-                {
-                    "label": "Housing > Follow Up",
-                    "confidence": 1.1,
-                    "legal_problem_code": "",
-                }
-            ],
-            "follow_up_questions": [
-                {"question": "Is there a court date?"},
-            ],
-        }
+        return_value=ClassificationResponse(
+            legal_problem_code=None,
+            confidence=None,
+            is_eligible=None,
+            follow_up_questions=[FollowUpQuestion(question="Is there a court date?")],
+        )
     )
 
     result, next_node = await record_case_type(flow_manager, "needs help")
 
     assert result["status"] == Status.ERROR
-    assert "Use these questions" in result["error"]
-    assert flow_manager.state["case_type"]["label"] == "Housing > Follow Up"
+    assert "Is there a court date?" in result["error"]
     assert next_node is None
-
-
-@pytest.mark.asyncio
-async def test_record_conflict_no_conflict(flow_manager, patch_validator):
-    from intake_bot.models.validators import ConflictCheckResponses
-
-    # Mock check_conflict to return responses with no highest conflicts
-    mock_responses = ConflictCheckResponses(
-        counts={"lowest": 1, "low": 0, "high": 0, "highest": 0}, results=[]
-    )
-    patch_validator.check_conflict = AsyncMock(return_value=mock_responses)
-
-    result, next_node = await record_conflict(flow_manager, [{"first": "Bob", "last": "Smith"}])
-    assert isinstance(result, dict)
-    assert result["status"] == Status.SUCCESS
-    assert result["has_highest_conflict"] is False
-    assert "record_domestic_violence_prompt" in next_node
-
-
-@pytest.mark.asyncio
-async def test_record_conflict_conflict(flow_manager, patch_validator):
-    from intake_bot.models.validators import ConflictCheckResponses
-
-    # Mock check_conflict to return responses with a highest conflict
-    mock_responses = ConflictCheckResponses(
-        counts={"lowest": 0, "low": 0, "high": 0, "highest": 1}, results=[]
-    )
-    patch_validator.check_conflict = AsyncMock(return_value=mock_responses)
-    patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
-
-    result, next_node = await record_conflict(flow_manager, [{"first": "Bob", "last": "Smith"}])
-    assert result["status"] == Status.ERROR
-    assert result["has_highest_conflict"] is True
-    assert "Alternate providers" in result["error"]
-    assert "ineligible_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -392,7 +345,7 @@ async def test_record_citizenship(flow_manager):
     result, next_node = await record_citizenship(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
-    assert "record_emergency_prompt" in next_node
+    assert "record_adverse_parties_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -401,6 +354,39 @@ async def test_record_emergency(flow_manager):
     assert isinstance(result, dict)
     assert flow_manager.state["emergency"]["is_emergency"] is True
     assert "complete_intake_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_adverse_parties_valid(flow_manager):
+    adverse_parties = [
+        {
+            "first": "Bob",
+            "last": "Smith",
+        }
+    ]
+
+    result, next_node = await record_adverse_parties(flow_manager, adverse_parties)
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert len(result["adverse_parties"]) == 1
+    assert result["adverse_parties"][0]["first"] == "Bob"
+    assert result["adverse_parties"][0]["last"] == "Smith"
+    assert "record_emergency_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_adverse_parties_invalid(flow_manager):
+    # Invalid data - missing required 'last' field
+    adverse_parties = [
+        {
+            "first": "Bob",
+        }
+    ]
+
+    result, next_node = await record_adverse_parties(flow_manager, adverse_parties)
+    assert result["status"] == Status.ERROR
+    assert "validating the `adverse_parties`" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio

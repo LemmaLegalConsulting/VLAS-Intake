@@ -1,13 +1,14 @@
 import json
+from pathlib import Path
 from typing import Union
 
-from intake_bot.utils.globals import ROOT_DIR
+from intake_bot.utils.globals import DATA_DIR
 
 # vendored: https://github.com/SuffolkLITLab/docassemble-PovertyScale/commit/afbe6b1d5c445acbdf9cd95c388ad34cb21b40fe
 
 
 def get_poverty_scale_data() -> dict:
-    path = f"""{ROOT_DIR}/data/federal_poverty_scale.json"""
+    path = Path(DATA_DIR) / "federal_poverty_scale.json"
     with open(path) as f:
         ps_data: dict = json.load(f)
     return ps_data

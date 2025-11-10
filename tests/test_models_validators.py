@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.models.validators import Phone, PhoneType
+from intake_bot.models.validator import Phone, PhoneType
 
 
 @pytest.mark.parametrize(

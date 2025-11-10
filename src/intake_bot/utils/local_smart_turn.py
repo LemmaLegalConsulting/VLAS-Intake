@@ -8,7 +8,9 @@ if ev_is_true("DISABLE_LOCAL_SMART_TURN"):
     turn_analyzer = None
 else:
     try:
-        from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+        from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import (
+            LocalSmartTurnAnalyzerV3,
+        )
 
         turn_analyzer = LocalSmartTurnAnalyzerV3()
     except Exception:

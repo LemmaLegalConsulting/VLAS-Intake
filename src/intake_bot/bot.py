@@ -21,7 +21,9 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
-from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
+from pipecat.processors.aggregators.llm_response_universal import (
+    LLMContextAggregatorPair,
+)
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
@@ -31,34 +33,69 @@ from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
+from pipecat.transports.websocket.fastapi import (
+    FastAPIWebsocketParams,
+    FastAPIWebsocketTransport,
+)
 from pipecat_flows import FlowManager
 
 from intake_bot.nodes.nodes import node_initial
 from intake_bot.nodes.utils import log_flow_manager_state
+from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
 from intake_bot.utils.local_smart_turn import turn_analyzer
 from intake_bot.utils.security import verify_websocket_auth_code
 
 
-async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
-    if len(audio) > 0:
-        recordings_dir = "recordings"
-        os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
-        filename = os.path.join(
-            recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        )
-        with io.BytesIO() as buffer:
-            with wave.open(buffer, "wb") as wf:
-                wf.setsampwidth(2)
-                wf.setnchannels(num_channels)
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio)
-            async with aiofiles.open(filename, "wb") as file:
-                await file.write(buffer.getvalue())
-        logger.info(f"Merged audio saved to {filename}")
+async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
+    """
+    Main bot entry point.
+    """
+    transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
+    logger.info(f"Auto-detected transport: {transport_type}")
+
+    call_id = call_data["call_id"]
+
+    if ev_is_true("TEST_CLIENT_ALLOWED"):
+        call_data["body"]["caller_phone_number"] = "8665345243"
+        call_is_valid = True
     else:
-        logger.info("No audio data to save")
+        websocket_auth_code = call_data["body"].get("websocket_auth_code")
+        call_is_valid = verify_websocket_auth_code(
+            call_id=call_id,
+            received_code=websocket_auth_code,
+        )
+
+    if not call_is_valid:
+        logger.debug(f"""WebSocket connection denied for call_id: {call_id}""")
+        return {"code": 1008}
+
+    logger.debug(f"""WebSocket connection accepted for call_id: {call_id}""")
+
+    serializer = TwilioFrameSerializer(
+        stream_sid=call_data["stream_id"],
+        call_sid=call_data["call_id"],
+        account_sid=require_ev("TWILIO_ACCOUNT_SID"),
+        auth_token=require_ev("TWILIO_AUTH_TOKEN"),
+    )
+
+    transport = FastAPIWebsocketTransport(
+        websocket=runner_args.websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            add_wav_header=False,
+            serializer=serializer,
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(stop_secs=float(get_ev("VAD_STOP_SECS", 0.2)))
+            ),
+            turn_analyzer=turn_analyzer,
+        ),
+    )
+
+    handle_sigint = runner_args.handle_sigint
+
+    await run_bot(transport, call_data, handle_sigint)
 
 
 async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool):
@@ -66,7 +103,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     Main function to set up and run the VLAS intake bot.
     """
     stt = OpenAISTTService(
-        api_key=os.getenv("OPENAI_API_KEY"),
+        api_key=require_ev("OPENAI_API_KEY"),
         model="gpt-4o-transcribe",
         prompt="Expect words related law, legal situations, and information about people.",
     )
@@ -162,6 +199,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
         log_flow_manager_state(flow_manager)
+        await save_intake_legalserver(flow_manager)
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
@@ -184,52 +222,21 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         await runner.run(task)
 
 
-async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
-    """
-    Main bot entry point.
-    """
-    transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
-    logger.info(f"Auto-detected transport: {transport_type}")
-
-    call_id = call_data["call_id"]
-
-    if ev_is_true("TEST_CLIENT_ALLOWED"):
-        call_data["body"]["caller_phone_number"] = "8665345243"
-        call_is_valid = True
-    else:
-        websocket_auth_code = call_data["body"].get("websocket_auth_code")
-        call_is_valid = verify_websocket_auth_code(
-            call_id=call_id,
-            received_code=websocket_auth_code,
+async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
+    if len(audio) > 0:
+        recordings_dir = "recordings"
+        os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
+        filename = os.path.join(
+            recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         )
-
-    if not call_is_valid:
-        logger.debug(f"""WebSocket connection denied for call_id: {call_id}""")
-        return {"code": 1008}
-
-    logger.debug(f"""WebSocket connection accepted for call_id: {call_id}""")
-
-    serializer = TwilioFrameSerializer(
-        stream_sid=call_data["stream_id"],
-        call_sid=call_data["call_id"],
-        account_sid=require_ev("TWILIO_ACCOUNT_SID"),
-        auth_token=require_ev("TWILIO_AUTH_TOKEN"),
-    )
-
-    transport = FastAPIWebsocketTransport(
-        websocket=runner_args.websocket,
-        params=FastAPIWebsocketParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            add_wav_header=False,
-            serializer=serializer,
-            vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=float(get_ev("VAD_STOP_SECS", 0.2)))
-            ),
-            turn_analyzer=turn_analyzer,
-        ),
-    )
-
-    handle_sigint = runner_args.handle_sigint
-
-    await run_bot(transport, call_data, handle_sigint)
+        with io.BytesIO() as buffer:
+            with wave.open(buffer, "wb") as wf:
+                wf.setsampwidth(2)
+                wf.setnchannels(num_channels)
+                wf.setframerate(sample_rate)
+                wf.writeframes(audio)
+            async with aiofiles.open(filename, "wb") as file:
+                await file.write(buffer.getvalue())
+        logger.info(f"Merged audio saved to {filename}")
+    else:
+        logger.info("No audio data to save")

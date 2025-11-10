@@ -1,6 +1,6 @@
 from enum import Enum
 
-from intake_bot.models.validators import ConflictCheckResponses, PotentialConflicts
+from intake_bot.models.validator import AdverseParties
 from pydantic import BaseModel, ConfigDict
 
 
@@ -16,6 +16,10 @@ class IntakeFlowResult(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
+class AdversePartiesResult(IntakeFlowResult):
+    adverse_parties: AdverseParties
+
+
 class AssetsResult(IntakeFlowResult):
     is_eligible: bool
     listing: list
@@ -24,20 +28,12 @@ class AssetsResult(IntakeFlowResult):
 
 
 class CaseTypeResult(IntakeFlowResult):
-    is_eligible: bool = None
-    label: str = None
-    confidence: float = None
-    legal_problem_code: str = None
+    is_eligible: bool
+    legal_problem_code: str
 
 
 class CitizenshipResult(IntakeFlowResult):
     is_citizen: bool
-
-
-class ConflictResult(IntakeFlowResult):
-    has_highest_conflict: bool
-    responses: ConflictCheckResponses
-    opposing_parties: PotentialConflicts
 
 
 class DomesticViolenceResult(IntakeFlowResult):
@@ -70,13 +66,3 @@ class PhoneNumberResult(IntakeFlowResult):
 class ServiceAreaResult(IntakeFlowResult):
     location: str
     is_eligible: bool
-
-
-######################################################################
-# Functions - Utility
-######################################################################
-
-
-def status_helper(status: bool) -> Status:
-    """Helper for FlowResult's `status` value."""
-    return Status.SUCCESS if status else Status.ERROR

@@ -1,0 +1,97 @@
+00 Criminal Defense
+00 Criminal Prosecution
+00 Traffic Violations
+00 DUI/DWI
+00 Drug Charges
+00 Felony Charges
+00 Business Formation/For-Profit
+00 Business/Commercial Disputes
+00 Intellectual Property
+00 Personal Injury/Damages
+00 Medical Malpractice
+00 Investment/Securities
+00 Complex Estate Planning
+00 Tax Planning/Complex Taxes
+00 Government Employment
+00 Attorney Malpractice
+00 Bar Disciplinary
+00 Non-Legal Services
+01 Bankruptcy/Debtor Relief
+02 Collect/Repo/Def/Garnsh
+03 Contract/Warranties
+04 Collection Practices / Creditor Harassment
+05 Predatory Lending Practices (Not Mortgages)
+06 Loans/Installment Purchases (Not Collections)
+07 Public Utilities
+08 Unfair and Deceptive Sales Practices (Not Real Property)
+09 Other Consumer/Finance
+12 Discipline (Including Expulsion and Suspension)
+13 Special Education/Learning Disabilities
+14 Access (Including Bilingual, Residency, Testing)
+15 Vocational Education
+16 Student Financial Aid
+19 Other Education
+21 Employment Discrimination
+22 Wage Claims and Other FLSA Issues
+23 EITC (Earned Income Tax Credit)
+24 Taxes (Not EITC)
+25 Employee Rights
+26 Agricultural Workers Issues (Not Wage Claims/FLSA Issues)
+29 Other Employment
+30 Adoption
+31 Custody/Visitation
+32 Divorce/Sep./Annul.
+33 Adult Guardianship / Conservatorship
+34 Name Change
+35 Parental Rights Termination
+36 Paternity
+37 Domestic Abuse
+38 Support
+39 Other Family
+41 Delinquent
+42 Neglected/Abused/Dependent
+43 Emancipation
+44 Minor Guardianship / Conservatorship
+49 Other Juvenile
+51 Medicaid
+52 Medicare
+53 Goverment Children's Health Insurance Programs
+54 Home and Community Based Care
+55 Private Health Insurance
+56 Long Term Health Care Facilities
+57 State and Local Health
+59 Other Health
+61 Federally Subsidized Housing
+62 Homeownership/Real Property (Not Foreclosure)
+63 Private Landlord/Tenant
+64 Public Housing
+65 Mobile Homes
+66 Housing Discrimination
+67 Mortgage Foreclosures (Not Predatory Lending/Practices)
+68 Mortgage Predatory Lending/Practices
+69 Other Housing
+71 TANF
+72 Social Security (Not SSDI)
+73 Food Stamps
+74 SSDI
+75 SSI
+76 Unemployment Compensation
+77 Veterans Benefits
+78 State and Local Income Maintenance
+79 Other Income Maintenence
+81 Immigration/Naturalization
+82 Mental Health
+84 Disability Rights
+85 Civil Rights
+86 Human Trafficking
+87 Criminal Record Expungement
+89 Other Individual Rights
+91 Legal Assist. to Non-Profit Org. or Group (Incl. Incorp./Diss.)
+92 Indian/Tribal Law
+93 Licenses (Drivers, Occupational, and Others)
+94 Torts
+95 Wills and Estates
+96 Advanced Directives/Powers of Attorney
+97 Municipal Legal Needs
+98 Tribal Court - Criminal
+99 Other Miscellaneous

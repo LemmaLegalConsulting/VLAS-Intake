@@ -96,23 +96,6 @@ record_case_type:
         After the caller provides their description, say: "Thank you. Please wait while your case description is processed."
         Then proceed to call the function.
 
-# Conflict check
-record_conflict:
-  task_messages:
-    - content: >-
-        [Instructions]
-        Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest. Ask the caller to provide the full names of all individuals who may be opposing parties in their legal case. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business). Collect these details for each opposing parties.
-
-        [User Prompt]
-        Please provide the name, date of birth, and phone number of each opposing parties in this legal case.
-
-        [Additional Notes]
-        - If there are no opposing parties involved in the legal case, `opposing_parties` should be an empty list.
-        - If there are opposing parties involved in the legal case, collect their information in a list `opposing_parties` and call the function with that list.
-        - Omit any fields that you don't have a value for.
-        - If the opposing party's dob or phone isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
-        - ALWAYS call the `record_conflict` function, passing the list of `opposing_parties`.
-
 # Domestic violence
 record_domestic_violence:
   task_messages:
@@ -225,6 +208,23 @@ record_emergency:
         An emergency is a client situation which requires immediate response because:
         -	the client, her family, or major assets is/are in imminent danger of physical harm; or
         -	important legal rights of the client's are about to be lost because of an approaching deadline (anything with a deadline or court hearing less than a week away is considered an emergency)
+
+# Adverse parties
+record_adverse_parties:
+  task_messages:
+    - content: >-
+        [Instructions]
+        Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business). Collect these details for each adverse (opposing) party.
+
+        [User Prompt]
+        Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case.
+
+        [Additional Notes]
+        - If there are no adverse (opposing) parties involved in the legal case, `adverse_parties` should be an empty list.
+        - If there are adverse (opposing) parties involved in the legal case, collect their information in a list `adverse_parties` and call the function with that list.
+        - Omit any fields that you don't have a value for.
+        - If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
+        - ALWAYS call the `record_adverse_parties` function, passing the list of `adverse_parties`.
 
 # Intake complete
 complete_intake:

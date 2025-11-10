@@ -1,13 +1,15 @@
 import pytest
-from intake_bot.utils.security import generate_websocket_auth_code, verify_websocket_auth_code
+
+from intake_bot.utils.security import (
+    generate_websocket_auth_code,
+    verify_websocket_auth_code,
+)
 
 
 @pytest.fixture
 def mock_secret_key(monkeypatch):
     # Mock the environment variable for the secret key
-    test_key_hex = (
-        "a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef"  # Example 64-char hex
-    )
+    test_key_hex = "a1b2c3d4e5f678901234567890abcdef1234567890abcdef1234567890abcdef"  # Example 64-char hex
     monkeypatch.setenv("WEBSOCKET_SECURITY_TOKEN", test_key_hex)
 
 

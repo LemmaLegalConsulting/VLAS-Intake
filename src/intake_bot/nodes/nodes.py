@@ -1,10 +1,10 @@
 import sys
 
-from intake_bot.models.results import (
+from intake_bot.models.intake_flow_result import (
+    AdversePartiesResult,
     AssetsResult,
     CaseTypeResult,
     CitizenshipResult,
-    ConflictResult,
     DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
@@ -13,13 +13,16 @@ from intake_bot.models.results import (
     PhoneNumberResult,
     ServiceAreaResult,
     Status,
+)
+from intake_bot.models.validator import AdverseParties, Assets, HouseholdIncome
+from intake_bot.nodes.utils import (
+    clean_pydantic_error_message,
+    convert_and_log_result,
     status_helper,
 )
-from intake_bot.models.validators import Assets, HouseholdIncome, PotentialConflicts
-from intake_bot.nodes.utils import clean_pydantic_error_message, convert_and_log_result
+from intake_bot.nodes.validator import IntakeValidator
 from intake_bot.utils.ev import get_ev
-from intake_bot.utils.prompts import Prompts
-from intake_bot.validator.validator import IntakeValidator
+from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
 from pipecat_flows import (
     ContextStrategy,
@@ -30,7 +33,7 @@ from pipecat_flows import (
 from pydantic import ValidationError
 
 # Initialize
-prompts = Prompts()
+prompts = NodePrompts()
 validator = IntakeValidator()
 
 
@@ -82,7 +85,8 @@ async def system_phone_number(
     flow_manager: FlowManager,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    This function checks if the phone system recieved the caller's phone number; if so, confirms the number with the caller; if not, collects the caller's phone number.
+    This function checks if the phone system recieved the caller's phone number;
+    if so, confirms the number with the caller; if not, collects the caller's phone number.
     """
     caller_id_phone_number = flow_manager.state.get("phone")
     logger.debug(f"""Caller ID phone number: {caller_id_phone_number}""")
@@ -191,7 +195,8 @@ async def record_service_area(
             result.error = f"No exact match found. Maybe you meant {match}?"
             next_node = None
         else:
-            result.error = f"""Not in our service area. Alternate providers: {await validator.get_alternative_providers()}"""
+            result.error = f"""Not in our service area.
+            Alternate providers: {await validator.get_alternative_providers()}"""
             next_node = NodeConfig(
                 node_partial_reset_with_summary()
                 | {
@@ -214,87 +219,27 @@ async def record_case_type(
     """
     case_response = await validator.check_case_type(case_description=case_description)
     logger.debug(f"""case_response: {case_response}""")
-    best_match = case_response["labels"][0]
-    logger.debug(f"""best_match: {best_match}""")
-    if float(best_match["confidence"]) < 2.5 and "follow_up_questions" in case_response:
+
+    # Check if we need to ask follow-up questions
+    if case_response.follow_up_questions:
         follow_up_questions = [
-            f"""Question: {item["question"]}"""
-            + (f"""Options: {item["options"]}""" if "options" in item else "")
-            for item in case_response["follow_up_questions"]
+            f"""Question: {item.question}"""
+            + (f"""Options: {item.options}""" if item.options else "")
+            for item in case_response.follow_up_questions
         ]
-        error_text = f"""Use these questions to gather additional information and then resubmit the case description with the additional questions and answers. {follow_up_questions}"""
-        result = CaseTypeResult(status=status_helper(False), **best_match, error=error_text)
-        return result, None
-
-    is_eligible = bool(best_match["legal_problem_code"])
-    status = status_helper(is_eligible)
-    result = CaseTypeResult(status=status, is_eligible=is_eligible, **best_match)
-    if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_conflict"),
-                "functions": [record_conflict],
-            }
-        )
-    else:
-        result.error = f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("ineligible"),
-                "functions": [end_conversation],
-            }
-        )
-    return result, next_node
-
-
-@convert_and_log_result("record_conflict")
-async def record_conflict(
-    flow_manager: FlowManager, opposing_parties: list[dict]
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect information about the opposing parties.
-
-    Args:
-        opposing_parties (list):
-            A Pydantic model `PotentialConflicts` with a list of people who may be involved as opposing parties in the legal case. Each person should include their first, middle, and last name, date of birth, visa number (if applicable), and a list of phone numbers with types.
-
-            Example:
-                [
-                    {
-                        "first": "Deanna",
-                        "middle": "Julie",
-                        "last": "Troi",
-                        "dob": "1974-12-25",
-                        "phones": [
-                            {
-                                "number": "5555551212",
-                                "type": "mobile"
-                            },
-                        ],
-                    },
-                ]
-    """
-    try:
-        opposing_parties_validated = PotentialConflicts.model_validate(opposing_parties)
-        responses = await validator.check_conflict(potential_conflicts=opposing_parties_validated)
-    except ValidationError as e:
-        logger.debug(e)
-        cleaned_error = clean_pydantic_error_message(e)
+        error_text = f"""Use these questions to gather additional information and
+        then resubmit the case description with the additional questions and answers. {follow_up_questions}"""
         result = IntakeFlowResult(
-            status=status_helper(False),
-            error=f"""There was an error validating the `opposing_parties`: {cleaned_error}.""",
+            status=Status.ERROR,
+            error=error_text,
         )
         return result, None
 
-    has_highest_conflict = responses.counts["highest"] > 0
-    status = status_helper(not has_highest_conflict)
-    result = ConflictResult(
+    status = status_helper(case_response.is_eligible)
+    result = CaseTypeResult(
         status=status,
-        has_highest_conflict=has_highest_conflict,
-        responses=responses,
-        opposing_parties=opposing_parties_validated,
+        is_eligible=case_response.is_eligible,
+        legal_problem_code=case_response.legal_problem_code,
     )
     if status == Status.SUCCESS:
         next_node = NodeConfig(
@@ -305,7 +250,7 @@ async def record_conflict(
             }
         )
     else:
-        result.error = f"""There is a representation conflict. Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -394,7 +339,8 @@ async def record_income(
             }
         )
     else:
-        result.error = f"""Over the household income limit. Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = f"""Over the household income limit.
+        Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -488,7 +434,8 @@ async def record_assets_list(
             }
         )
     else:
-        result.error = f"""Over the household assets' value limit. Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = f"""Over the household assets' value limit.
+        Alternate providers: {await validator.get_alternative_providers()}"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -510,6 +457,63 @@ async def record_citizenship(
         has_citizenship (bool): The caller's answer that they are or are not a US citizen.
     """
     result = CitizenshipResult(status=Status.SUCCESS, is_citizen=is_a_us_citizen)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_adverse_parties"),
+            "functions": [record_adverse_parties],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("adverse_parties")
+async def record_adverse_parties(
+    flow_manager: FlowManager, adverse_parties: list[dict]
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Collect information about the adverse (opposing) parties.
+
+    Args:
+        adverse_parties (list):
+            A Pydantic model `AdverseParties` with a list of people
+            who may be involved as adverse (opposing) parties in the
+            legal case. Each person should include their first,
+            middle, and last name, date of birth, and a list of phone
+            numbers with types.
+
+            Example:
+                [
+                    {
+                        "first": "Deanna",
+                        "middle": "Julie",
+                        "last": "Troi",
+                        "dob": "1974-12-25",
+                        "phones": [
+                            {
+                                "number": "5555551212",
+                                "type": "mobile"
+                            },
+                        ],
+                    },
+                ]
+    """
+    try:
+        adverse_parties_validated = AdverseParties.model_validate(adverse_parties)
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=status_helper(False),
+            error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
+        )
+        return result, None
+
+    status = status_helper(True)
+    result = AdversePartiesResult(
+        status=status,
+        adverse_parties=adverse_parties_validated,
+    )
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
