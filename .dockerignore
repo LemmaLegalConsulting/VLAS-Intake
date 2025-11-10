@@ -40,3 +40,4 @@ client
 debug
 recordings
 tests
+server.log
