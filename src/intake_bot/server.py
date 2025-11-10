@@ -69,7 +69,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
 
     runner_args = WebSocketRunnerArguments(websocket=websocket)
-    runner_args.handle_sigint = False
+    runner_args.handle_sigint = True
 
     result = await bot(runner_args)
 
