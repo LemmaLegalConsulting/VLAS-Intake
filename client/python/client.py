@@ -179,9 +179,17 @@ async def run_client(client_name: str, websocket_url: str, script: str, duration
         logger.info(f"Client {client_name} finished after {duration_secs} seconds.")
         await task.queue_frame(EndFrame())
 
-    runner = PipelineRunner()
+    runner = PipelineRunner(handle_sigint=True)
 
-    await asyncio.gather(runner.run(task), end_call())
+    try:
+        await asyncio.gather(runner.run(task), end_call())
+    except asyncio.CancelledError:
+        logger.info(f"Client {client_name} cancelled.")
+        await task.cancel()
+        raise
+    finally:
+        # Explicitly close the transport to prevent hanging
+        await transport.stop()
 
 
 async def main():
