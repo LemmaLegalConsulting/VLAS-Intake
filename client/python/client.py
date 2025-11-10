@@ -43,7 +43,7 @@ logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
 
-DEFAULT_CLIENT_DURATION = 600
+DEFAULT_CLIENT_DURATION = 1500
 
 
 # Load scripts.yml from the same directory as this script
