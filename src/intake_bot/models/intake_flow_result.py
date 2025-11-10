@@ -1,6 +1,6 @@
 from enum import Enum
 
-from intake_bot.models.validator import AdverseParties
+from intake_bot.models.validator import AdverseParties, CallerNames
 from pydantic import BaseModel, ConfigDict
 
 
@@ -27,6 +27,10 @@ class AssetsResult(IntakeFlowResult):
     receives_benefits: bool
 
 
+class CallerNamesResult(IntakeFlowResult):
+    names: CallerNames
+
+
 class CaseTypeResult(IntakeFlowResult):
     is_eligible: bool
     legal_problem_code: str
@@ -50,12 +54,6 @@ class IncomeResult(IntakeFlowResult):
     monthly_amount: int
     listing: dict
     household_size: int
-
-
-class NameResult(IntakeFlowResult):
-    first: str
-    middle: str
-    last: str
 
 
 class PhoneNumberResult(IntakeFlowResult):

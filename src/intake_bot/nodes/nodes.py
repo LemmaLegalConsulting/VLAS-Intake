@@ -3,18 +3,24 @@ import sys
 from intake_bot.models.intake_flow_result import (
     AdversePartiesResult,
     AssetsResult,
+    CallerNamesResult,
     CaseTypeResult,
     CitizenshipResult,
     DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
     IntakeFlowResult,
-    NameResult,
     PhoneNumberResult,
     ServiceAreaResult,
     Status,
 )
-from intake_bot.models.validator import AdverseParties, Assets, HouseholdIncome
+from intake_bot.models.validator import (
+    AdverseParties,
+    Assets,
+    CallerName,
+    CallerNames,
+    HouseholdIncome,
+)
 from intake_bot.nodes.utils import (
     clean_pydantic_error_message,
     convert_and_log_result,
@@ -133,7 +139,7 @@ async def record_phone_number(
     return result, next_node
 
 
-@convert_and_log_result("name")
+@convert_and_log_result("names")
 async def record_name(
     flow_manager: FlowManager, first: str, middle: str, last: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
@@ -145,24 +151,31 @@ async def record_name(
         middle (str): The caller's middle name.
         last (str): The caller's last name.
     """
-    first = first.strip()
-    middle = middle.strip()
-    last = last.strip()
-
-    status = status_helper(first and last)
-    result = NameResult(status=status, first=first, middle=middle, last=last)
-
-    if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_service_area"),
-                "functions": [record_service_area],
+    try:
+        name_validated = CallerName.model_validate(
+            {
+                "first": first,
+                "middle": middle,
+                "last": last,
             }
         )
-    else:
-        result.error = "Required: first name and last name"
-        next_node = None
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"""There was an error validating the `name`: {cleaned_error}.""",
+        )
+        return result, None
+
+    result = CallerNamesResult(status=Status.SUCCESS, names=[name_validated])
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_service_area"),
+            "functions": [record_service_area],
+        }
+    )
     return result, next_node
 
 
@@ -317,7 +330,7 @@ async def record_income(
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
         result = IntakeFlowResult(
-            status=status_helper(False),
+            status=Status.ERROR,
             error=f"""There was an error validating the `income`: {cleaned_error}.""",
         )
         return result, None
@@ -363,7 +376,7 @@ async def record_assets_receives_benefits(
     """
     if receives_benefits:
         result = AssetsResult(
-            status=status_helper(True),
+            status=Status.SUCCESS,
             is_eligible=True,
             listing=[],
             total_value=0,
@@ -412,7 +425,7 @@ async def record_assets_list(
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
         result = IntakeFlowResult(
-            status=status_helper(False),
+            status=Status.ERROR,
             error=f"""There was an error validating the `assets`: {cleaned_error}.""",
         )
         return result, None
@@ -460,6 +473,67 @@ async def record_citizenship(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
+            **prompts.get("record_names"),
+            "functions": [record_names],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("names")
+async def record_names(
+    flow_manager: FlowManager, names: list[dict]
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Record the caller's other names (maiden name, previous marriage names, legally changed names, etc.).
+
+    This function combines the previously recorded primary name with any additional names
+    the caller provides, creating a complete list of all names associated with the caller.
+
+    Args:
+        names (list[dict]):
+            REQUIRED: A list of CallerName objects. Each object contains:
+            - "first" (str, required): The first name
+            - "middle" (str, optional): The middle name
+            - "last" (str, required): The last name
+
+            IMPORTANT:
+            1. The "names" argument is REQUIRED - always pass it, never omit it
+            2. Use EXACT field names: "first", "middle", "last"
+               (not first_name, last_name, firstname, lastname, etc.)
+            3. Pass an empty list [] if the caller has no additional names
+
+            Example 1 - One additional name:
+                names=[{"first": "Sarah", "middle": "Jane", "last": "Smith"}]
+
+            Example 2 - No additional names (empty list):
+                names=[]
+
+            Example 3 - Two additional names:
+                names=[
+                    {"first": "Mary", "last": "Johnson"},
+                    {"first": "Robert", "middle": "Lee", "last": "Davis"}
+                ]
+    """
+    try:
+        try:
+            names.insert(0, flow_manager.state["names"]["names"][0])
+        except (KeyError, IndexError):
+            pass
+        names_validated = CallerNames.model_validate(names)
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"""There was an error validating the `names`: {cleaned_error}.""",
+        )
+        return result, None
+
+    result = CallerNamesResult(status=Status.SUCCESS, names=names_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
             **prompts.get("record_adverse_parties"),
             "functions": [record_adverse_parties],
         }
@@ -504,14 +578,13 @@ async def record_adverse_parties(
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
         result = IntakeFlowResult(
-            status=status_helper(False),
+            status=Status.ERROR,
             error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
         )
         return result, None
 
-    status = status_helper(True)
     result = AdversePartiesResult(
-        status=status,
+        status=Status.SUCCESS,
         adverse_parties=adverse_parties_validated,
     )
     next_node = NodeConfig(

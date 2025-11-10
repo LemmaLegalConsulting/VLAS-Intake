@@ -18,6 +18,7 @@ from intake_bot.nodes.nodes import (
     record_emergency,
     record_income,
     record_name,
+    record_names,
     record_phone_number,
     record_service_area,
     system_phone_number,
@@ -87,12 +88,14 @@ async def test_record_phone_number_invalid(flow_manager, patch_validator):
 async def test_record_name_valid(flow_manager):
     result, next_node = await record_name(flow_manager, "John", "Q", "Public")
     assert isinstance(result, dict)
-    assert result["first"] == "John"
-    assert result["middle"] == "Q"
-    assert result["last"] == "Public"
-    assert flow_manager.state["name"]["first"] == "John"
-    assert flow_manager.state["name"]["middle"] == "Q"
-    assert flow_manager.state["name"]["last"] == "Public"
+    # CallerNameResult now has a 'names' field containing CallerNames (a RootModel with a list)
+    assert len(result["names"]) == 1
+    assert result["names"][0]["first"] == "John"
+    assert result["names"][0]["middle"] == "Q"
+    assert result["names"][0]["last"] == "Public"
+    assert flow_manager.state["names"]["names"][0]["first"] == "John"
+    assert flow_manager.state["names"]["names"][0]["middle"] == "Q"
+    assert flow_manager.state["names"]["names"][0]["last"] == "Public"
     assert "record_service_area_prompt" in next_node
 
 
@@ -100,6 +103,7 @@ async def test_record_name_valid(flow_manager):
 async def test_record_name_invalid(flow_manager):
     result, next_node = await record_name(flow_manager, "", "", "")
     assert result["status"] == Status.ERROR
+    assert "validating the `name`" in result["error"]
     assert next_node is None
 
 
@@ -345,6 +349,149 @@ async def test_record_citizenship(flow_manager):
     result, next_node = await record_citizenship(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
+    assert "record_names_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_names_with_prior_name(flow_manager):
+    """Test record_names when a main name was already recorded at the start."""
+    # Simulate the main name recorded at the start (from record_name)
+    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+
+    # Now user provides additional names
+    additional_names = [
+        {"first": "Jon", "last": "Doe"},
+        {"first": "Jack", "middle": "Q", "last": "Public"},
+    ]
+
+    result, next_node = await record_names(flow_manager, additional_names)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    # Should have 3 names: original + 2 additional
+    assert len(result["names"]) == 3
+    # First name should be the original one
+    assert result["names"][0]["first"] == "John"
+    assert result["names"][0]["middle"] == "Q"
+    assert result["names"][0]["last"] == "Public"
+    # Additional names follow
+    assert result["names"][1]["first"] == "Jon"
+    assert result["names"][2]["first"] == "Jack"
+    # State should be overwritten with combined names
+    assert len(flow_manager.state["names"]["names"]) == 3
+    assert "record_adverse_parties_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_names_without_prior_name(flow_manager):
+    """Test record_names when no main name was recorded (first-time user or reset flow)."""
+    # No prior name in state
+    flow_manager.state = {}
+
+    additional_names = [
+        {"first": "Alice", "last": "Smith"},
+        {"first": "Ali", "last": "Smyth"},
+    ]
+
+    result, next_node = await record_names(flow_manager, additional_names)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    # Should only have the additional names
+    assert len(result["names"]) == 2
+    assert result["names"][0]["first"] == "Alice"
+    assert result["names"][1]["first"] == "Ali"
+    assert "record_adverse_parties_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_names_empty_list(flow_manager):
+    """Test record_names with no additional names but a prior main name."""
+    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+
+    # User provides no additional names
+    additional_names = []
+
+    result, next_node = await record_names(flow_manager, additional_names)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    # Should have just the original name
+    assert len(result["names"]) == 1
+    assert result["names"][0]["first"] == "John"
+    assert "record_adverse_parties_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_names_invalid_names(flow_manager):
+    """Test record_names with invalid name data."""
+    # Missing required 'last' field
+    invalid_names = [
+        {"first": "Alice"},  # Missing 'last'
+    ]
+
+    result, next_node = await record_names(flow_manager, invalid_names)
+
+    assert result["status"] == Status.ERROR
+    assert "validating the `names`" in result["error"]
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_names_invalid_with_prior_name(flow_manager):
+    """Test record_names when prior name is valid but new names are invalid."""
+    flow_manager.state["names"] = {"names": [{"first": "John", "last": "Public"}]}
+
+    # Invalid additional names
+    invalid_names = [
+        {"first": "Bob"},  # Missing required 'last'
+    ]
+
+    result, next_node = await record_names(flow_manager, invalid_names)
+
+    assert result["status"] == Status.ERROR
+    assert "validating the `names`" in result["error"]
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_names_with_optional_middle_names(flow_manager):
+    """Test record_names handles optional middle names correctly."""
+    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+
+    additional_names = [
+        {"first": "Alice", "last": "Smith"},  # No middle name
+        {"first": "Bob", "middle": "Robert", "last": "Jones"},  # With middle name
+    ]
+
+    result, next_node = await record_names(flow_manager, additional_names)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert len(result["names"]) == 3
+    # Check middle names are handled correctly
+    assert result["names"][1]["middle"] is None  # Alice has no middle name
+    assert result["names"][2]["middle"] == "Robert"  # Bob has middle name
+    assert "record_adverse_parties_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_names_strips_whitespace(flow_manager):
+    """Test that record_names properly strips whitespace from names."""
+    flow_manager.state["names"] = {"names": [{"first": "John", "last": "Public"}]}
+
+    additional_names = [
+        {"first": "  Alice  ", "middle": "  M  ", "last": "  Smith  "},
+    ]
+
+    result, next_node = await record_names(flow_manager, additional_names)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    # Should have whitespace stripped by validator
+    assert result["names"][1]["first"] == "Alice"
+    assert result["names"][1]["middle"] == "M"
+    assert result["names"][1]["last"] == "Smith"
     assert "record_adverse_parties_prompt" in next_node
 
 

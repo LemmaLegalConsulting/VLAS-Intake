@@ -197,6 +197,94 @@ record_citizenship:
     - content: >-
         Explain that US citizenship is only one part of determining eligibility for Law-Line assistance, and then ask if the caller is a US citizen. If the caller refuses to answer or avoids answering, treat that as a "no".
 
+# Names
+record_names:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Ask the caller if they have any other names that should be included in their legal file. This includes:
+           - Maiden names or birth names
+           - Names from previous marriages
+           - Legally changed names
+           - Any other names they have been known by that might appear in court documents or legal records
+        2. If the caller provides other names, ask them to spell each name completely, including first, middle, and last name. Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
+        3. After the caller spells each name, read it back exactly as spelled, specifying each part (first, middle, and last name), and confirm with the caller that the spelling is correct.
+           - If the caller confirms the spelling is correct, continue to the next name or proceed to the next step.
+           - If the caller indicates that any part of the name is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
+        4. If the caller has no other names to add, call the function with an empty list: names = []
+        5. Once all names are confirmed and spelled correctly (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
+
+        [Field Name Requirements]
+        When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
+        Use these EXACT field names for each name:
+        - "first" (required, not first_name, firstname, or firstNamee)
+        - "middle" (optional, not middle_name, middlename, or middleName)
+        - "last" (required, not last_name, lastname, or lastName)
+
+        [Examples - ALWAYS pass the names argument]
+        Example 1 - Caller provides one additional name:
+        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith"}]
+
+        Example 2 - Caller provides no additional names (empty list):
+        names = []
+
+        Example 3 - Caller provides two additional names:
+        names = [{"first": "Mary", "last": "Johnson"}, {"first": "Robert", "middle": "Lee", "last": "Davis"}]
+
+        [Critical Reminder]
+        ALWAYS call the function with the "names" argument, even if it's an empty list [].
+        Do NOT call the function without specifying the names argument.
+
+        [User Prompt]
+        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. If yes, please spell each name for me, starting with the first name, then middle name, and last name.
+
+# Adverse parties
+record_adverse_parties:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
+        2. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case.
+        3. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business).
+        4. After collecting information for each adverse party, read back the complete list to the caller and confirm it is accurate. If corrections are needed, update the details and repeat the confirmation process.
+        5. If there are no adverse (opposing) parties involved in the legal case, call the function with an empty list: adverse_parties = []
+        6. Once all adverse parties are confirmed (or if there are none), ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
+
+        [Field Name Requirements]
+        When calling the function, ALWAYS pass an "adverse_parties" argument containing a list of adverse party objects.
+        Use these EXACT field names for each adverse party:
+        - "first" (required, not first_name, firstname, or firstName)
+        - "middle" (optional, not middle_name, middlename, or middleName)
+        - "last" (required, not last_name, lastname, or lastName)
+        - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
+        - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
+          - Each phone object must have: "number" (str) and "type" (str: mobile, home, business, fax, or other)
+
+        [Examples - ALWAYS pass the adverse_parties argument]
+        Example 1 - One adverse party with complete information:
+        adverse_parties = [{"first": "John", "middle": "Michael", "last": "Doe", "dob": "1980-05-15", "phones": [{"number": "5555551234", "type": "mobile"}]}]
+
+        Example 2 - One adverse party with minimal information:
+        adverse_parties = [{"first": "Jane", "last": "Smith"}]
+
+        Example 3 - Multiple adverse parties:
+        adverse_parties = [
+            {"first": "Robert", "last": "Johnson", "dob": "1975-03-20"},
+            {"first": "Patricia", "middle": "Ann", "last": "Williams", "phones": [{"number": "5555555678", "type": "home"}]}
+        ]
+
+        Example 4 - No adverse parties (empty list):
+        adverse_parties = []
+
+        [Critical Reminder]
+        ALWAYS call the function with the "adverse_parties" argument, even if it's an empty list [].
+        Do NOT call the function without specifying the adverse_parties argument.
+        Omit any fields that you don't have a value for.
+        If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
+
+        [User Prompt]
+        Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case. If there are no adverse parties involved in the legal case, let me know and we'll proceed.
+
 # Emergency
 record_emergency:
   task_messages:
@@ -208,23 +296,6 @@ record_emergency:
         An emergency is a client situation which requires immediate response because:
         -	the client, her family, or major assets is/are in imminent danger of physical harm; or
         -	important legal rights of the client's are about to be lost because of an approaching deadline (anything with a deadline or court hearing less than a week away is considered an emergency)
-
-# Adverse parties
-record_adverse_parties:
-  task_messages:
-    - content: >-
-        [Instructions]
-        Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business). Collect these details for each adverse (opposing) party.
-
-        [User Prompt]
-        Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case.
-
-        [Additional Notes]
-        - If there are no adverse (opposing) parties involved in the legal case, `adverse_parties` should be an empty list.
-        - If there are adverse (opposing) parties involved in the legal case, collect their information in a list `adverse_parties` and call the function with that list.
-        - Omit any fields that you don't have a value for.
-        - If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
-        - ALWAYS call the `record_adverse_parties` function, passing the list of `adverse_parties`.
 
 # Intake complete
 complete_intake:
