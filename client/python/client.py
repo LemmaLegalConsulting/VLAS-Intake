@@ -182,14 +182,27 @@ async def run_client(client_name: str, websocket_url: str, script: str, duration
     runner = PipelineRunner(handle_sigint=True)
 
     try:
-        await asyncio.gather(runner.run(task), end_call())
+        # Run both the pipeline and the end_call timer concurrently
+        # Whichever finishes first will be returned
+        done, pending = await asyncio.wait(
+            [asyncio.create_task(runner.run(task)), asyncio.create_task(end_call())],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        # Cancel any pending tasks
+        for task_item in pending:
+            task_item.cancel()
+            try:
+                await task_item
+            except asyncio.CancelledError:
+                pass
     except asyncio.CancelledError:
         logger.info(f"Client {client_name} cancelled.")
         await task.cancel()
         raise
     finally:
-        # Explicitly close the transport to prevent hanging
-        await transport.stop()
+        # Ensure task is cancelled
+        await task.cancel()
 
 
 async def main():
