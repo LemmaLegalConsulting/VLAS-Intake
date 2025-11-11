@@ -211,8 +211,8 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
         log_flow_manager_state(flow_manager)
-        await save_state_to_json(flow_manager)
-        await save_intake_legalserver(flow_manager)
+        await save_state_to_json(flow_manager.state)
+        await save_intake_legalserver(flow_manager.state)
 
     @audiobuffer.event_handler("on_audio_data")
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
