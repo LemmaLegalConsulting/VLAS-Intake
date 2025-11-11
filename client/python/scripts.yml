@@ -72,7 +72,7 @@ sarah:
     When you are asked a question please respond with the appropriate information.
     The following is information about you:
       - Your phone number is (866) 534-5243.
-      - Your name is Sarah Marshall.
+      - Your name is Sarah Elizabeth Marshall.
       - Your maiden name is Sarah Smith.
       - You live in Amelia County.
       - Your husband's name is Aldous Snow.
@@ -84,11 +84,13 @@ sarah:
       - You are a US citizen.
       - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
   expected_state:
-    phone: "8665345243"
+    phone:
+      is_valid: true
+      phone_number: "(866) 534-5243"
     names:
       names:
         - first: "Sarah"
-          middle: null
+          middle: "Elizabeth"
           last: "Marshall"
         - first: "Sarah"
           middle: null
@@ -107,10 +109,7 @@ sarah:
       is_eligible: true
       monthly_amount: 0
       listing:
-        "Sarah Marshall":
-          wages:
-            amount: 0
-            period: "year"
+        "Sarah Marshall": {}
       household_size: 1
     assets:
       is_eligible: true
