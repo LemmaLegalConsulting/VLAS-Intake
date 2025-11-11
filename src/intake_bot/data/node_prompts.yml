@@ -101,12 +101,13 @@ record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller if they are experiencing domestic violence. If the caller says yes, ask them to provide the names of all individuals who have perpetrated domestic violence against them. Collect these names as a list. If the caller is not experiencing domestic violence, proceed with an empty list.
+        Ask the caller if they are experiencing or have experienced domestic violence from anyone in their household or relationships. Domestic violence includes physical violence, threatening behavior, yelling, throwing things, controlling behavior, emotional abuse, or any other form of abuse or intimidation. If the caller says yes, ask them to provide the names of all individuals who have perpetrated domestic violence against them. Collect these names as a list. If the caller is not experiencing domestic violence, proceed with an empty list.
 
         [User Prompt]
-        Are you experiencing domestic violence? If yes, please provide the names of all individuals who have perpetrated domestic violence against you.
+        Are you experiencing or have you experienced domestic violence from anyone in your household or relationships? This can include physical violence, threats, yelling, throwing things, or any form of abuse or intimidation. If yes, please provide the names of all individuals who have perpetrated this violence or abuse against you.
 
         [Additional Notes]
+        - Domestic violence includes but is not limited to: hitting, pushing, yelling, throwing objects, threats, controlling behavior, and emotional abuse.
         - If the caller is not experiencing domestic violence, `perpetrators` should be an empty list.
         - If the caller is experiencing domestic violence, collect the names of all perpetrators as a list `perpetrators` and call the function with that list.
         - ALWAYS call the `record_domestic_violence` function after confirming the caller's response, passing the list of `perpetrators`.
