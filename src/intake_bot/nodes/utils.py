@@ -78,15 +78,15 @@ def log_flow_manager_state(flow_manager: FlowManager):
     logger.debug("----------------------------------------")
 
 
-async def save_state_to_json(flow_manager: FlowManager) -> None:
+async def save_state_to_json(state: dict) -> None:
     """
-    Save the flow_manager.state to a JSON file, using call_id as the primary key.
+    Save the state (flow_manager.state) to a JSON file, using call_id as the primary key.
 
     Creates or appends to a logs/flow_manager_state.json file where each entry is keyed by call_id.
     This enables tracking and programmatic evaluation of call results.
     """
     try:
-        call_id = flow_manager.state.get("call_id")
+        call_id = state.get("call_id")
         if not call_id:
             logger.warning("call_id not found in flow_manager.state; state not saved")
             return
@@ -105,7 +105,7 @@ async def save_state_to_json(flow_manager: FlowManager) -> None:
                 logger.warning(f"Error reading {results_file}: {e}. Starting with empty results.")
 
         # Serialize the state, converting enums to their values
-        serialized_state = _serialize_for_logging(flow_manager.state)
+        serialized_state = _serialize_for_logging(state)
 
         # Add or update the current call's state
         results_data[call_id] = serialized_state
