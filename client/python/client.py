@@ -1,9 +1,3 @@
-#
-# Copyright (c) 2025, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
 import argparse
 import asyncio
 import os
@@ -18,7 +12,6 @@ from loguru import logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
-    EndFrame,
     LLMRunFrame,
     OutputTransportMessageUrgentFrame,
 )
@@ -36,14 +29,15 @@ from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
 )
+from test_manager import TestRunner
 
 load_dotenv(override=True)
 
+# Global variable to track call IDs for testing
+call_id_map = {}
+
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
-
-
-DEFAULT_CLIENT_DURATION = 1500
 
 
 # Load scripts.yml from the same directory as this script
@@ -68,9 +62,17 @@ else:
         )
 
 
-async def run_client(client_name: str, websocket_url: str, script: str, duration_secs: int):
+async def run_client(
+    client_name: str,
+    websocket_url: str,
+    script: str,
+    validate_state: bool = False,
+):
     stream_sid = str(uuid4())
     call_sid = str(uuid4())
+
+    # Track this call for later validation
+    call_id_map[client_name] = {"stream_sid": stream_sid, "call_sid": call_sid, "script": script}
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
@@ -113,7 +115,7 @@ async def run_client(client_name: str, websocket_url: str, script: str, duration
     messages = [
         {
             "role": "system",
-            "content": scripts[script],
+            "content": scripts[script]["system_prompt"],
         },
     ]
 
@@ -174,35 +176,58 @@ async def run_client(client_name: str, websocket_url: str, script: str, duration
         )
         await task.queue_frames([LLMRunFrame()])
 
-    async def end_call():
-        await asyncio.sleep(duration_secs)
-        logger.info(f"Client {client_name} finished after {duration_secs} seconds.")
-        await task.queue_frame(EndFrame())
+    @transport.event_handler("on_disconnected")
+    async def on_disconnected(transport: WebsocketClientTransport, client):
+        logger.info(f"Client {client_name} disconnected from server")
+        await task.cancel()
 
     runner = PipelineRunner(handle_sigint=True)
 
     try:
-        # Run both the pipeline and the end_call timer concurrently
-        # Whichever finishes first will be returned
-        done, pending = await asyncio.wait(
-            [asyncio.create_task(runner.run(task)), asyncio.create_task(end_call())],
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-
-        # Cancel any pending tasks
-        for task_item in pending:
-            task_item.cancel()
-            try:
-                await task_item
-            except asyncio.CancelledError:
-                pass
+        # Run the pipeline and wait for it to complete
+        # The server controls when the call ends via on_session_timeout
+        await runner.run(task)
     except asyncio.CancelledError:
-        logger.info(f"Client {client_name} cancelled.")
-        await task.cancel()
-        raise
+        logger.debug(f"Client {client_name} task was cancelled")
+    except Exception as e:
+        logger.error(f"Client {client_name} pipeline error: {type(e).__name__}: {e}", exc_info=True)
     finally:
         # Ensure task is cancelled
-        await task.cancel()
+        if not task._cancelled:
+            await task.cancel()
+
+        # Wait for server to save its results
+        await asyncio.sleep(1.0)
+
+        # Validate state if requested
+        if validate_state:
+            script_config = scripts.get(script, {})
+            if isinstance(script_config, dict) and "expected_state" in script_config:
+                expected_state = script_config["expected_state"]
+                # Look for logs/flow_manager_state.json in the intake-bot root
+                flow_manager_state_file = (
+                    Path(__file__).parent.parent.parent / "logs" / "flow_manager_state.json"
+                )
+                # Store client test results in logs/client_test_results.json
+                client_test_results_file = (
+                    Path(__file__).parent.parent.parent / "logs" / "client_test_results.json"
+                )
+                # Use TestRunner for validation
+                runner = TestRunner(
+                    results_file=str(client_test_results_file),
+                    flow_manager_state_file=str(flow_manager_state_file),
+                )
+                passed, mismatches = await runner.validate_call(call_sid, script, expected_state)
+                if passed:
+                    logger.info(f"Client {client_name} state validation PASSED")
+                else:
+                    logger.warning(
+                        f"Client {client_name} state validation FAILED with {len(mismatches)} mismatches"
+                    )
+                    for mismatch in mismatches[:5]:  # Log first 5 mismatches
+                        logger.warning(f"  - {mismatch}")
+            else:
+                logger.info(f"No expected_state defined for script '{script}', skipping validation")
 
 
 async def main():
@@ -228,11 +253,9 @@ async def main():
         help="specify the script to use from `scripts.yml`",
     )
     parser.add_argument(
-        "-d",
-        "--duration",
-        type=int,
-        default=DEFAULT_CLIENT_DURATION,
-        help=f"duration of each client in seconds (default: {DEFAULT_CLIENT_DURATION})",
+        "--validate",
+        action="store_true",
+        help="validate state after each call completes",
     )
     args, _ = parser.parse_known_args()
 
@@ -244,6 +267,8 @@ async def main():
             f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(scripts.keys())}"""
         )
     logger.info(f"""Using script: '{args.script}'""")
+    if args.validate:
+        logger.info("State validation enabled for all calls")
 
     clients = []
     for i in range(args.clients):
@@ -253,7 +278,7 @@ async def main():
                     client_name=f"client_{i}",
                     websocket_url=args.url,
                     script=args.script,
-                    duration_secs=args.duration,
+                    validate_state=args.validate,
                 )
             )
         )

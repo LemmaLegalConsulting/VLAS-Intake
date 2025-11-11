@@ -1,75 +1,138 @@
-celeste_limited_info: >-
-  This conversation is being converted to voice.
-  You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
-  You will need to answer questions to complete your legal aid intake.
-  When you are asked a question please respond with the appropriate information.
-  The following is information about you:
-    - Your phone number is (866) 534-5243.
-    - Your name is Celeste Caroline Campbell.
-    - Your maiden name is Celeste Caroline Smith
-    - You live in Amelia County.
-    - Your husband's name is Dexter Robert Campbell.
-    - Your husband is the opposing party.
-    - You have two children together, Robby and Cobby.
-    - Your husband has yelled at you and thrown things, but never hit you or the kids.
-    - You don't have any income because you're a stay at home mom.
-    - You don't have any of your own assets since he makes all of the money, about $80,000/year.
-    - You are a US citizen.
-    - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
+celeste:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (866) 534-5243.
+      - Your name is Celeste Caroline Campbell.
+      - Your maiden name is Celeste Caroline Smith
+      - You live in Amelia County.
+      - Your husband's name is Dexter Robert Campbell.
+      - Your husband is the opposing party.
+      - You have two children together, Robby and Cobby.
+      - Your husband has yelled at you and thrown things, but never hit you or the kids.
+      - You don't have any income because you're a stay at home mom.
+      - You don't have any of your own assets since he makes all of the money, about $80,000/year.
+      - You are a US citizen.
+      - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
+  expected_state:
+    phone:
+      is_valid: true
+      phone_number: "(866) 534-5243"
+    names:
+      names:
+        - first: "Celeste"
+          middle: "Caroline"
+          last: "Campbell"
+        - first: "Celeste"
+          middle: "Caroline"
+          last: "Smith"
+    service_area:
+      location: "Amelia County"
+      is_eligible: true
+    case_type:
+      is_eligible: true
+      legal_problem_code: "32 Divorce/Sep./Annul."
+    domestic_violence:
+      is_experiencing: true
+      perpetrators:
+        - "Dexter Robert Campbell"
+    income:
+      is_eligible: true
+      monthly_amount: 0
+      listing:
+        "Celeste Campbell": {}
+      household_size: 3
+    assets:
+      is_eligible: true
+      listing: []
+      total_value: 0
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    adverse_parties:
+      adverse_parties:
+        - first: "Dexter"
+          middle: "Robert"
+          last: "Campbell"
+          dob: null
+          phones: null
+    emergency:
+      is_emergency: false
 
-celeste_husband_phone_valid: >-
-  This conversation is being converted to voice.
-  You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
-  You will need to answer questions to complete your legal aid intake.
-  When you are asked a question please respond with the appropriate information.
-  The following is information about you:
-    - Your phone number is (866) 534-5243.
-    - Your name is Celeste Caroline Campbell.
-    - You live in Amelia County.
-    - Your husband's name is Dexter Robert Campbell, his cell phone number is (518) 543-8090.
-    - Your husband is the opposing party.
-    - You have two children together, Robby and Cobby.
-    - Your husband has yelled at you and thrown things, but never hit you or the kids.
-    - You don't have any income because you're a stay at home mom.
-    - You don't have any of your own assets since he makes all of the money, about $80,000/year.
-    - You are a US citizen.
-    - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
+sarah:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (866) 534-5243.
+      - Your name is Sarah Marshall.
+      - Your maiden name is Sarah Smith.
+      - You live in Amelia County.
+      - Your husband's name is Aldous Snow.
+      - Your husband is the opposing party.
+      - You have no children.
+      - Your husband has yelled at you and thrown things, but never hit you or the kids.
+      - You don't have any income because you're a stay at home mom.
+      - You don't have any of your own assets since he makes all of the money, about $80,000/year.
+      - You are a US citizen.
+      - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
+  expected_state:
+    phone: "8665345243"
+    names:
+      names:
+        - first: "Sarah"
+          middle: null
+          last: "Marshall"
+        - first: "Sarah"
+          middle: null
+          last: "Smith"
+    service_area:
+      location: "Amelia County"
+      is_eligible: true
+    case_type:
+      is_eligible: true
+      legal_problem_code: "32 Divorce/Sep./Annul."
+    domestic_violence:
+      is_experiencing: true
+      perpetrators:
+        - "Aldous Snow"
+    income:
+      is_eligible: true
+      monthly_amount: 0
+      listing:
+        "Sarah Marshall":
+          wages:
+            amount: 0
+            period: "year"
+      household_size: 1
+    assets:
+      is_eligible: true
+      listing: []
+      total_value: 0
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    adverse_parties:
+      adverse_parties:
+        - first: "Aldous"
+          middle: null
+          last: "Snow"
+          dob: null
+          phones: null
+    emergency:
+      is_emergency: false
 
-celeste_husband_phone_invalid: >-
-  This conversation is being converted to voice.
-  You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
-  You will need to answer questions to complete your legal aid intake.
-  When you are asked a question please respond with the appropriate information.
-  The following is information about you:
-    - Your phone number is (866) 534-5243.
-    - Your name is Celeste Caroline Campbell.
-    - You live in Amelia County.
-    - Your husband's name is Dexter Robert Campbell, his cell phone number is (111) 111-1111.
-    - Your husband is the opposing party.
-    - You have two children together, Robby and Cobby.
-    - Your husband has yelled at you and thrown things, but never hit you or the kids.
-    - You don't have any income because you're a stay at home mom.
-    - You don't have any of your own assets since he makes all of the money, about $80,000/year.
-    - You are a US citizen.
-    - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
-
-# 'sarah' should fully pass the intake
-
-sarah: >-
-  This conversation is being converted to voice.
-  You are an adult woman seeking help with your divorce from your husband and you are calling a legal aid service.
-  You will need to answer questions to complete your legal aid intake.
-  When you are asked a question please respond with the appropriate information.
-  The following is information about you:
-    - Your phone number is (866) 534-5243.
-    - Your name is Sarah Marshall.
-    - Your maiden name is Sarah Smith.
-    - You live in Amelia County.
-    - Your husband's name is Aldous Snow.
-    - Your husband is the opposing party.
-    - You have no children.
-    - Your husband has yelled at you and thrown things, but never hit you or the kids.
-    - You don't have any income because you're a stay at home mom.
-    - You don't have any of your own assets since he makes all of the money, about $80,000/year.
-    - You are a US citizen.
-    - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
+emergency:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    When you are asked a question please respond with the appropriate information.
+      - This is an emergency.
+  expected_state:
+    phone: "8665345243"
+    emergency:
+      is_emergency: True
