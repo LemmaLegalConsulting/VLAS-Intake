@@ -10,10 +10,7 @@ from intake_bot.models.validator import (
 from intake_bot.services.classifier import Classifier
 from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.services.poverty import poverty_scale_income_qualifies
-from intake_bot.utils.globals import (
-    DATA_DIR,
-)
-from loguru import logger
+from intake_bot.utils.globals import DATA_DIR
 from rapidfuzz import fuzz, process, utils
 
 
@@ -23,94 +20,30 @@ class IntakeValidator:
     """
 
     def __init__(self):
-        self.service_areas = self._load_service_areas()
-        self.service_areas_fips = self._load_service_areas_fips()
-        self.income_categories = self._load_income_categories()
+        self.service_areas = self._load_flat_yaml("service_areas.yaml")
+        self.income_categories = self._load_flat_yaml("income_categories.yaml")
         self.classifier = Classifier()
 
-    def _load_service_areas(self) -> list[str] | None:
-        """Load service area names from YAML file."""
-        service_areas_yaml_file = Path(DATA_DIR) / "service_areas.yaml"
-        try:
-            if not service_areas_yaml_file.exists():
-                logger.warning(f"""Service Areas YAML file not found: {service_areas_yaml_file}""")
-                return None
-
-            with open(service_areas_yaml_file, "r") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "service_areas" not in data:
-                logger.warning("Service Areas YAML file is empty or missing 'service_areas' key")
-                return None
-
-            # Extract service area names
-            names = [area.get("name") for area in data["service_areas"] if area.get("name")]
-            return names if names else None
-        except Exception as e:
-            logger.error(
-                f"""Error loading Service Areas YAML file {service_areas_yaml_file}: {e}"""
-            )
-            return None
-
-    def _load_service_areas_fips(self) -> dict[str, int] | None:
-        """Load service areas FIPS codes from YAML file."""
-        service_areas_yaml_file = Path(DATA_DIR) / "service_areas.yaml"
-        try:
-            if not service_areas_yaml_file.exists():
-                logger.warning(f"""Service Areas YAML file not found: {service_areas_yaml_file}""")
-                return None
-
-            with open(service_areas_yaml_file, "r") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "service_areas" not in data:
-                logger.warning("Service Areas YAML file is empty or missing 'service_areas' key")
-                return None
-
-            # Build mapping of service area name to FIPS code
-            fips_map = {}
-            for area in data["service_areas"]:
-                name = area.get("name")
-                fips = area.get("fips")
-                if name:
-                    fips_map[name] = fips
-
-            return fips_map if fips_map else None
-        except Exception as e:
-            logger.error(
-                f"""Error loading Service Areas YAML file {service_areas_yaml_file}: {e}"""
-            )
-            return None
-
-    def _load_income_categories(self) -> list[dict] | None:
-        """Load income categories from YAML file."""
-        income_categories_yaml_file = Path(DATA_DIR) / "income_categories.yaml"
-        try:
-            if not income_categories_yaml_file.exists():
-                logger.warning(
-                    f"""Income Categories YAML file not found: {income_categories_yaml_file}"""
-                )
-                return None
-
-            with open(income_categories_yaml_file, "r") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "income_categories" not in data:
-                logger.warning(
-                    "Income Categories YAML file is empty or missing 'income_categories' key"
-                )
-                return None
-
-            # Return the list of income categories with id and text
-            categories = data["income_categories"]
-            return categories if categories else None
-        except Exception as e:
-            logger.error(
-                f"""Error loading Income Categories YAML file {income_categories_yaml_file}: {e}"""
-            )
-            return None
+    @staticmethod
+    def _load_flat_yaml(filename: str) -> dict[str, int]:
+        """
+        Load a flat YAML file from DATA_DIR and return its contents as a dictionary.
+        """
+        with open(Path(DATA_DIR) / filename) as f:
+            return yaml.safe_load(f)
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
+        """
+        Validate a phone number and return its validity status and normalized format.
+
+        Args:
+            phone_number (str): The phone number string to validate.
+
+        Returns:
+            tuple[bool, str]: A tuple containing:
+                - bool: True if the phone number is valid, False otherwise.
+                - str: The normalized/formatted phone number if valid, or the original input if invalid.
+        """
         valid, phone_number = phone_number_is_valid(phone_number=phone_number)
         return valid, phone_number
 
@@ -121,12 +54,9 @@ class IntakeValidator:
         Returns:
             tuple[str, int]: (matched_location, fips_code) where fips_code is 0 if no match found
         """
-        if self.service_areas is None:
-            return "", 0
-
         match = process.extractOne(
             location,
-            self.service_areas,
+            self.service_areas.keys(),
             scorer=fuzz.WRatio,
             score_cutoff=50,
             processor=utils.default_process,
@@ -134,18 +64,10 @@ class IntakeValidator:
 
         if match:
             matched_location = match[0]
-            fips_code = (
-                self.service_areas_fips.get(matched_location, 0) if self.service_areas_fips else 0
-            )
+            fips_code = self.service_areas.get(matched_location, 0)
             return matched_location, fips_code
         else:
             return "", 0
-
-    def get_fips_code(self, location: str) -> int | None:
-        """Get the FIPS code for a service area location."""
-        if self.service_areas_fips is None:
-            return None
-        return self.service_areas_fips.get(location)
 
     async def check_case_type(self, case_description: str) -> ClassificationResponse:
         """
