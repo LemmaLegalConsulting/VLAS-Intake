@@ -189,11 +189,13 @@ async def record_service_area(
     Args:
         location (str): The location of the caller's home or the legal incident. Must be a city or county.
     """
-    match = await validator.check_service_area(location=location)
+    match, fips_code = await validator.check_service_area(location=location)
     is_eligible = match == location
 
     status = status_helper(is_eligible)
-    result = ServiceAreaResult(status=status, is_eligible=is_eligible, location=location)
+    result = ServiceAreaResult(
+        status=status, is_eligible=is_eligible, location=location, fips_code=fips_code
+    )
 
     if status == Status.SUCCESS:
         next_node = NodeConfig(

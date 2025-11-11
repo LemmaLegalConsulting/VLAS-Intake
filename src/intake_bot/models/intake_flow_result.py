@@ -64,3 +64,4 @@ class PhoneNumberResult(IntakeFlowResult):
 class ServiceAreaResult(IntakeFlowResult):
     location: str
     is_eligible: bool
+    fips_code: int

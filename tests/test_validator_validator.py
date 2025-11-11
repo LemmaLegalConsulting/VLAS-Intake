@@ -12,31 +12,30 @@ from intake_bot.nodes.validator import IntakeValidator
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "user_area,expected_match",
+    "user_area,expected_match,expected_fips",
     [
-        ("Amelia County", "Amelia County"),  # exact match
-        ("Amelia", "Amelia County"),  # partial match
-        ("amalea", "Amelia County"),  # WRatio partial match
-        ("AMILYA", "Amelia County"),  # WRatio partial match
-        ("aml", "Amelia County"),  # WRatio partial match
-        ("Nonexistent Place", ""),  # no match
-        ("amelia county", "Amelia County"),  # case-insensitive match
-        ("Amelia County City", "Amelia County"),  # extra words
-        ("Bedford", "Bedford County"),  # another partial match
-        ("Danville", "Danville City"),  # city match
-        ("South Boston", "South Boston"),  # exact city
-        ("Emporia", "Emporia City"),  # city match
-        ("lynchburg", "Lynchburg City"),  # lowercase city
-        ("Halifax", "Halifax County"),  # partial county
-        ("", ""),  # empty string
+        ("Amelia County", "Amelia County", 51007),  # exact match
+        ("Amelia", "Amelia County", 51007),  # partial match
+        ("amalea", "Amelia County", 51007),  # WRatio partial match
+        ("AMILYA", "Amelia County", 51007),  # WRatio partial match
+        ("aml", "Amelia County", 51007),  # WRatio partial match
+        ("Nonexistent Place", "", 0),  # no match
+        ("amelia county", "Amelia County", 51007),  # case-insensitive match
+        ("Amelia County City", "Amelia County", 51007),  # extra words
+        ("Bedford", "Bedford County", 51019),  # another partial match
+        ("Danville", "Danville City", 51595),  # city match
+        ("South Boston", "South Boston", 51083),  # exact city
+        ("Emporia", "Emporia City", 51600),  # city match
+        ("lynchburg", "Lynchburg City", 51680),  # lowercase city
+        ("Halifax", "Halifax County", 51083),  # partial county
+        ("", "", 0),  # empty string
     ],
 )
-async def test_check_service_area(user_area, expected_match):
+async def test_check_service_area(user_area, expected_match, expected_fips):
     validator = IntakeValidator()
-    match = await validator.check_service_area(user_area)
-    for e in expected_match:
-        assert e in match
-    assert len(match) == len(expected_match)
+    match, fips_code = await validator.check_service_area(user_area)
+    assert match == expected_match
+    assert fips_code == expected_fips
 
 
 @pytest.mark.asyncio

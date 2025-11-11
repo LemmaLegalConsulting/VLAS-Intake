@@ -59,6 +59,7 @@ async def save_intake_legalserver(state: dict):
 
             # Create income records if income data exists
             if "income" in state:
+                # Use matter_uuid for the income endpoint
                 await _save_income_records(client, matter_uuid, state["income"])
 
     except httpx.RequestError as e:
@@ -97,15 +98,26 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any]:
             payload["legal_problem_code"] = code
 
     # Service area / County
-    # NOTE: county_of_residence expects a valid county that exists in your LegalServer instance.
-    # The format should be a lookup reference or a county object with county_name, county_state, or county_FIPS.
-    # Currently disabled pending validation of valid county values in your instance.
-    # if "service_area" in state:
-    #     if location := state["service_area"].get("location"):
-    #         # Parse location as county name and state (assuming format: "County Name, State")
-    #         county_info = _parse_county_location(location)
-    #         if county_info:
-    #             payload["county_of_residence"] = county_info
+    # Maps to county_of_residence lookup. Use lookup_value_name + lookup_value_state format.
+    # See LEGALSERVER_FIELD_MAPPING.md for valid values.
+    if "service_area" in state:
+        if location := state["service_area"].get("location"):
+            # Parse location as county name and state (assuming format: "County Name" or "County Name, State")
+            county_info = _parse_county_location(location)
+            if county_info:
+                # Use FIPS code if available
+                fips_code = state["service_area"].get("fips_code")
+                if fips_code:
+                    # Use FIPS code format
+                    payload["county_of_residence"] = {
+                        "county_FIPS": str(fips_code),
+                    }
+                else:
+                    # Fallback to lookup format: lookup_value_name + lookup_value_state
+                    payload["county_of_residence"] = {
+                        "lookup_value_name": county_info["county_name"],
+                        "lookup_value_state": county_info["county_state"],
+                    }
 
     # Eligibility flags
     if "income" in state and isinstance(state["income"], dict):
@@ -115,12 +127,13 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any]:
         payload["asset_eligible"] = state["assets"].get("is_eligible", False)
 
     # Citizenship
-    # NOTE: The citizenship field expects a lookup value name that exists in your LegalServer instance.
-    # Comment out if "U.S. Citizen" or "Non-U.S. Citizen" don't exist in your lookup tables.
-    # if "citizenship" in state and isinstance(state["citizenship"], dict):
-    #     if "is_citizen" in state["citizenship"]:
-    #         is_citizen = state["citizenship"].get("is_citizen")
-    #         payload["citizenship"] = "U.S. Citizen" if is_citizen else "Non-U.S. Citizen"
+    # Maps to citizenship lookup. Valid values: "Citizen" (is_citizen=True) or "Non-Citizen" (is_citizen=False)
+    # See LEGALSERVER_FIELD_MAPPING.md for full mapping details.
+    if "citizenship" in state and isinstance(state["citizenship"], dict):
+        if "is_citizen" in state["citizenship"]:
+            is_citizen = state["citizenship"].get("is_citizen")
+            # Map boolean to LegalServer citizenship lookup value
+            payload["citizenship"] = "Citizen" if is_citizen else "Non-Citizen"
 
     # Domestic violence
     if "domestic_violence" in state and isinstance(state["domestic_violence"], dict):
@@ -143,6 +156,9 @@ def _parse_county_location(location: str) -> Optional[Dict[str, str]]:
     """
     Parse a location string into county information.
     Expected format: "County Name" or "County Name, State"
+
+    Removes the word "County" from the name if present, since the LegalServer
+    lookup values don't include it (e.g., "Amelia" not "Amelia County").
     """
     if not location:
         return None
@@ -150,6 +166,9 @@ def _parse_county_location(location: str) -> Optional[Dict[str, str]]:
     parts = [p.strip() for p in location.split(",")]
     county_name = parts[0]
     state = parts[1] if len(parts) > 1 else "VA"  # Default to VA for VLAS
+
+    # Remove "County" or "City" suffix from the name since LegalServer lookups don't include it
+    county_name = county_name.replace(" County", "").replace(" City", "").strip()
 
     return {
         "county_name": county_name,
@@ -161,7 +180,16 @@ async def _save_income_records(
     client: httpx.AsyncClient, matter_uuid: str, income_data: Dict[str, Any]
 ) -> None:
     """
-    Save income records for a matter via the income API endpoint.
+    Save income records for a matter via the incomes API endpoint.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        income_data: Dictionary with "listing" of household member income data
+
+    Note:
+        Income types from flow_manager (e.g., "wages") are mapped to LegalServer
+        income categories (e.g., "Employment"). See mapping below.
     """
     if not isinstance(income_data, dict):
         logger.debug("Income data not in expected format")
@@ -171,6 +199,23 @@ async def _save_income_records(
     if not listing:
         logger.debug("No income records to save")
         return
+
+    # Map income types to LegalServer income categories
+    income_type_map = {
+        "wages": "Employment",
+        "salary": "Employment",
+        "self_employment": "Employment",
+        "ssi": "SSI",
+        "ssdi": "Social Security Disability",
+        "social_security": "Social Security Retirement",
+        "pension": "Pension/Retirement (Not Soc. Sec.)",
+        "unemployment": "Unemployment Compensation",
+        "child_support": "Child Support",
+        "alimony": "Child Support",
+        "tanf": "TANF",
+        "food_stamps": "Food Stamps",
+        "other": "Other",
+    }
 
     try:
         # For each household member with income, create an income record
@@ -195,16 +240,21 @@ async def _save_income_records(
                     "month": "Monthly",
                     "week": "Weekly",
                     "biweekly": "Biweekly",
+                    "semimonthly": "Semi-Monthly",
+                    "quarterly": "Quarterly",
                 }
 
+                # Get the income category name
+                income_category = income_type_map.get(income_type.lower(), "Other")
+
                 payload = {
-                    "type": income_type.capitalize(),  # e.g., "Wages"
-                    "amount": str(amount),
+                    "type": {"lookup_value_name": income_category},
+                    "amount": amount,  # Send as number, not string
                     "period": period_map.get(period, "Monthly"),
                 }
 
                 response = await client.post(
-                    f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/income",
+                    f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/incomes",
                     headers=LEGALSERVER_HEADERS,
                     json=payload,
                 )
@@ -212,7 +262,7 @@ async def _save_income_records(
                 if response.status_code not in (200, 201):
                     logger.warning(
                         f"Failed to save income for {person_name} ({income_type}): "
-                        f"{response.status_code}"
+                        f"{response.status_code} - {response.text}"
                     )
                 else:
                     logger.debug(

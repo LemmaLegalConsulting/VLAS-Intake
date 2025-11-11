@@ -109,17 +109,18 @@ async def test_record_name_invalid(flow_manager):
 
 @pytest.mark.asyncio
 async def test_record_service_area_eligible(flow_manager, patch_validator):
-    patch_validator.check_service_area = AsyncMock(return_value="Amelia County")
+    patch_validator.check_service_area = AsyncMock(return_value=("Amelia County", 51007))
     result, next_node = await record_service_area(flow_manager, "Amelia County")
     assert isinstance(result, dict)
     assert result["is_eligible"] is True
     assert flow_manager.state["service_area"]["location"] == "Amelia County"
+    assert result["fips_code"] == 51007
     assert "record_case_type_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_service_area_ineligible_with_match(flow_manager, patch_validator):
-    patch_validator.check_service_area = AsyncMock(return_value="Shelbyville")
+    patch_validator.check_service_area = AsyncMock(return_value=("Shelbyville", 0))
     result, next_node = await record_service_area(flow_manager, "Springfield")
     assert result["status"] == Status.ERROR
     assert "meant Shelbyville" in result["error"]
@@ -128,7 +129,7 @@ async def test_record_service_area_ineligible_with_match(flow_manager, patch_val
 
 @pytest.mark.asyncio
 async def test_record_service_area_ineligible_no_match(flow_manager, patch_validator):
-    patch_validator.check_service_area = AsyncMock(return_value=None)
+    patch_validator.check_service_area = AsyncMock(return_value=("", 0))
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     result, next_node = await record_service_area(flow_manager, "Nowhere")
     assert "Alternate providers" in result["error"]

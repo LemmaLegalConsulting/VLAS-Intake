@@ -1,0 +1,51 @@
+service_areas:
+  - name: Amelia County
+    fips: 51007
+  - name: Amherst County
+    fips: 51009
+  - name: Appomattox County
+    fips: 51011
+  - name: Bedford County
+    fips: 51019
+  - name: Brunswick County
+    fips: 51025
+  - name: Campbell County
+    fips: 51031
+  - name: Danville City
+    fips: 51595
+  - name: Emporia City
+    fips: 51600
+  - name: Franklin City
+    fips: 51630
+  - name: Greensville County
+    fips: 51081
+  - name: Halifax County
+    fips: 51083
+  - name: Henry County
+    fips: 51089
+  - name: Isle of Wight County
+    fips: 51093
+  - name: Lunenburg County
+    fips: 51111
+  - name: Lynchburg City
+    fips: 51680
+  - name: Martinsville City
+    fips: 51690
+  - name: Mecklenburg County
+    fips: 51117
+  - name: Nottoway County
+    fips: 51135
+  - name: Patrick County
+    fips: 51141
+  - name: Pittsylvania County
+    fips: 51143
+  - name: Prince Edward County
+    fips: 51147
+  - name: South Boston
+    fips: 51083
+  - name: Southampton County
+    fips: 51175
+  - name: Suffolk City
+    fips: 51800
+  - name: Sussex County
+    fips: 51183

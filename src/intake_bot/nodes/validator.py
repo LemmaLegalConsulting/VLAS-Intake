@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import yaml
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.validator import (
     Assets,
@@ -23,36 +24,77 @@ class IntakeValidator:
 
     def __init__(self):
         self.service_areas = self._load_service_areas()
+        self.service_areas_fips = self._load_service_areas_fips()
         self.classifier = Classifier()
 
     def _load_service_areas(self) -> list[str] | None:
-        service_areas_file = Path(DATA_DIR) / "service_areas.txt"
+        """Load service area names from YAML file."""
+        service_areas_yaml_file = Path(DATA_DIR) / "service_areas.yaml"
         try:
-            if not service_areas_file.exists():
-                logger.warning(f"""Service Areas file not found: {service_areas_file}""")
+            if not service_areas_yaml_file.exists():
+                logger.warning(f"""Service Areas YAML file not found: {service_areas_yaml_file}""")
                 return None
-            content = service_areas_file.read_text()
-            lines = [line.strip() for line in content.splitlines() if line.strip()]
-            if not lines:
-                logger.warning(
-                    f"""Service Areas file {service_areas_file} contains no valid entries"""
-                )
+
+            with open(service_areas_yaml_file, "r") as f:
+                data = yaml.safe_load(f)
+
+            if not data or "service_areas" not in data:
+                logger.warning("Service Areas YAML file is empty or missing 'service_areas' key")
                 return None
-            return lines
+
+            # Extract service area names
+            names = [area.get("name") for area in data["service_areas"] if area.get("name")]
+            return names if names else None
         except Exception as e:
-            logger.error(f"""Error loading Service Areas file {service_areas_file}: {e}""")
+            logger.error(
+                f"""Error loading Service Areas YAML file {service_areas_yaml_file}: {e}"""
+            )
+            return None
+
+    def _load_service_areas_fips(self) -> dict[str, int] | None:
+        """Load service areas FIPS codes from YAML file."""
+        service_areas_yaml_file = Path(DATA_DIR) / "service_areas.yaml"
+        try:
+            if not service_areas_yaml_file.exists():
+                logger.warning(f"""Service Areas YAML file not found: {service_areas_yaml_file}""")
+                return None
+
+            with open(service_areas_yaml_file, "r") as f:
+                data = yaml.safe_load(f)
+
+            if not data or "service_areas" not in data:
+                logger.warning("Service Areas YAML file is empty or missing 'service_areas' key")
+                return None
+
+            # Build mapping of service area name to FIPS code
+            fips_map = {}
+            for area in data["service_areas"]:
+                name = area.get("name")
+                fips = area.get("fips")
+                if name:
+                    fips_map[name] = fips
+
+            return fips_map if fips_map else None
+        except Exception as e:
+            logger.error(
+                f"""Error loading Service Areas YAML file {service_areas_yaml_file}: {e}"""
+            )
             return None
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         valid, phone_number = phone_number_is_valid(phone_number=phone_number)
         return valid, phone_number
 
-    async def check_service_area(self, location: str) -> str:
+    async def check_service_area(self, location: str) -> tuple[str, int]:
         """
         Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
+
+        Returns:
+            tuple[str, int]: (matched_location, fips_code) where fips_code is 0 if no match found
         """
         if self.service_areas is None:
-            return location
+            return "", 0
+
         match = process.extractOne(
             location,
             self.service_areas,
@@ -60,10 +102,21 @@ class IntakeValidator:
             score_cutoff=50,
             processor=utils.default_process,
         )
+
         if match:
-            return match[0]
+            matched_location = match[0]
+            fips_code = (
+                self.service_areas_fips.get(matched_location, 0) if self.service_areas_fips else 0
+            )
+            return matched_location, fips_code
         else:
-            return ""
+            return "", 0
+
+    def get_fips_code(self, location: str) -> int | None:
+        """Get the FIPS code for a service area location."""
+        if self.service_areas_fips is None:
+            return None
+        return self.service_areas_fips.get(location)
 
     async def check_case_type(self, case_description: str) -> ClassificationResponse:
         """

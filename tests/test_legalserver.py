@@ -16,7 +16,7 @@ class TestParseCountyLocation:
         """Test parsing county name with state abbreviation."""
         result = _parse_county_location("Amelia County, VA")
         assert result == {
-            "county_name": "Amelia County",
+            "county_name": "Amelia",
             "county_state": "VA",
         }
 
@@ -32,7 +32,7 @@ class TestParseCountyLocation:
         """Test that whitespace is properly trimmed."""
         result = _parse_county_location("  Fairfax County  ,  VA  ")
         assert result == {
-            "county_name": "Fairfax County",
+            "county_name": "Fairfax",
             "county_state": "VA",
         }
 
@@ -40,7 +40,7 @@ class TestParseCountyLocation:
         """Test parsing with a different state."""
         result = _parse_county_location("Cook County, IL")
         assert result == {
-            "county_name": "Cook County",
+            "county_name": "Cook",
             "county_state": "IL",
         }
 
@@ -114,8 +114,8 @@ class TestBuildMatterPayload:
         payload = _build_matter_payload(state)
 
         assert payload["county_of_residence"] == {
-            "county_name": "Amelia County",
-            "county_state": "VA",
+            "lookup_value_name": "Amelia",
+            "lookup_value_state": "VA",
         }
 
     def test_payload_with_income_eligibility(self):
@@ -150,7 +150,7 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert payload["citizenship"] == "U.S. Citizen"
+        assert payload["citizenship"] == "Citizen"
 
     def test_payload_with_citizenship_false(self):
         """Test that non-US citizenship is mapped correctly."""
@@ -161,7 +161,7 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert payload["citizenship"] == "Non-U.S. Citizen"
+        assert payload["citizenship"] == "Non-Citizen"
 
     def test_payload_with_domestic_violence(self):
         """Test that domestic violence flag is included."""
@@ -256,10 +256,10 @@ class TestBuildMatterPayload:
         assert payload["suffix"] == "Jr."
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_residence"]["county_name"] == "Arlington County"
+        assert payload["county_of_residence"]["lookup_value_name"] == "Arlington"
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
-        assert payload["citizenship"] == "U.S. Citizen"
+        assert payload["citizenship"] == "Citizen"
         assert payload["victim_of_domestic_violence"] is False
         assert payload["case_disposition"] == "Incomplete Intake"
 
@@ -285,8 +285,8 @@ class TestSaveIncomeRecords:
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["type"] == "Wages"
-        assert call_args[1]["json"]["amount"] == "50000"
+        assert call_args[1]["json"]["type"] == {"lookup_value_name": "Employment"}
+        assert call_args[1]["json"]["amount"] == 50000
         assert call_args[1]["json"]["period"] == "Annually"
 
     async def test_save_multiple_income_records(self):
@@ -401,7 +401,7 @@ class TestSaveIncomeRecords:
             mock_logger.warning.assert_called()
 
     async def test_capitalize_income_type(self):
-        """Test that income types are properly capitalized."""
+        """Test that income types are properly mapped to income categories."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -418,8 +418,8 @@ class TestSaveIncomeRecords:
 
         calls = mock_client.post.call_args_list
         types = [call[1]["json"]["type"] for call in calls]
-        assert "Wages" in types
-        assert "Child_support" in types
+        assert {"lookup_value_name": "Employment"} in types
+        assert {"lookup_value_name": "Child Support"} in types
 
     async def test_handle_exception_in_save_income_records(self):
         """Test that exceptions in save_income_records are handled gracefully."""
