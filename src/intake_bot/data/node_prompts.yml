@@ -96,31 +96,94 @@ record_case_type:
         After the caller provides their description, say: "Thank you. Please wait while your case description is processed."
         Then proceed to call the function.
 
+# Adverse parties
+record_adverse_parties:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
+        2. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case.
+        3. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business).
+        4. After collecting information for each adverse party, read back the complete list to the caller and confirm it is accurate. If corrections are needed, update the details and repeat the confirmation process.
+        5. If there are no adverse (opposing) parties involved in the legal case, call the function with an empty list: adverse_parties = []
+        6. Once all adverse parties are confirmed (or if there are none), ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
+
+        [Field Name Requirements]
+        When calling the function, ALWAYS pass an "adverse_parties" argument containing a list of adverse party objects.
+        Use these EXACT field names for each adverse party:
+        - "first" (required, not first_name, firstname, or firstName)
+        - "middle" (optional, not middle_name, middlename, or middleName)
+        - "last" (required, not last_name, lastname, or lastName)
+        - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
+        - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
+          - Each phone object must have: "number" (str) and "type" (str: mobile, home, business, fax, or other)
+
+        [Examples - ALWAYS pass the adverse_parties argument]
+        Example 1 - One adverse party with complete information:
+        adverse_parties = [{"first": "John", "middle": "Michael", "last": "Doe", "dob": "1980-05-15", "phones": [{"number": "5555551234", "type": "mobile"}]}]
+
+        Example 2 - One adverse party with minimal information:
+        adverse_parties = [{"first": "Jane", "last": "Smith"}]
+
+        Example 3 - Multiple adverse parties:
+        adverse_parties = [
+            {"first": "Robert", "last": "Johnson", "dob": "1975-03-20"},
+            {"first": "Patricia", "middle": "Ann", "last": "Williams", "phones": [{"number": "5555555678", "type": "home"}]}
+        ]
+
+        Example 4 - No adverse parties (empty list):
+        adverse_parties = []
+
+        [Critical Reminder]
+        ALWAYS call the function with the "adverse_parties" argument, even if it's an empty list [].
+        Do NOT call the function without specifying the adverse_parties argument.
+        Omit any fields that you don't have a value for.
+        If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
+
+        [User Prompt]
+        Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case. If there are no adverse parties involved in the legal case, let me know and we'll proceed.
+
 # Domestic violence
 record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller if they are experiencing or have experienced domestic violence from anyone in their household or relationships. Domestic violence includes physical violence, threatening behavior, yelling, throwing things, controlling behavior, emotional abuse, or any other form of abuse or intimidation. If the caller says yes, ask them to provide the names of all individuals who have perpetrated domestic violence against them. Collect these names as a list. If the caller is not experiencing domestic violence, proceed with an empty list.
+        1. Reference the adverse parties that were previously collected (they will be available in the conversation context).
+        2. Ask the caller if any of these adverse parties have perpetrated domestic violence against them.
+        3. If the caller indicates that one or more of the adverse parties have perpetrated domestic violence, ask them to confirm which ones.
+        4. If the caller has adverse parties but states that none of them have perpetrated domestic violence, proceed with an empty list.
+        5. If there were no adverse parties collected, ask the caller if they are experiencing or have experienced domestic violence from anyone else in their household or relationships. Domestic violence includes physical violence, threatening behavior, yelling, throwing things, controlling behavior, emotional abuse, or any other form of abuse or intimidation.
+        6. Once confirmed, ALWAYS call the `record_domestic_violence` function with the list of perpetrators (which may be empty).
 
         [User Prompt]
-        Are you experiencing or have you experienced domestic violence from anyone in your household or relationships? This can include physical violence, threats, yelling, throwing things, or any form of abuse or intimidation. If yes, please provide the names of all individuals who have perpetrated this violence or abuse against you.
+        Of the individuals you mentioned as adverse parties, has anyone perpetrated domestic violence against you? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation. Please provide the names of any adverse parties who have done this, or let me know if none of them have.
 
         [Additional Notes]
         - Domestic violence includes but is not limited to: hitting, pushing, yelling, throwing objects, threats, controlling behavior, and emotional abuse.
-        - If the caller is not experiencing domestic violence, `perpetrators` should be an empty list.
-        - If the caller is experiencing domestic violence, collect the names of all perpetrators as a list `perpetrators` and call the function with that list.
-        - ALWAYS call the `record_domestic_violence` function after confirming the caller's response, passing the list of `perpetrators`.
+        - ONLY include names of individuals who were previously listed as adverse parties (unless there were no adverse parties, in which case ask about domestic violence from anyone in their household or relationships).
+        - The `perpetrators` argument should contain a list of names (as strings) of individuals who have perpetrated domestic violence.
+        - If no one has perpetrated domestic violence, pass an empty list: perpetrators = []
+        - ALWAYS call the `record_domestic_violence` function after confirming the caller's response.
 
 # Income
 record_income:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller to provide the total number of people in the household (including all children, family members, or friends who reside in the home). Then ask for the monthly or yearly income for each member of their household individually. Remind them of possible sources of income to ensure accuracy. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food. Use the following guidelines:
+        1. Ask the caller to provide the total number of people in the household (including all children, family members, or friends who reside in the home).
+        2. For each household member (excluding perpetrators of domestic violence), collect:
+           - First and last name
+           - Monthly or yearly income
+           - Sources of income (wages, benefits, support, etc.)
+        3. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food.
+        4. After collecting all income information, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
+
+        IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
+
+        Use the following guidelines:
 
         [User Prompt]
-        To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. Please provide the income for each person individually. Common sources of income include:
+        To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. For each person, please provide their first and last name and their income. Common sources of income include:
         - Wages or salary
         - Spousal support or alimony
         - Child support
@@ -132,11 +195,12 @@ record_income:
         - Pension or retirement income
 
         [Additional Notes]
-        - If the caller indicates domestic violence in the household, exclude income or assets received or held by the alleged perpetrator.
+        - DO NOT collect income or asset information for any individual who perpetrated domestic violence against the caller. These individuals should be completely excluded from the income calculation.
         - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
         - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
+        - If perpetrators were accidentally included in the income data, the system will automatically remove them before processing.
 
         Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported.
 
@@ -238,53 +302,6 @@ record_names:
 
         [User Prompt]
         Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. If yes, please spell each name for me, starting with the first name, then middle name, and last name.
-
-# Adverse parties
-record_adverse_parties:
-  task_messages:
-    - content: >-
-        [Instructions]
-        1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
-        2. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case.
-        3. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, or business).
-        4. After collecting information for each adverse party, read back the complete list to the caller and confirm it is accurate. If corrections are needed, update the details and repeat the confirmation process.
-        5. If there are no adverse (opposing) parties involved in the legal case, call the function with an empty list: adverse_parties = []
-        6. Once all adverse parties are confirmed (or if there are none), ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
-
-        [Field Name Requirements]
-        When calling the function, ALWAYS pass an "adverse_parties" argument containing a list of adverse party objects.
-        Use these EXACT field names for each adverse party:
-        - "first" (required, not first_name, firstname, or firstName)
-        - "middle" (optional, not middle_name, middlename, or middleName)
-        - "last" (required, not last_name, lastname, or lastName)
-        - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
-        - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
-          - Each phone object must have: "number" (str) and "type" (str: mobile, home, business, fax, or other)
-
-        [Examples - ALWAYS pass the adverse_parties argument]
-        Example 1 - One adverse party with complete information:
-        adverse_parties = [{"first": "John", "middle": "Michael", "last": "Doe", "dob": "1980-05-15", "phones": [{"number": "5555551234", "type": "mobile"}]}]
-
-        Example 2 - One adverse party with minimal information:
-        adverse_parties = [{"first": "Jane", "last": "Smith"}]
-
-        Example 3 - Multiple adverse parties:
-        adverse_parties = [
-            {"first": "Robert", "last": "Johnson", "dob": "1975-03-20"},
-            {"first": "Patricia", "middle": "Ann", "last": "Williams", "phones": [{"number": "5555555678", "type": "home"}]}
-        ]
-
-        Example 4 - No adverse parties (empty list):
-        adverse_parties = []
-
-        [Critical Reminder]
-        ALWAYS call the function with the "adverse_parties" argument, even if it's an empty list [].
-        Do NOT call the function without specifying the adverse_parties argument.
-        Omit any fields that you don't have a value for.
-        If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
-
-        [User Prompt]
-        Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case. If there are no adverse parties involved in the legal case, let me know and we'll proceed.
 
 # Emergency
 record_emergency:

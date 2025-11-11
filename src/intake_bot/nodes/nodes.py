@@ -258,8 +258,8 @@ async def record_case_type(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_domestic_violence"),
-                "functions": [record_domestic_violence],
+                **prompts.get("record_adverse_parties"),
+                "functions": [record_adverse_parties],
             }
         )
     else:
@@ -274,15 +274,73 @@ async def record_case_type(
     return result, next_node
 
 
+@convert_and_log_result("adverse_parties")
+async def record_adverse_parties(
+    flow_manager: FlowManager, adverse_parties: list[dict]
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Collect information about the adverse (opposing) parties.
+
+    Args:
+        adverse_parties (list):
+            A Pydantic model `AdverseParties` with a list of people
+            who may be involved as adverse (opposing) parties in the
+            legal case. Each person should include their first,
+            middle, and last name, date of birth, and a list of phone
+            numbers with types.
+
+            Example:
+                [
+                    {
+                        "first": "Deanna",
+                        "middle": "Julie",
+                        "last": "Troi",
+                        "dob": "1974-12-25",
+                        "phones": [
+                            {
+                                "number": "5555551212",
+                                "type": "mobile"
+                            },
+                        ],
+                    },
+                ]
+    """
+    try:
+        adverse_parties_validated = AdverseParties.model_validate(adverse_parties)
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
+        )
+        return result, None
+
+    result = AdversePartiesResult(
+        status=Status.SUCCESS,
+        adverse_parties=adverse_parties_validated,
+    )
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_domestic_violence"),
+            "functions": [record_domestic_violence],
+        }
+    )
+    return result, next_node
+
+
 @convert_and_log_result("domestic_violence")
 async def record_domestic_violence(
     flow_manager: FlowManager, perpetrators: list[str]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record the names of perpetrators of domestic violence if the caller is xperiencing domestic violence.
+    Record which, if any, of the adverse parties have perpetrated domestic violence against the caller.
 
     Args:
-        perpetrators_of_domestic_violence (list): The individuals perpetrating domestic violence on the caller.
+        perpetrators (list[str]): A list of names of adverse parties who have perpetrated domestic violence
+                                  against the caller. Should be names of individuals previously listed as adverse parties.
+                                  Pass an empty list [] if none of the adverse parties have perpetrated domestic violence.
     """
     is_experiencing = bool(perpetrators)
     result = DomesticViolenceResult(
@@ -531,62 +589,6 @@ async def record_names(
         return result, None
 
     result = CallerNamesResult(status=Status.SUCCESS, names=names_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_adverse_parties"),
-            "functions": [record_adverse_parties],
-        }
-    )
-    return result, next_node
-
-
-@convert_and_log_result("adverse_parties")
-async def record_adverse_parties(
-    flow_manager: FlowManager, adverse_parties: list[dict]
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect information about the adverse (opposing) parties.
-
-    Args:
-        adverse_parties (list):
-            A Pydantic model `AdverseParties` with a list of people
-            who may be involved as adverse (opposing) parties in the
-            legal case. Each person should include their first,
-            middle, and last name, date of birth, and a list of phone
-            numbers with types.
-
-            Example:
-                [
-                    {
-                        "first": "Deanna",
-                        "middle": "Julie",
-                        "last": "Troi",
-                        "dob": "1974-12-25",
-                        "phones": [
-                            {
-                                "number": "5555551212",
-                                "type": "mobile"
-                            },
-                        ],
-                    },
-                ]
-    """
-    try:
-        adverse_parties_validated = AdverseParties.model_validate(adverse_parties)
-    except ValidationError as e:
-        logger.debug(e)
-        cleaned_error = clean_pydantic_error_message(e)
-        result = IntakeFlowResult(
-            status=Status.ERROR,
-            error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
-        )
-        return result, None
-
-    result = AdversePartiesResult(
-        status=Status.SUCCESS,
-        adverse_parties=adverse_parties_validated,
-    )
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
