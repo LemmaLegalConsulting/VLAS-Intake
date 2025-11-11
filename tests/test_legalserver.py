@@ -277,7 +277,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "is_eligible": True,
-            "listing": {"John Doe": {"wages": {"amount": 50000, "period": "year"}}},
+            "listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}},
         }
 
         await _save_income_records(mock_client, "test-uuid-123", income_data)
@@ -285,7 +285,7 @@ class TestSaveIncomeRecords:
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["type"] == {"lookup_value_name": "Employment"}
+        assert call_args[1]["json"]["type"] == {"lookup_value_id": 261}
         assert call_args[1]["json"]["amount"] == 50000
         assert call_args[1]["json"]["period"] == "Annually"
 
@@ -297,8 +297,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "is_eligible": True,
             "listing": {
-                "John Doe": {"wages": {"amount": 50000, "period": "year"}},
-                "Jane Doe": {"wages": {"amount": 60000, "period": "year"}},
+                "John Doe": {261: {"amount": 50000, "period": "year"}},
+                "Jane Doe": {261: {"amount": 60000, "period": "year"}},
             },
         }
 
@@ -313,9 +313,9 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "listing": {
-                "Person A": {"salary": {"amount": 5000, "period": "month"}},
-                "Person B": {"commission": {"amount": 1000, "period": "week"}},
-                "Person C": {"bonus": {"amount": 2000, "period": "biweekly"}},
+                "Person A": {261: {"amount": 5000, "period": "month"}},
+                "Person B": {268: {"amount": 1000, "period": "week"}},
+                "Person C": {256: {"amount": 2000, "period": "biweekly"}},
             }
         }
 
@@ -338,7 +338,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "listing": {
-                "John Doe": {"wages": {"amount": 50000, "period": "year"}},
+                "John Doe": {261: {"amount": 50000, "period": "year"}},
                 "Jane Doe": {},  # Empty record
                 "Child": None,  # None record
             }
@@ -357,15 +357,15 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "John Doe": {
-                    "wages": {"amount": 50000, "period": "year"},
-                    "bonus": {"period": "year"},  # Missing amount
+                    261: {"amount": 50000, "period": "year"},
+                    265: {"period": "year"},  # Missing amount
                 }
             }
         }
 
         await _save_income_records(mock_client, "test-uuid-missing", income_data)
 
-        # Should only call once for wages
+        # Should only call once for the income with amount
         assert mock_client.post.call_count == 1
 
     async def test_handle_non_dict_income_data(self):
@@ -394,22 +394,22 @@ class TestSaveIncomeRecords:
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, reason="Bad Request"))
 
-        income_data = {"listing": {"John Doe": {"wages": {"amount": 50000, "period": "year"}}}}
+        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}}}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_income_records(mock_client, "test-uuid", income_data)
             mock_logger.warning.assert_called()
 
     async def test_capitalize_income_type(self):
-        """Test that income types are properly mapped to income categories."""
+        """Test that income category IDs are properly handled."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         income_data = {
             "listing": {
                 "Person": {
-                    "wages": {"amount": 5000, "period": "month"},
-                    "child_support": {"amount": 500, "period": "month"},
+                    261: {"amount": 5000, "period": "month"},
+                    256: {"amount": 500, "period": "month"},
                 }
             }
         }
@@ -418,15 +418,15 @@ class TestSaveIncomeRecords:
 
         calls = mock_client.post.call_args_list
         types = [call[1]["json"]["type"] for call in calls]
-        assert {"lookup_value_name": "Employment"} in types
-        assert {"lookup_value_name": "Child Support"} in types
+        assert {"lookup_value_id": 261} in types
+        assert {"lookup_value_id": 256} in types
 
     async def test_handle_exception_in_save_income_records(self):
         """Test that exceptions in save_income_records are handled gracefully."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
 
-        income_data = {"listing": {"John Doe": {"wages": {"amount": 50000, "period": "year"}}}}
+        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}}}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             # Should not raise

@@ -25,6 +25,7 @@ class IntakeValidator:
     def __init__(self):
         self.service_areas = self._load_service_areas()
         self.service_areas_fips = self._load_service_areas_fips()
+        self.income_categories = self._load_income_categories()
         self.classifier = Classifier()
 
     def _load_service_areas(self) -> list[str] | None:
@@ -78,6 +79,34 @@ class IntakeValidator:
         except Exception as e:
             logger.error(
                 f"""Error loading Service Areas YAML file {service_areas_yaml_file}: {e}"""
+            )
+            return None
+
+    def _load_income_categories(self) -> list[dict] | None:
+        """Load income categories from YAML file."""
+        income_categories_yaml_file = Path(DATA_DIR) / "income_categories.yaml"
+        try:
+            if not income_categories_yaml_file.exists():
+                logger.warning(
+                    f"""Income Categories YAML file not found: {income_categories_yaml_file}"""
+                )
+                return None
+
+            with open(income_categories_yaml_file, "r") as f:
+                data = yaml.safe_load(f)
+
+            if not data or "income_categories" not in data:
+                logger.warning(
+                    "Income Categories YAML file is empty or missing 'income_categories' key"
+                )
+                return None
+
+            # Return the list of income categories with id and text
+            categories = data["income_categories"]
+            return categories if categories else None
+        except Exception as e:
+            logger.error(
+                f"""Error loading Income Categories YAML file {income_categories_yaml_file}: {e}"""
             )
             return None
 

@@ -1,0 +1,37 @@
+income_categories:
+  - id: 257
+    text: Alimony
+  - id: 256
+    text: Child Support
+  - id: 261
+    text: Employment
+  - id: 369
+    text: Food Stamps
+  - id: 100199
+    text: Income Not Provided
+  - id: 3317476
+    text: Long-Term/Short-Term Disability
+  - id: 100198
+    text: No Household Income
+  - id: 264
+    text: Other
+  - id: 265
+    text: Pension/Retirement (Not Soc. Sec.)
+  - id: 100355
+    text: SSI
+  - id: 3317475
+    text: SSI/SSDI combo
+  - id: 100440
+    text: Social Security Disability
+  - id: 266
+    text: Social Security Retirement
+  - id: 2550
+    text: TANF
+  - id: 3317477
+    text: Trust/Dividends/Annuity
+  - id: 268
+    text: Unemployment Compensation
+  - id: 269
+    text: Veterans Benefits
+  - id: 100356
+    text: Workers Compensation

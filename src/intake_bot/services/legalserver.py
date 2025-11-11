@@ -200,31 +200,15 @@ async def _save_income_records(
         logger.debug("No income records to save")
         return
 
-    # Map income types to LegalServer income categories
-    income_type_map = {
-        "wages": "Employment",
-        "salary": "Employment",
-        "self_employment": "Employment",
-        "ssi": "SSI",
-        "ssdi": "Social Security Disability",
-        "social_security": "Social Security Retirement",
-        "pension": "Pension/Retirement (Not Soc. Sec.)",
-        "unemployment": "Unemployment Compensation",
-        "child_support": "Child Support",
-        "alimony": "Child Support",
-        "tanf": "TANF",
-        "food_stamps": "Food Stamps",
-        "other": "Other",
-    }
-
     try:
         # For each household member with income, create an income record
         for person_name, income_info in listing.items():
             if not income_info:  # Skip empty records
                 continue
 
-            # Extract income details (expecting format like {"wages": {"amount": 80000, "period": "year"}})
-            for income_type, amount_info in income_info.items():
+            # Extract income details (expecting format like {261: {"amount": 80000, "period": "year"}})
+            # where the key is the income category ID
+            for income_category_id, amount_info in income_info.items():
                 if not isinstance(amount_info, dict):
                     continue
 
@@ -244,11 +228,9 @@ async def _save_income_records(
                     "quarterly": "Quarterly",
                 }
 
-                # Get the income category name
-                income_category = income_type_map.get(income_type.lower(), "Other")
-
+                # Use the income category ID directly as the LegalServer lookup value
                 payload = {
-                    "type": {"lookup_value_name": income_category},
+                    "type": {"lookup_value_id": income_category_id},
                     "amount": amount,  # Send as number, not string
                     "period": period_map.get(period, "Monthly"),
                 }
@@ -261,12 +243,12 @@ async def _save_income_records(
 
                 if response.status_code not in (200, 201):
                     logger.warning(
-                        f"Failed to save income for {person_name} ({income_type}): "
+                        f"Failed to save income for {person_name} (ID: {income_category_id}): "
                         f"{response.status_code} - {response.text}"
                     )
                 else:
                     logger.debug(
-                        f"Income record created for {person_name} ({income_type}): {amount} {period}"
+                        f"Income record created for {person_name} (ID: {income_category_id}): {amount} {period}"
                     )
 
     except Exception as e:

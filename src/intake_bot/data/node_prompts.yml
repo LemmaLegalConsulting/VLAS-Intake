@@ -174,35 +174,55 @@ record_income:
         2. For each household member (excluding perpetrators of domestic violence), collect:
            - First and last name
            - Monthly or yearly income
-           - Sources of income (wages, benefits, support, etc.)
+           - Sources of income using the income category IDs provided below
         3. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
         IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
 
-        Use the following guidelines:
+        [Income Category IDs and Descriptions]
+        When recording income sources, use these category IDs:
+        - ID 261: Employment (wages, salary, self-employment)
+        - ID 256: Child Support
+        - ID 257: Alimony
+        - ID 266: Social Security Retirement
+        - ID 100440: Social Security Disability (SSDI)
+        - ID 100355: SSI (Supplemental Security Income)
+        - ID 3317475: SSI/SSDI combo
+        - ID 3317476: Long-Term/Short-Term Disability
+        - ID 100356: Workers Compensation
+        - ID 268: Unemployment Compensation
+        - ID 265: Pension/Retirement (Not Soc. Sec.)
+        - ID 2550: TANF (Temporary Assistance for Needy Families)
+        - ID 369: Food Stamps
+        - ID 269: Veterans Benefits
+        - ID 3317477: Trust/Dividends/Annuity
+        - ID 100198: No Household Income
+        - ID 100199: Income Not Provided
+        - ID 264: Other
 
         [User Prompt]
-        To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. For each person, please provide their first and last name and their income. Common sources of income include:
-        - Wages or salary
-        - Spousal support or alimony
-        - Child support
-        - Unemployment benefits
-        - Disability payments
-        - Social Security
-        - TANF (Temporary Assistance for Needy Families)
-        - Veterans benefits
-        - Pension or retirement income
+        To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. For each person, please provide their first and last name and their income from each source. Common sources of income include:
+        - Wages or salary (ID 261)
+        - Spousal support or alimony (ID 257)
+        - Child support (ID 256)
+        - Unemployment benefits (ID 268)
+        - Disability payments (ID 3317476 or ID 100440)
+        - Social Security (ID 266, ID 100440, or ID 100355)
+        - TANF (ID 2550)
+        - Veterans benefits (ID 269)
+        - Pension or retirement income (ID 265)
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who perpetrated domestic violence against the caller. These individuals should be completely excluded from the income calculation.
         - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
         - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
+        - When recording income, use the numeric category IDs as keys (not text descriptions) to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
         - If perpetrators were accidentally included in the income data, the system will automatically remove them before processing.
 
-        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported.
+        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the numeric income category IDs in the function call.
 
 # Income over limit
 confirm_income_over_limit:

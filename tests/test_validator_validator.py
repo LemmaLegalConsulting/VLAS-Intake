@@ -113,7 +113,7 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
 async def test_check_income(income, period, expected_eligible, expected_monthly_income):
     validator = IntakeValidator()
     income_detail = IncomeDetail(amount=income, period=IncomePeriod(period))
-    member_income = MemberIncome({"wages": income_detail})
+    member_income = MemberIncome({261: income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert is_eligible == expected_eligible

@@ -54,7 +54,7 @@ class IncomeDetail(BaseModel):
     )
 
 
-class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_type -> IncomeDetail
+class MemberIncome(RootModel[dict[int, IncomeDetail]]):  # income_category_id -> IncomeDetail
     pass
 
 
