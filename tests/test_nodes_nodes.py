@@ -224,7 +224,7 @@ async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
-                261: {"amount": 1000, "period": "month"},
+                261: {"amount": 1000, "period": "Monthly"},
             },
         }
         result, next_node = await record_income(flow_manager, income)
@@ -241,7 +241,7 @@ async def test_record_income_multiple_members(flow_manager, patch_validator):
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
-                261: {"amount": 3200, "period": "month"},
+                261: {"amount": 3200, "period": "Monthly"},
             },
         }
     result, next_node = await record_income(flow_manager, income)
@@ -260,7 +260,7 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
-                261: {"amount": 6000, "period": "month"},
+                261: {"amount": 6000, "period": "Monthly"},
             },
         }
     result, next_node = await record_income(flow_manager, income)

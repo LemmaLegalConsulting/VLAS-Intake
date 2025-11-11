@@ -233,7 +233,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "is_eligible": True,
-            "listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}},
+            "listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}},
         }
 
         await _save_income_records(mock_client, "test-uuid-123", income_data)
@@ -253,8 +253,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "is_eligible": True,
             "listing": {
-                "John Doe": {261: {"amount": 50000, "period": "year"}},
-                "Jane Doe": {261: {"amount": 60000, "period": "year"}},
+                "John Doe": {261: {"amount": 50000, "period": "Annually"}},
+                "Jane Doe": {261: {"amount": 60000, "period": "Annually"}},
             },
         }
 
@@ -263,15 +263,15 @@ class TestSaveIncomeRecords:
         assert mock_client.post.call_count == 2
 
     async def test_save_income_with_different_periods(self):
-        """Test that different period formats are mapped correctly."""
+        """Test that different period formats are valid LegalServer values."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         income_data = {
             "listing": {
-                "Person A": {261: {"amount": 5000, "period": "month"}},
-                "Person B": {268: {"amount": 1000, "period": "week"}},
-                "Person C": {256: {"amount": 2000, "period": "biweekly"}},
+                "Person A": {261: {"amount": 5000, "period": "Monthly"}},
+                "Person B": {268: {"amount": 1000, "period": "Weekly"}},
+                "Person C": {256: {"amount": 2000, "period": "Biweekly"}},
             }
         }
 
@@ -281,7 +281,7 @@ class TestSaveIncomeRecords:
         calls = mock_client.post.call_args_list
         assert len(calls) == 3
 
-        # Verify period mappings
+        # Verify period values are passed through as-is
         periods = [call[1]["json"]["period"] for call in calls]
         assert "Monthly" in periods
         assert "Weekly" in periods
@@ -294,7 +294,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "listing": {
-                "John Doe": {261: {"amount": 50000, "period": "year"}},
+                "John Doe": {261: {"amount": 50000, "period": "Annually"}},
                 "Jane Doe": {},  # Empty record
                 "Child": None,  # None record
             }
@@ -313,8 +313,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "John Doe": {
-                    261: {"amount": 50000, "period": "year"},
-                    265: {"period": "year"},  # Missing amount
+                    261: {"amount": 50000, "period": "Annually"},
+                    265: {"period": "Annually"},  # Missing amount
                 }
             }
         }
@@ -350,7 +350,7 @@ class TestSaveIncomeRecords:
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, reason="Bad Request"))
 
-        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}}}
+        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}}}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_income_records(mock_client, "test-uuid", income_data)
@@ -364,8 +364,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "Person": {
-                    261: {"amount": 5000, "period": "month"},
-                    256: {"amount": 500, "period": "month"},
+                    261: {"amount": 5000, "period": "Monthly"},
+                    256: {"amount": 500, "period": "Monthly"},
                 }
             }
         }
@@ -382,7 +382,7 @@ class TestSaveIncomeRecords:
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
 
-        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "year"}}}}
+        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}}}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             # Should not raise

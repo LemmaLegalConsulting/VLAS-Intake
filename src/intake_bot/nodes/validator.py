@@ -168,10 +168,18 @@ class IntakeValidator:
             for income_detail in member_income.root.values():
                 amt = income_detail.amount
                 period = income_detail.period
-                if period == IncomePeriod.year:
+                if period == IncomePeriod.ANNUALLY:
                     total_monthly += amt / 12
-                elif period == IncomePeriod.month:
+                elif period == IncomePeriod.MONTHLY:
                     total_monthly += amt
+                elif period == IncomePeriod.WEEKLY:
+                    total_monthly += (amt * 52) / 12
+                elif period == IncomePeriod.BIWEEKLY:
+                    total_monthly += (amt * 26) / 12
+                elif period == IncomePeriod.SEMI_MONTHLY:
+                    total_monthly += amt * 2
+                elif period == IncomePeriod.QUARTERLY:
+                    total_monthly += (amt * 4) / 12
                 else:
                     raise ValueError(f"Unknown period: {period}")
         total_monthly = int(total_monthly)

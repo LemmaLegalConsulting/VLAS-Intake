@@ -43,14 +43,21 @@ class CallerNames(RootModel[List[CallerName]]):
 
 
 class IncomePeriod(str, Enum):
-    month = "month"
-    year = "year"
+    """LegalServer income period values."""
+
+    ANNUALLY = "Annually"
+    MONTHLY = "Monthly"
+    WEEKLY = "Weekly"
+    BIWEEKLY = "Biweekly"
+    SEMI_MONTHLY = "Semi-Monthly"
+    QUARTERLY = "Quarterly"
 
 
 class IncomeDetail(BaseModel):
     amount: int = Field(..., description="The amount of income received.")
     period: IncomePeriod = Field(
-        ..., description='The period for the income, either "month" or "year".'
+        ...,
+        description="The period for the income: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.",
     )
 
 

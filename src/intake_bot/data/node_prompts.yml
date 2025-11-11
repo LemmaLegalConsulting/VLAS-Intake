@@ -173,12 +173,21 @@ record_income:
         1. Ask the caller to provide the total number of people in the household (including all children, family members, or friends who reside in the home).
         2. For each household member (excluding perpetrators of domestic violence), collect:
            - First and last name
-           - Monthly or yearly income
+           - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income category IDs provided below
         3. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
         IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
+
+        [Income Period Values]
+        When recording income, the period must be one of these LegalServer values:
+        - Annually (yearly income)
+        - Monthly (monthly income)
+        - Weekly (weekly income)
+        - Biweekly (every two weeks)
+        - Semi-Monthly (twice a month)
+        - Quarterly (four times a year)
 
         [Income Category IDs and Descriptions]
         When recording income sources, use these category IDs:
@@ -215,7 +224,7 @@ record_income:
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who perpetrated domestic violence against the caller. These individuals should be completely excluded from the income calculation.
-        - Income is generally determined by looking at the last 30 days, but yearly income can also be provided if easier for the caller.
+        - Income periods must be one of: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.
         - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
         - When recording income, use the numeric category IDs as keys (not text descriptions) to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.

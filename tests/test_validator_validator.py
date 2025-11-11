@@ -79,35 +79,35 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
 @pytest.mark.parametrize(
     "income,period,expected_eligible,expected_monthly_income",
     [
-        (0, "month", True, 0),  # eligible, no income
-        (0, "year", True, 0),  # eligible, no income
-        (1200, "month", True, 1200),  # eligible, monthly income below 300% of poverty
-        (40000, "year", True, 3333),  # eligible, yearly income below 300% of poverty
-        (5000, "month", False, 5000),  # not eligible, monthly income above 300% of poverty
-        (60000, "year", False, 5000),  # not eligible, yearly income above 300% of poverty
-        (3911, "month", True, 3911),  # eligible, just below 300% poverty for month
-        (46932, "year", True, 3911),  # eligible, just below 300% poverty for year
-        (3912, "month", True, 3912),  # eligible, near 300% poverty for month (truncated to 299)
-        (46944, "year", True, 3912),  # eligible, near 300% poverty for year (truncated to 299)
+        (0, "Monthly", True, 0),  # eligible, no income
+        (0, "Annually", True, 0),  # eligible, no income
+        (1200, "Monthly", True, 1200),  # eligible, monthly income below 300% of poverty
+        (40000, "Annually", True, 3333),  # eligible, yearly income below 300% of poverty
+        (5000, "Monthly", False, 5000),  # not eligible, monthly income above 300% of poverty
+        (60000, "Annually", False, 5000),  # not eligible, yearly income above 300% of poverty
+        (3911, "Monthly", True, 3911),  # eligible, just below 300% poverty for month
+        (46932, "Annually", True, 3911),  # eligible, just below 300% poverty for year
+        (3912, "Monthly", True, 3912),  # eligible, near 300% poverty for month (truncated to 299)
+        (46944, "Annually", True, 3912),  # eligible, near 300% poverty for year (truncated to 299)
         (
             3913,
-            "month",
+            "Monthly",
             False,
             3913,
         ),  # not eligible, just over 300% poverty for month due to round()
         (
             46956,
-            "year",
+            "Annually",
             False,
             3913,
         ),  # not eligible, just over 300% poverty for month due to round()
-        (100000, "year", False, 8333),  # not eligible, high yearly income
-        (10000, "month", False, 10000),  # not eligible, high monthly income
-        (1200, "month", True, 1200),  # single member, low income
-        (2400, "month", True, 2400),  # single member, still eligible
-        (3600, "month", True, 3600),  # single member, just under
-        (1200, "year", True, 100),  # very low yearly income
-        (14400, "year", True, 1200),  # yearly, eligible
+        (100000, "Annually", False, 8333),  # not eligible, high yearly income
+        (10000, "Monthly", False, 10000),  # not eligible, high monthly income
+        (1200, "Monthly", True, 1200),  # single member, low income
+        (2400, "Monthly", True, 2400),  # single member, still eligible
+        (3600, "Monthly", True, 3600),  # single member, just under
+        (1200, "Annually", True, 100),  # very low yearly income
+        (14400, "Annually", True, 1200),  # yearly, eligible
     ],
 )
 async def test_check_income(income, period, expected_eligible, expected_monthly_income):
@@ -118,6 +118,115 @@ async def test_check_income(income, period, expected_eligible, expected_monthly_
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert is_eligible == expected_eligible
     assert monthly_income == expected_monthly_income
+
+
+@pytest.mark.asyncio
+async def test_check_income_weekly_period():
+    """Test that weekly income is correctly converted to monthly (52 weeks / 12 months)."""
+    validator = IntakeValidator()
+    # 520/week = 2080/month = eligible
+    income_detail = IncomeDetail(amount=520, period=IncomePeriod.WEEKLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 2253  # (520 * 52) / 12 = 2253.33 -> 2253
+    assert is_eligible is True
+
+
+@pytest.mark.asyncio
+async def test_check_income_biweekly_period():
+    """Test that biweekly income is correctly converted to monthly (26 periods / 12 months)."""
+    validator = IntakeValidator()
+    # 1040/biweekly = 2253/month = eligible (note: 1040 * 26 / 12 = 2253.33)
+    income_detail = IncomeDetail(amount=1040, period=IncomePeriod.BIWEEKLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 2253  # (1040 * 26) / 12 = 2253.33 -> 2253
+    assert is_eligible is True
+
+
+@pytest.mark.asyncio
+async def test_check_income_semi_monthly_period():
+    """Test that semi-monthly income is correctly converted to monthly (2 periods = 1 month)."""
+    validator = IntakeValidator()
+    # 1200/semi-monthly = 2400/month = eligible
+    income_detail = IncomeDetail(amount=1200, period=IncomePeriod.SEMI_MONTHLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 2400  # 1200 * 2 = 2400
+    assert is_eligible is True
+
+
+@pytest.mark.asyncio
+async def test_check_income_quarterly_period():
+    """Test that quarterly income is correctly converted to monthly (4 quarters / 12 months)."""
+    validator = IntakeValidator()
+    # 6000/quarter = 2000/month = eligible
+    income_detail = IncomeDetail(amount=6000, period=IncomePeriod.QUARTERLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 2000  # (6000 * 4) / 12 = 2000
+    assert is_eligible is True
+
+
+@pytest.mark.asyncio
+async def test_check_income_all_periods_mixed():
+    """Test household with income from different periods."""
+    validator = IntakeValidator()
+    # Person 1: 2000/month
+    income_detail_1 = IncomeDetail(amount=2000, period=IncomePeriod.MONTHLY)
+    member_income_1 = MemberIncome({261: income_detail_1})
+
+    # Person 2: 24000/year = 2000/month
+    income_detail_2 = IncomeDetail(amount=24000, period=IncomePeriod.ANNUALLY)
+    member_income_2 = MemberIncome({256: income_detail_2})
+
+    # Person 3: 520/week = 2253/month
+    income_detail_3 = IncomeDetail(amount=520, period=IncomePeriod.WEEKLY)
+    member_income_3 = MemberIncome({257: income_detail_3})
+
+    household_income = HouseholdIncome(
+        {
+            "Person 1": member_income_1,
+            "Person 2": member_income_2,
+            "Person 3": member_income_3,
+        }
+    )
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    # 2000 + 2000 + 2253 = 6253
+    assert monthly_income == 6253
+    assert (
+        is_eligible is True
+    )  # 6253 is below 300% poverty limit for 3-person household (which is ~11733)
+
+
+@pytest.mark.asyncio
+async def test_check_income_weekly_ineligible():
+    """Test that weekly income can result in ineligibility."""
+    validator = IntakeValidator()
+    # 3850/week = 16683/month = ineligible
+    income_detail = IncomeDetail(amount=3850, period=IncomePeriod.WEEKLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 16683  # (3850 * 52) / 12 = 16683.33 -> 16683
+    assert is_eligible is False
+
+
+@pytest.mark.asyncio
+async def test_check_income_semi_monthly_ineligible():
+    """Test that semi-monthly income can result in ineligibility."""
+    validator = IntakeValidator()
+    # 2500/semi-monthly = 5000/month = ineligible
+    income_detail = IncomeDetail(amount=2500, period=IncomePeriod.SEMI_MONTHLY)
+    member_income = MemberIncome({261: income_detail})
+    household_income = HouseholdIncome({"Test Person": member_income})
+    is_eligible, monthly_income = await validator.check_income(income=household_income)
+    assert monthly_income == 5000  # 2500 * 2 = 5000
+    assert is_eligible is False
 
 
 @pytest.mark.asyncio

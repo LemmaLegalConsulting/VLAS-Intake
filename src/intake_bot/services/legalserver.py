@@ -182,21 +182,11 @@ async def _save_income_records(
                 if not amount:
                     continue
 
-                # Map period to LegalServer values
-                period_map = {
-                    "year": "Annually",
-                    "month": "Monthly",
-                    "week": "Weekly",
-                    "biweekly": "Biweekly",
-                    "semimonthly": "Semi-Monthly",
-                    "quarterly": "Quarterly",
-                }
-
                 # Use the income category ID directly as the LegalServer lookup value
                 payload = {
                     "type": {"lookup_value_id": income_category_id},
                     "amount": amount,  # Send as number, not string
-                    "period": period_map.get(period, "Monthly"),
+                    "period": period,  # period is already in LegalServer format
                 }
 
                 response = await client.post(
