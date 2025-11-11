@@ -154,10 +154,6 @@ async def _save_income_records(
         client: AsyncClient for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         income_data: Dictionary with "listing" of household member income data
-
-    Note:
-        Income types from flow_manager (e.g., "wages") are mapped to LegalServer
-        income categories (e.g., "Employment"). See mapping below.
     """
     if not isinstance(income_data, dict):
         logger.debug("Income data not in expected format")
