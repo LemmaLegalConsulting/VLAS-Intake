@@ -38,6 +38,6 @@ Taskfile.yml
 # intake-bot
 client
 debug
+logs
 recordings
 tests
-server.log

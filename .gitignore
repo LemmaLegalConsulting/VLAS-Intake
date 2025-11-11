@@ -168,3 +168,6 @@ node_modules/
 
 # Audio recordings for testing
 recordings/
+
+# Logs
+logs/
