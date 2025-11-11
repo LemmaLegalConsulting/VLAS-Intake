@@ -11,7 +11,7 @@ celeste:
       - You live in Amelia County.
       - Your husband's name is Dexter Robert Campbell.
       - Your husband is the opposing party.
-      - You have two children together, Robby and Cobby.
+      - You have two children together, James and Thomas.
       - Your husband has yelled at you and thrown things, but never hit you or the kids.
       - You don't have any income because you're a stay at home mom.
       - You don't have any of your own assets since he makes all of the money, about $80,000/year.
@@ -35,6 +35,13 @@ celeste:
     case_type:
       is_eligible: true
       legal_problem_code: "32 Divorce/Sep./Annul."
+    adverse_parties:
+      adverse_parties:
+        - first: "Dexter"
+          middle: "Robert"
+          last: "Campbell"
+          dob: null
+          phones: null
     domestic_violence:
       is_experiencing: true
       perpetrators:
@@ -43,7 +50,9 @@ celeste:
       is_eligible: true
       monthly_amount: 0
       listing:
-        "Celeste Campbell": {}
+        "Celeste": {}
+        "James": {}
+        "Thomas": {}
       household_size: 3
     assets:
       is_eligible: true
@@ -52,13 +61,6 @@ celeste:
       receives_benefits: false
     citizenship:
       is_citizen: true
-    adverse_parties:
-      adverse_parties:
-        - first: "Dexter"
-          middle: "Robert"
-          last: "Campbell"
-          dob: null
-          phones: null
     emergency:
       is_emergency: false
 

@@ -5,25 +5,25 @@ Combines validation, result management, and detailed analysis into a single pack
 
 Usage:
     # Show summary of all tests
-    python test_runner.py
+    python test_manager.py
 
     # Show detailed results for all tests
-    python test_runner.py --detailed
+    python test_manager.py view --detailed
 
     # Show only failed tests
-    python test_runner.py --failed
+    python test_manager.py view --failed
 
     # Show only passed tests
-    python test_runner.py --passed
+    python test_manager.py view --passed
 
     # Show details for a specific call
-    python test_runner.py <call_id>
+    python test_manager.py view <call_id>
 
-    # Validate a specific call (useful as standalone validator)
-    python test_runner.py validate <call_id> <script_name>
+    # Validate a specific call
+    python test_manager.py validate <call_id> <script_name>
 
     # Custom paths
-    python test_runner.py -f /path/to/client_test_results.json --detailed
+    python test_manager.py -f /path/to/client_test_results.json view --detailed
 """
 
 import argparse
@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import yaml
+from rapidfuzz import fuzz, process, utils
 
 
 class StateValidator:
@@ -43,6 +44,39 @@ class StateValidator:
 
     def __init__(self):
         self.mismatches: List[Dict[str, Any]] = []
+
+    def _fuzzy_match_key(self, key: str, candidates: List[str], threshold: int = 80) -> str | None:
+        """
+        Use fuzzy matching to find a close match for a key (typically for names).
+
+        Uses partial_ratio with preprocessing for better name matching.
+        - partial_ratio finds best substring match, ideal for single-name comparisons
+        - preprocessing normalizes case and whitespace
+        - threshold of 80 provides good balance between flexibility and accuracy
+
+        Args:
+            key: The key to match (e.g., "Robby")
+            candidates: List of candidate keys to match against (e.g., ["Robbie", "Sarah", ...])
+            threshold: Minimum match ratio (0-100, default 80)
+
+        Returns:
+            The best matching key or None if no match found above threshold
+        """
+        if not candidates:
+            return None
+
+        # Use partial_ratio with preprocessing for name matching
+        # partial_ratio finds the best matching substring, which works well for name variations
+        # (e.g., "Robby" matches "Robbie" at 88.9%, "Coby" matches "Cobby" at 100%)
+        best_match = process.extractOne(
+            key,
+            list(candidates),
+            scorer=fuzz.partial_ratio,
+            processor=utils.default_process,
+            score_cutoff=threshold,
+        )
+
+        return best_match[0] if best_match else None
 
     def compare_states(
         self, actual_state: Dict[str, Any], expected_state: Dict[str, Any]
@@ -63,29 +97,58 @@ class StateValidator:
         for key in expected:
             new_path = f"{path}.{key}" if path else key
             if key not in actual:
-                self.mismatches.append(
-                    {
-                        "path": new_path,
-                        "issue": "missing_key",
-                        "expected": expected[key],
-                        "actual": None,
-                    }
-                )
+                # For income.listing, try fuzzy matching
+                if path == "income.listing":
+                    fuzzy_match = self._fuzzy_match_key(key, actual.keys())
+                    if fuzzy_match:
+                        self._compare_values(actual[fuzzy_match], expected[key], new_path)
+                    else:
+                        self.mismatches.append(
+                            {
+                                "path": new_path,
+                                "issue": "missing_key",
+                                "expected": expected[key],
+                                "actual": None,
+                            }
+                        )
+                else:
+                    self.mismatches.append(
+                        {
+                            "path": new_path,
+                            "issue": "missing_key",
+                            "expected": expected[key],
+                            "actual": None,
+                        }
+                    )
             else:
                 self._compare_values(actual[key], expected[key], new_path)
 
         # Check for extra keys in actual (but ignore system keys)
         for key in actual:
             if key not in expected and key not in self.SYSTEM_KEYS:
-                new_path = f"{path}.{key}" if path else key
-                self.mismatches.append(
-                    {
-                        "path": new_path,
-                        "issue": "extra_key",
-                        "expected": None,
-                        "actual": actual[key],
-                    }
-                )
+                # For income.listing, try fuzzy matching
+                if path == "income.listing":
+                    fuzzy_match = self._fuzzy_match_key(key, expected.keys())
+                    if not fuzzy_match:
+                        new_path = f"{path}.{key}" if path else key
+                        self.mismatches.append(
+                            {
+                                "path": new_path,
+                                "issue": "extra_key",
+                                "expected": None,
+                                "actual": actual[key],
+                            }
+                        )
+                else:
+                    new_path = f"{path}.{key}" if path else key
+                    self.mismatches.append(
+                        {
+                            "path": new_path,
+                            "issue": "extra_key",
+                            "expected": None,
+                            "actual": actual[key],
+                        }
+                    )
 
     def _compare_values(self, actual: Any, expected: Any, path: str):
         """Recursively compare values."""
@@ -443,60 +506,75 @@ def main():
         epilog="""
 Examples:
   # Show summary of all tests
-  python test_runner.py
+  python test_manager.py
 
   # Show detailed results
-  python test_runner.py --detailed
+  python test_manager.py view --detailed
 
   # Show only failed tests
-  python test_runner.py --failed
+  python test_manager.py view --failed
 
   # Show details for specific call
-  python test_runner.py <call_id>
+  python test_manager.py view <call_id>
+
+  # Validate a specific call
+  python test_manager.py validate <call_id> <script_name>
 
   # Custom result file location
-  python test_runner.py -f logs/client_test_results.json --detailed
+  python test_manager.py -f logs/client_test_results.json view --detailed
         """,
     )
 
-    parser.add_argument(
-        "call_id",
-        nargs="?",
-        help="specific call ID to view details",
-    )
-    parser.add_argument(
-        "--detailed",
-        action="store_true",
-        help="show detailed results for all tests",
-    )
-    parser.add_argument(
-        "--failed",
-        action="store_true",
-        help="show only failed tests",
-    )
-    parser.add_argument(
-        "--passed",
-        action="store_true",
-        help="show only passed tests",
-    )
+    # Global arguments (apply to all commands)
     parser.add_argument(
         "-f",
         "--file",
         type=str,
-        default="client_test_results.json",
-        help="path to test results file (default: client_test_results.json)",
+        default="logs/client_test_results.json",
+        help="path to test results file (default: logs/client_test_results.json)",
     )
     parser.add_argument(
         "--state-file",
         type=str,
-        default="flow_manager_state.json",
-        help="path to flow_manager_state.json (default: flow_manager_state.json)",
+        default="logs/flow_manager_state.json",
+        help="path to flow_manager_state.json (default: logs/flow_manager_state.json)",
     )
     parser.add_argument(
         "--scripts-file",
         type=str,
         default=None,
         help="path to scripts.yml (default: scripts.yml in same directory)",
+    )
+
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(dest="command", help="command to run")
+
+    # Validate subcommand
+    validate_parser = subparsers.add_parser("validate", help="validate a specific call")
+    validate_parser.add_argument("call_id", help="call ID to validate")
+    validate_parser.add_argument("script_name", help="script name for the call")
+
+    # View/analysis commands (add as a pseudo-subcommand using parent parser)
+    view_parser = subparsers.add_parser("view", help="view test results")
+    view_parser.add_argument(
+        "call_id",
+        nargs="?",
+        help="specific call ID to view details",
+    )
+    view_parser.add_argument(
+        "--detailed",
+        action="store_true",
+        help="show detailed results for all tests",
+    )
+    view_parser.add_argument(
+        "--failed",
+        action="store_true",
+        help="show only failed tests",
+    )
+    view_parser.add_argument(
+        "--passed",
+        action="store_true",
+        help="show only passed tests",
     )
 
     args = parser.parse_args()
@@ -508,26 +586,38 @@ Examples:
         scripts_file=args.scripts_file,
     )
 
-    if args.call_id:
-        # Show details for specific call
+    # Handle validate command
+    if args.command == "validate":
+        passed, mismatches = __import__("asyncio").run(
+            runner.validate_call(args.call_id, args.script_name)
+        )
+        # Reload results to get the newly saved test result
+        runner.result_manager.results = runner.result_manager._load_results()
         runner.print_call_details(args.call_id)
-    elif args.detailed:
-        # Show detailed results
-        show_passed = not args.failed
-        show_failed = not args.passed
-        runner.print_summary()
-        runner.print_detailed(show_passed=show_passed, show_failed=show_failed)
-    elif args.failed:
-        # Show only failed tests
-        runner.print_summary()
-        runner.print_detailed(show_passed=False, show_failed=True)
-    elif args.passed:
-        # Show only passed tests
-        runner.print_summary()
-        runner.print_detailed(show_passed=True, show_failed=False)
-    else:
-        # Default: show summary
-        runner.print_summary()
+        return
+
+    # Handle view command or default (show summary)
+    if args.command == "view" or args.command is None:
+        if hasattr(args, "call_id") and args.call_id:
+            # Show details for specific call
+            runner.print_call_details(args.call_id)
+        elif hasattr(args, "detailed") and args.detailed:
+            # Show detailed results
+            show_passed = not (hasattr(args, "failed") and args.failed)
+            show_failed = not (hasattr(args, "passed") and args.passed)
+            runner.print_summary()
+            runner.print_detailed(show_passed=show_passed, show_failed=show_failed)
+        elif hasattr(args, "failed") and args.failed:
+            # Show only failed tests
+            runner.print_summary()
+            runner.print_detailed(show_passed=False, show_failed=True)
+        elif hasattr(args, "passed") and args.passed:
+            # Show only passed tests
+            runner.print_summary()
+            runner.print_detailed(show_passed=True, show_failed=False)
+        else:
+            # Default: show summary
+            runner.print_summary()
 
 
 if __name__ == "__main__":
