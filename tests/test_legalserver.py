@@ -4,53 +4,8 @@ import httpx
 import pytest
 from intake_bot.services.legalserver import (
     _build_matter_payload,
-    _parse_county_location,
     _save_income_records,
 )
-
-
-class TestParseCountyLocation:
-    """Tests for _parse_county_location helper function."""
-
-    def test_parse_county_with_state(self):
-        """Test parsing county name with state abbreviation."""
-        result = _parse_county_location("Amelia County, VA")
-        assert result == {
-            "county_name": "Amelia",
-            "county_state": "VA",
-        }
-
-    def test_parse_county_without_state_defaults_to_va(self):
-        """Test that missing state defaults to VA."""
-        result = _parse_county_location("Richmond")
-        assert result == {
-            "county_name": "Richmond",
-            "county_state": "VA",
-        }
-
-    def test_parse_county_with_extra_whitespace(self):
-        """Test that whitespace is properly trimmed."""
-        result = _parse_county_location("  Fairfax County  ,  VA  ")
-        assert result == {
-            "county_name": "Fairfax",
-            "county_state": "VA",
-        }
-
-    def test_parse_county_with_different_state(self):
-        """Test parsing with a different state."""
-        result = _parse_county_location("Cook County, IL")
-        assert result == {
-            "county_name": "Cook",
-            "county_state": "IL",
-        }
-
-    def test_parse_county_none_returns_none(self):
-        """Test that None input returns None."""
-        assert _parse_county_location(None) is None
-
-    def test_parse_county_empty_string_returns_none(self):
-        """Test that empty string returns None."""
-        assert _parse_county_location("") is None
 
 
 class TestBuildMatterPayload:
@@ -105,17 +60,16 @@ class TestBuildMatterPayload:
         assert payload["legal_problem_code"] == "32 Divorce/Sep./Annul."
 
     def test_payload_with_county_of_residence(self):
-        """Test that service area is converted to county."""
+        """Test that service area FIPS code is included."""
         state = {
             "names": {"names": [{"first": "Bob", "last": "Wilson"}]},
-            "service_area": {"location": "Amelia County", "is_eligible": True},
+            "service_area": {"location": "Amelia County", "is_eligible": True, "fips_code": 51007},
         }
 
         payload = _build_matter_payload(state)
 
         assert payload["county_of_residence"] == {
-            "lookup_value_name": "Amelia",
-            "lookup_value_state": "VA",
+            "county_FIPS": "51007",
         }
 
     def test_payload_with_income_eligibility(self):
@@ -234,6 +188,7 @@ class TestBuildMatterPayload:
             "service_area": {
                 "location": "Arlington County, VA",
                 "is_eligible": True,
+                "fips_code": 51013,
             },
             "case_type": {
                 "is_eligible": True,
@@ -256,7 +211,7 @@ class TestBuildMatterPayload:
         assert payload["suffix"] == "Jr."
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_residence"]["lookup_value_name"] == "Arlington"
+        assert payload["county_of_residence"]["county_FIPS"] == "51013"
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"

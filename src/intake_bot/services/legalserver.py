@@ -98,26 +98,13 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any]:
             payload["legal_problem_code"] = code
 
     # Service area / County
-    # Maps to county_of_residence lookup. Use lookup_value_name + lookup_value_state format.
-    # See LEGALSERVER_FIELD_MAPPING.md for valid values.
+    # All valid service areas have FIPS codes in service_areas.yaml
     if "service_area" in state:
-        if location := state["service_area"].get("location"):
-            # Parse location as county name and state (assuming format: "County Name" or "County Name, State")
-            county_info = _parse_county_location(location)
-            if county_info:
-                # Use FIPS code if available
-                fips_code = state["service_area"].get("fips_code")
-                if fips_code:
-                    # Use FIPS code format
-                    payload["county_of_residence"] = {
-                        "county_FIPS": str(fips_code),
-                    }
-                else:
-                    # Fallback to lookup format: lookup_value_name + lookup_value_state
-                    payload["county_of_residence"] = {
-                        "lookup_value_name": county_info["county_name"],
-                        "lookup_value_state": county_info["county_state"],
-                    }
+        fips_code = state["service_area"].get("fips_code")
+        if fips_code:
+            payload["county_of_residence"] = {
+                "county_FIPS": str(fips_code),
+            }
 
     # Eligibility flags
     if "income" in state and isinstance(state["income"], dict):
@@ -150,30 +137,6 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any]:
     payload = {k: v for k, v in payload.items() if v is not None}
 
     return payload
-
-
-def _parse_county_location(location: str) -> Optional[Dict[str, str]]:
-    """
-    Parse a location string into county information.
-    Expected format: "County Name" or "County Name, State"
-
-    Removes the word "County" from the name if present, since the LegalServer
-    lookup values don't include it (e.g., "Amelia" not "Amelia County").
-    """
-    if not location:
-        return None
-
-    parts = [p.strip() for p in location.split(",")]
-    county_name = parts[0]
-    state = parts[1] if len(parts) > 1 else "VA"  # Default to VA for VLAS
-
-    # Remove "County" or "City" suffix from the name since LegalServer lookups don't include it
-    county_name = county_name.replace(" County", "").replace(" City", "").strip()
-
-    return {
-        "county_name": county_name,
-        "county_state": state,
-    }
 
 
 async def _save_income_records(
