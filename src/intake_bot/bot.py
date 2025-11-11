@@ -19,6 +19,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
 )
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
+from pipecat.processors.filters.stt_mute_filter import (
+    STTMuteConfig,
+    STTMuteFilter,
+    STTMuteStrategy,
+)
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -102,6 +107,15 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         prompt="Expect words related law, legal situations, and information about people.",
     )
 
+    stt_mute_processor = STTMuteFilter(
+        config=STTMuteConfig(
+            strategies={
+                STTMuteStrategy.MUTE_UNTIL_FIRST_BOT_COMPLETE,
+                STTMuteStrategy.FUNCTION_CALL,
+            }
+        ),
+    )
+
     llm = OpenAILLMService(api_key=require_ev("OPENAI_API_KEY"), model="gpt-4o")
 
     tts = GoogleTTSService(
@@ -124,6 +138,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         [
             transport.input(),  # Websocket input from client
             stt,  # Speech-To-Text
+            stt_mute_processor,  # STTMuteStrategy
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
