@@ -26,6 +26,48 @@ class CaseExclusion(BaseModel):
     user_uuid: Optional[str] = Field(default=None, description="UUID of the user")
 
 
+class Lookup(BaseModel):
+    """A reference to a lookup value."""
+
+    lookup_value_id: Optional[int] = Field(
+        default=None, description="Numeric ID of the lookup value"
+    )
+    lookup_value_uuid: Optional[str] = Field(default=None, description="UUID of the lookup value")
+    lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
+
+
+class RejectionReason(BaseModel):
+    """Rejection reason lookup object."""
+
+    lookup_value_id: Optional[int] = Field(
+        default=None, description="Numeric ID of the lookup value"
+    )
+    lookup_value_uuid: Optional[str] = Field(default=None, description="UUID of the lookup value")
+    lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
+    lookup_type_name: Optional[str] = Field(
+        default=None, description="Name of the lookup type", readOnly=True
+    )
+    lookup_type_table_name: Optional[str] = Field(
+        default=None, description="Table name for the lookup", readOnly=True
+    )
+    lookup_type_custom: Optional[bool] = Field(
+        default=None, description="Whether this is a custom lookup", readOnly=True
+    )
+    lookup_type_uuid: Optional[str] = Field(
+        default=None, description="UUID of the lookup type", readOnly=True
+    )
+
+
+class Organization(BaseModel):
+    """Reference to an organization."""
+
+    organization_id: Optional[int] = Field(default=None, description="Numeric organization ID")
+    organization_uuid: Optional[str] = Field(default=None, description="UUID of the organization")
+    organization_name: Optional[str] = Field(
+        default=None, description="Name of the organization", readOnly=True
+    )
+
+
 class DynamicProcess(BaseModel):
     """Reference to a dynamic process."""
 
@@ -69,8 +111,7 @@ class LegalServerCreateMatterPayload(BaseModel):
     """Payload for creating a matter in LegalServer.
 
     Required fields:
-    - Either (first AND last) OR organization_name (if is_group=true)
-    - If Organizations as Clients feature is enabled, organization_uuid can be used instead of organization_name
+    - Either (first AND last) OR organization_name OR organization_uuid
     - case_disposition is required
     """
 
@@ -90,11 +131,11 @@ class LegalServerCreateMatterPayload(BaseModel):
     prefix: Optional[str] = Field(default=None, description="Name prefix (e.g., Dr., Mr., Ms.)")
     first: Optional[str] = Field(
         default=None,
-        description="Client first name. Required unless organization_name is provided with is_group=true",
+        description="Client first name. Required unless organization_name or organization_uuid is provided",
     )
     last: Optional[str] = Field(
         default=None,
-        description="Client last name. Required unless organization_name is provided with is_group=true",
+        description="Client last name. Required unless organization_name or organization_uuid is provided",
     )
     middle: Optional[str] = Field(default=None, description="Client middle name")
     suffix: Optional[str] = Field(default=None, description="Name suffix (e.g., Jr., Sr.)")
@@ -117,7 +158,7 @@ class LegalServerCreateMatterPayload(BaseModel):
         default=None, description="Client email address. Must be a valid email address"
     )
 
-    # Case Status
+    # Case Status (case_disposition is required)
     case_disposition: Optional[str] = Field(
         default=None,
         description="Case disposition or status. REQUIRED. Determines automatic validation and field defaults. Validation rules: Incomplete Intake (intake_date=today, others null) | Open (prescreen=false, intake_date/date_open=today) | Closed (prescreen=false, intake_date/date_open/date_closed=today) | Prescreen (prescreen=true, prescreen_date=today, prescreen_user/office/program auto-populated) | Rejected (intake_date/date_rejected=today) | Pending (intake_date=today)",
@@ -166,6 +207,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     date_closed: Optional[date] = Field(default=None, description="Date case was closed")
     date_rejected: Optional[date] = Field(default=None, description="Date case was rejected")
     rejected: Optional[bool] = Field(default=None, description="Whether the case was rejected")
+    rejection_reason: Optional[RejectionReason] = Field(
+        default=None, description="Reason for case rejection"
+    )
 
     # Mailing Address
     mailing_street: Optional[str] = Field(default=None, description="Mailing street address")
@@ -284,6 +328,7 @@ class LegalServerCreateMatterPayload(BaseModel):
     # Immigration Information
     citizenship: Optional[str] = Field(default=None, description="Citizenship status")
     citizenship_country: Optional[str] = Field(default=None, description="Country of citizenship")
+    country_of_origin: Optional[str] = Field(default=None, description="Country of origin")
     immigration_status: Optional[str] = Field(default=None, description="Immigration status")
     birth_city: Optional[str] = Field(default=None, description="City where client was born")
     birth_country: Optional[str] = Field(default=None, description="Country where client was born")
@@ -316,6 +361,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     institutionalized: Optional[bool] = Field(
         default=None, description="Whether client is institutionalized"
     )
+    institutionalized_at: Optional[Organization] = Field(
+        default=None, description="Organization where client is institutionalized"
+    )
 
     # Referral & Outreach
     how_referred: Optional[str] = Field(
@@ -323,6 +371,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
     school_status: Optional[str] = Field(default=None, description="Student status")
     employment_status: Optional[str] = Field(default=None, description="Employment status")
+    referring_organizations: Optional[Organization] = Field(
+        default=None, description="Organization referring this client"
+    )
 
     # SSI/Welfare Information
     ssi_welfare_status: Optional[str] = Field(default=None, description="SSI/Welfare status")
@@ -364,7 +415,7 @@ class LegalServerCreateMatterPayload(BaseModel):
         description="Whether to exclude case from appearing in Search Results in UI (does not affect API search results)",
     )
     case_restrictions: Optional[List[str]] = Field(default=None, description="Case restrictions")
-    case_exclusions: Optional[List[CaseExclusion]] = Field(
+    case_exclusions: Optional[List[User]] = Field(
         default=None, description="Users excluded from case. Can be set via user_id or user_uuid"
     )
 
@@ -380,6 +431,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
     pro_bono_opportunity_placement_date: Optional[date] = Field(
         default=None, description="Date opportunity was placed"
+    )
+    pro_bono_opportunity_county: Optional[County] = Field(
+        default=None, description="County for pro bono opportunity"
     )
     pro_bono_engagement_type: Optional[str] = Field(
         default=None, description="Type of pro bono engagement"
@@ -509,12 +563,26 @@ class LegalServerCreateMatterPayload(BaseModel):
         default=None, description="Fields to update in existing matter"
     )
 
+    @field_validator("case_disposition", mode="before")
+    @classmethod
+    def case_disposition_required(cls, v):
+        """case_disposition is a required field."""
+        if not v:
+            raise ValueError("case_disposition is required")
+        return v
+
+    @field_validator("first", "last", "organization_name", "organization_uuid", mode="before")
+    @classmethod
+    def validate_client_identification(cls, v, info):
+        """Validate that either (first AND last) OR organization_name OR organization_uuid is provided."""
+        # This will be called after all fields are parsed
+        # We'll do the actual validation in a model validator
+        return v
+
     @field_validator(
         "prefix",
         "middle",
         "suffix",
-        "organization_name",
-        "case_disposition",
         "case_status",
         "case_type",
         "case_number",
@@ -558,6 +626,7 @@ class LegalServerCreateMatterPayload(BaseModel):
         "marital_status",
         "citizenship",
         "citizenship_country",
+        "country_of_origin",
         "immigration_status",
         "birth_city",
         "birth_country",
@@ -595,5 +664,19 @@ class LegalServerCreateMatterPayload(BaseModel):
         if not v:
             return None
         return v
+
+    def validate_client_identification_complete(self) -> None:
+        """Validate that either (first AND last) OR organization_name OR organization_uuid is provided.
+
+        This must be called after model initialization.
+        """
+        has_individual = self.first and self.last
+        has_org_name = self.organization_name
+        has_org_uuid = self.organization_uuid
+
+        if not (has_individual or has_org_name or has_org_uuid):
+            raise ValueError(
+                "Either (first AND last) OR organization_name OR organization_uuid must be provided"
+            )
 
     model_config = ConfigDict(use_enum_values=True)
