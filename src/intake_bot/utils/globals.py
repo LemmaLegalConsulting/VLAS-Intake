@@ -8,6 +8,8 @@ load_dotenv(override=True)
 
 DEBUG = get_ev("LOG_LEVEL") == "DEBUG"
 
-ROOT_DIR = Path(__file__).parent.parent.resolve()
+APPLICATION_ROOT = Path(__file__).parent.parent.resolve()
 
-DATA_DIR = Path(ROOT_DIR) / "data"
+DATA_DIR = Path(APPLICATION_ROOT) / "data"
+
+PROJECT_ROOT = Path(APPLICATION_ROOT).parent.parent
