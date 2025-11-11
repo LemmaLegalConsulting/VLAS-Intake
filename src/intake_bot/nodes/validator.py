@@ -26,10 +26,8 @@ class IntakeValidator:
 
     @staticmethod
     def _load_flat_yaml(filename: str) -> dict[str, int]:
-        """
-        Load a flat YAML file from DATA_DIR and return its contents as a dictionary.
-        """
-        with open(Path(DATA_DIR) / filename) as f:
+        filepath = Path(DATA_DIR) / filename
+        with open(filepath) as f:
             return yaml.safe_load(f)
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
