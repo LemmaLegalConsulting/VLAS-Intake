@@ -4,6 +4,7 @@ import httpx
 import pytest
 from intake_bot.services.legalserver import (
     _build_matter_payload,
+    _save_additional_names_note,
     _save_income_records,
 )
 
@@ -387,6 +388,175 @@ class TestSaveIncomeRecords:
             # Should not raise
             await _save_income_records(mock_client, "test-uuid", income_data)
             mock_logger.error.assert_called()
+
+
+@pytest.mark.asyncio
+class TestSaveAdditionalNamesNote:
+    """Tests for _save_additional_names_note helper function."""
+
+    async def test_save_single_additional_name(self):
+        """Test saving a single additional name as a note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "middle": "Michael", "last": "Doe", "suffix": None},
+            {"first": "Jane", "middle": "Marie", "last": "Smith", "suffix": None},
+        ]
+
+        await _save_additional_names_note(mock_client, "test-uuid-123", names_list)
+
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert "test-uuid-123" in call_args[0][0]
+        assert call_args[1]["json"]["subject"] == "Additional Names / Aliases"
+        assert call_args[1]["json"]["body"] == "Jane Marie Smith"
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "Intake"}
+
+    async def test_save_multiple_additional_names(self):
+        """Test saving multiple additional names, one per line."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {"first": "Jane", "last": "Smith"},
+            {"first": "Bob", "last": "Johnson"},
+            {"first": "Alice", "last": "Williams"},
+        ]
+
+        await _save_additional_names_note(mock_client, "test-uuid-456", names_list)
+
+        call_args = mock_client.post.call_args
+        expected_body = "Jane Smith\nBob Johnson\nAlice Williams"
+        assert call_args[1]["json"]["body"] == expected_body
+
+    async def test_skip_when_only_primary_name(self):
+        """Test that no note is created when only primary name exists."""
+        mock_client = AsyncMock()
+
+        names_list = [{"first": "John", "last": "Doe"}]
+
+        await _save_additional_names_note(mock_client, "test-uuid-789", names_list)
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_when_empty_names_list(self):
+        """Test that no note is created with empty names list."""
+        mock_client = AsyncMock()
+
+        await _save_additional_names_note(mock_client, "test-uuid", [])
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_when_names_list_is_none(self):
+        """Test that no note is created when names list is None."""
+        mock_client = AsyncMock()
+
+        await _save_additional_names_note(mock_client, "test-uuid", None)
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_additional_names_with_no_components(self):
+        """Test that additional names with no name components are skipped."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {},  # Empty additional name
+            {"first": "Jane", "last": "Smith"},
+        ]
+
+        await _save_additional_names_note(mock_client, "test-uuid", names_list)
+
+        call_args = mock_client.post.call_args
+        expected_body = "Jane Smith"
+        assert call_args[1]["json"]["body"] == expected_body
+
+    async def test_format_name_with_all_components(self):
+        """Test that all name components (first, middle, last, suffix) are formatted correctly."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {
+                "first": "Sarah",
+                "middle": "Jane",
+                "last": "Anderson",
+                "suffix": "Jr.",
+            },
+        ]
+
+        await _save_additional_names_note(mock_client, "test-uuid", names_list)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"]["body"] == "Sarah Jane Anderson Jr."
+
+    async def test_format_name_with_partial_components(self):
+        """Test that names with missing components are formatted correctly."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {"first": "Jane", "last": "Smith"},  # No middle or suffix
+            {"last": "Johnson"},  # Only last name
+        ]
+
+        await _save_additional_names_note(mock_client, "test-uuid", names_list)
+
+        call_args = mock_client.post.call_args
+        expected_body = "Jane Smith\nJohnson"
+        assert call_args[1]["json"]["body"] == expected_body
+
+    async def test_handle_failed_note_creation(self):
+        """Test that failed note creation is logged as warning."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {"first": "Jane", "last": "Smith"},
+        ]
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_additional_names_note(mock_client, "test-uuid", names_list)
+            mock_logger.warning.assert_called()
+
+    async def test_handle_exception_in_save_additional_names(self):
+        """Test that exceptions are handled gracefully."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {"first": "Jane", "last": "Smith"},
+        ]
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            # Should not raise
+            await _save_additional_names_note(mock_client, "test-uuid", names_list)
+            mock_logger.error.assert_called()
+
+    async def test_successful_note_creation_logs_debug(self):
+        """Test that successful note creation is logged."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        names_list = [
+            {"first": "John", "last": "Doe"},
+            {"first": "Jane", "last": "Smith"},
+            {"first": "Bob", "last": "Johnson"},
+        ]
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_additional_names_note(mock_client, "test-uuid", names_list)
+            # Should log success with count of names
+            assert mock_logger.debug.call_count >= 1
+            call_args = mock_logger.debug.call_args_list[-1][0][0]
+            assert "2" in call_args  # 2 additional names (excluding primary)
 
 
 @pytest.mark.asyncio

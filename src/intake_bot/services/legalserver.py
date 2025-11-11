@@ -62,6 +62,11 @@ async def save_intake_legalserver(state: dict):
                 # Use matter_uuid for the income endpoint
                 await _save_income_records(client, matter_uuid, state["income"])
 
+            # Create note with additional names if more than one name was provided
+            if "names" in state and state["names"].get("names"):
+                if len(state["names"]["names"]) > 1:
+                    await _save_additional_names_note(client, matter_uuid, state["names"]["names"])
+
     except httpx.RequestError as e:
         logger.error(f"HTTP Request failed: {e}")
     except Exception as e:
@@ -216,6 +221,69 @@ async def _save_income_records(
 
     except Exception as e:
         logger.error(f"Error saving income records: {e}")
+
+
+async def _save_additional_names_note(
+    client: httpx.AsyncClient, matter_uuid: str, names_list: list[Dict[str, Any]]
+) -> None:
+    """
+    Save additional caller names as a matter note.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        names_list: List of name dictionaries with first, middle, last, suffix fields
+    """
+    if not names_list or len(names_list) <= 1:
+        logger.debug("No additional names to save")
+        return
+
+    try:
+        # Skip the primary name (index 0) and format additional names
+        additional_names = []
+        for name in names_list[1:]:
+            # Build full name from components
+            name_parts = []
+            if first := name.get("first"):
+                name_parts.append(first)
+            if middle := name.get("middle"):
+                name_parts.append(middle)
+            if last := name.get("last"):
+                name_parts.append(last)
+            if suffix := name.get("suffix"):
+                name_parts.append(suffix)
+
+            if name_parts:
+                additional_names.append(" ".join(name_parts))
+
+        if not additional_names:
+            logger.debug("No additional names to format")
+            return
+
+        # Create note with one name per line
+        note_body = "\n".join(additional_names)
+
+        payload = {
+            "subject": "Additional Names / Aliases",
+            "body": note_body,
+            "note_type": {"lookup_value_name": "Intake"},
+        }
+
+        response = await client.post(
+            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
+            headers=LEGALSERVER_HEADERS,
+            json=payload,
+        )
+
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"Failed to save additional names note: {response.status_code} - {response.text}"
+            )
+        else:
+            logger.debug(f"Additional names note created with {len(additional_names)} name(s)")
+
+    except Exception as e:
+        logger.error(f"Error saving additional names note: {e}")
 
 
 def load_state_by_call_id(call_id: str) -> Optional[Dict[str, Any]]:
