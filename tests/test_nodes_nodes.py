@@ -154,7 +154,7 @@ async def test_record_case_type_eligible(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert result["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
     assert result["is_eligible"] is True
-    assert "record_domestic_violence_prompt" in next_node
+    assert "record_adverse_parties_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -379,7 +379,7 @@ async def test_record_names_with_prior_name(flow_manager):
     assert result["names"][2]["first"] == "Jack"
     # State should be overwritten with combined names
     assert len(flow_manager.state["names"]["names"]) == 3
-    assert "record_adverse_parties_prompt" in next_node
+    assert "record_emergency_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -401,7 +401,7 @@ async def test_record_names_without_prior_name(flow_manager):
     assert len(result["names"]) == 2
     assert result["names"][0]["first"] == "Alice"
     assert result["names"][1]["first"] == "Ali"
-    assert "record_adverse_parties_prompt" in next_node
+    assert "record_emergency_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -419,7 +419,7 @@ async def test_record_names_empty_list(flow_manager):
     # Should have just the original name
     assert len(result["names"]) == 1
     assert result["names"][0]["first"] == "John"
-    assert "record_adverse_parties_prompt" in next_node
+    assert "record_emergency_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -472,7 +472,7 @@ async def test_record_names_with_optional_middle_names(flow_manager):
     # Check middle names are handled correctly
     assert result["names"][1]["middle"] is None  # Alice has no middle name
     assert result["names"][2]["middle"] == "Robert"  # Bob has middle name
-    assert "record_adverse_parties_prompt" in next_node
+    assert "record_emergency_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -492,7 +492,7 @@ async def test_record_names_strips_whitespace(flow_manager):
     assert result["names"][1]["first"] == "Alice"
     assert result["names"][1]["middle"] == "M"
     assert result["names"][1]["last"] == "Smith"
-    assert "record_adverse_parties_prompt" in next_node
+    assert "record_emergency_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -518,7 +518,7 @@ async def test_record_adverse_parties_valid(flow_manager):
     assert len(result["adverse_parties"]) == 1
     assert result["adverse_parties"][0]["first"] == "Bob"
     assert result["adverse_parties"][0]["last"] == "Smith"
-    assert "record_emergency_prompt" in next_node
+    assert "record_domestic_violence_prompt" in next_node
 
 
 @pytest.mark.asyncio
