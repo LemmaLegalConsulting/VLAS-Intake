@@ -1,10 +1,3 @@
-#
-# Copyright (c) 2025, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
-
 import sys
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
@@ -21,7 +14,7 @@ from intake_bot.utils.twilio import create_twiml, validate_webhook
 logger.remove(0)
 logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"))
 if ev_is_true("LOG_TO_FILE"):
-    logger.add("server.log", level=get_ev("LOG_LEVEL", "INFO"))
+    logger.add("logs/server.log", level=get_ev("LOG_LEVEL", "INFO"))
 
 app = FastAPI()
 

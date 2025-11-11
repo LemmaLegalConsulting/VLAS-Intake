@@ -1,9 +1,3 @@
-#
-# Copyright (c) 2025, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
 import datetime
 import io
 import os
@@ -40,7 +34,7 @@ from pipecat.transports.websocket.fastapi import (
 from pipecat_flows import FlowManager
 
 from intake_bot.nodes.nodes import node_initial
-from intake_bot.nodes.utils import log_flow_manager_state
+from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
 from intake_bot.utils.local_smart_turn import turn_analyzer
@@ -171,6 +165,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     )
 
     # Add flow manager state from Twilio's call_data
+    flow_manager.state["call_id"] = call_data["call_id"]
     flow_manager.state["phone"] = call_data["body"].get("caller_phone_number")
 
     @transport.event_handler("on_client_connected")
@@ -195,11 +190,13 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
-        await task.cancel()
+        if not task.has_finished:
+            await task.stop_when_done()
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
         log_flow_manager_state(flow_manager)
+        await save_state_to_json(flow_manager)
         await save_intake_legalserver(flow_manager)
 
     @audiobuffer.event_handler("on_audio_data")
