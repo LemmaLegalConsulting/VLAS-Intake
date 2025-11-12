@@ -158,9 +158,7 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert "first" not in payload
-        assert "last" not in payload
-        assert payload["case_disposition"] == "Incomplete Intake"
+        assert payload is None
 
     def test_payload_with_empty_names_list(self):
         """Test payload handles empty names list gracefully."""
@@ -168,8 +166,7 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert "first" not in payload
-        assert "last" not in payload
+        assert payload is None
 
     def test_complete_payload_with_all_fields(self):
         """Test building complete payload with all fields populated."""
@@ -411,7 +408,7 @@ class TestSaveAdditionalNamesNote:
         assert "test-uuid-123" in call_args[0][0]
         assert call_args[1]["json"]["subject"] == "Additional Names / Aliases"
         assert call_args[1]["json"]["body"] == "Jane Marie Smith"
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "Intake"}
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_id": 100365}
 
     async def test_save_multiple_additional_names(self):
         """Test saving multiple additional names, one per line."""
@@ -565,27 +562,22 @@ class TestSaveIntakeLegalserver:
 
     async def test_disabled_connection_returns_early(self):
         """Test that disabled connection returns without action."""
-        mock_flow_manager = MagicMock()
-        mock_flow_manager.state = {}
+        state = {}
 
-        with patch(
-            "intake_bot.services.legalserver.LEGALSERVER_CONNECTION_ENABLED",
-            False,
-        ):
+        with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "true"}):
             with patch("intake_bot.services.legalserver.logger") as mock_logger:
                 from intake_bot.services.legalserver import save_intake_legalserver
 
-                await save_intake_legalserver(mock_flow_manager)
+                await save_intake_legalserver(state)
                 mock_logger.debug.assert_called_with("LegalServer connection disabled")
 
     async def test_successful_matter_creation(self):
         """Test successful creation of matter in LegalServer."""
-        mock_flow_manager = MagicMock()
-        mock_flow_manager.state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
+        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         mock_response = MagicMock()
         mock_response.status_code = 201
-        mock_response.json.return_value = {"matter_uuid": "uuid-123"}
+        mock_response.json.return_value = {"data": {"matter_uuid": "uuid-123"}}
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
@@ -593,16 +585,11 @@ class TestSaveIntakeLegalserver:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value = mock_client
 
-            with patch(
-                "intake_bot.services.legalserver.LEGALSERVER_CONNECTION_ENABLED",
-                True,
-            ):
+            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
                 with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                    from intake_bot.services.legalserver import (
-                        save_intake_legalserver,
-                    )
+                    from intake_bot.services.legalserver import save_intake_legalserver
 
-                    await save_intake_legalserver(mock_flow_manager)
+                    await save_intake_legalserver(state)
 
                     mock_logger.info.assert_called()
                     call_args = mock_logger.info.call_args[0][0]
@@ -610,8 +597,7 @@ class TestSaveIntakeLegalserver:
 
     async def test_failed_matter_creation(self):
         """Test handling of failed matter creation."""
-        mock_flow_manager = MagicMock()
-        mock_flow_manager.state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
+        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         mock_response = MagicMock()
         mock_response.status_code = 400
@@ -624,39 +610,37 @@ class TestSaveIntakeLegalserver:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value = mock_client
 
-            with patch(
-                "intake_bot.services.legalserver.LEGALSERVER_CONNECTION_ENABLED",
-                True,
-            ):
+            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
                 with patch("intake_bot.services.legalserver.logger") as mock_logger:
                     from intake_bot.services.legalserver import (
                         save_intake_legalserver,
                     )
 
-                    await save_intake_legalserver(mock_flow_manager)
+                    await save_intake_legalserver(state)
 
                     mock_logger.error.assert_called()
 
     async def test_http_request_exception_handling(self):
         """Test handling of HTTP request exceptions."""
-        mock_flow_manager = MagicMock()
-        mock_flow_manager.state = {}
+        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
+            mock_client.__aexit__.return_value = None
             mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection timeout"))
             mock_client_class.return_value = mock_client
 
-            with patch(
-                "intake_bot.services.legalserver.LEGALSERVER_CONNECTION_ENABLED",
-                True,
-            ):
+            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
                 with patch("intake_bot.services.legalserver.logger") as mock_logger:
                     from intake_bot.services.legalserver import (
                         save_intake_legalserver,
                     )
 
-                    await save_intake_legalserver(mock_flow_manager)
+                    await save_intake_legalserver(state)
 
-                    mock_logger.error.assert_called()
+                    # Should log the error
+                    assert any(
+                        "HTTP Request failed" in str(call)
+                        for call in mock_logger.error.call_args_list
+                    )

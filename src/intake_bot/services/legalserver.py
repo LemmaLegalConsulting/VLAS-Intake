@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
-from intake_bot.utils.ev import require_ev
+from intake_bot.utils.ev import ev_is_true, require_ev
 from intake_bot.utils.globals import PROJECT_ROOT
 from loguru import logger
 
@@ -19,15 +19,13 @@ LEGALSERVER_HEADERS = {
     "Accept": "application/json, text/html",
 }
 
-LEGALSERVER_CONNECTION_ENABLED = True
-
 
 async def save_intake_legalserver(state: dict):
     """
     Save the intake state (flow_manager.state) in LegalServer.
     Extracts all collected intake data and creates a matter with related records.
     """
-    if not LEGALSERVER_CONNECTION_ENABLED:
+    if ev_is_true("LEGALSERVER_CONNECTION_DISABLED"):
         logger.debug("LegalServer connection disabled")
         return
 
@@ -268,10 +266,11 @@ async def _save_additional_names_note(
         # Create note with one name per line
         note_body = "\n".join(additional_names)
 
+        # Use "General Notes" (ID: 100365) as the note type for additional names
         payload = {
             "subject": "Additional Names / Aliases",
             "body": note_body,
-            "note_type": {"lookup_value_name": "Intake"},
+            "note_type": {"lookup_value_id": 100365},
         }
 
         response = await client.post(
