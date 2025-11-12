@@ -73,6 +73,14 @@ class IncomeDetail(BaseModel):
         description="The period for the income: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.",
     )
 
+    @field_validator("period", mode="after")
+    @classmethod
+    def normalize_zero_income_period(cls, v, info):
+        """When income amount is 0, normalize period to 'Monthly' for consistency."""
+        if info.data.get("amount") == 0:
+            return IncomePeriod.MONTHLY
+        return v
+
 
 class MemberIncome(RootModel[dict[int, IncomeDetail]]):  # income_category_id -> IncomeDetail
     pass
