@@ -32,6 +32,7 @@ celeste:
     service_area:
       location: "Amelia County"
       is_eligible: true
+      fips_code: 51007
     case_type:
       is_eligible: true
       legal_problem_code: "32 Divorce/Sep./Annul."
@@ -50,9 +51,18 @@ celeste:
       is_eligible: true
       monthly_amount: 0
       listing:
-        "Celeste": {}
-        "James": {}
-        "Thomas": {}
+        "Celeste":
+          "100198":
+            amount: 0
+            period: "Monthly"
+        "James":
+          "100198":
+            amount: 0
+            period: "Monthly"
+        "Thomas":
+          "100198":
+            amount: 0
+            period: "Monthly"
       household_size: 3
     assets:
       is_eligible: true
@@ -98,6 +108,7 @@ sarah:
     service_area:
       location: "Amelia County"
       is_eligible: true
+      fips_code: 51007
     case_type:
       is_eligible: true
       legal_problem_code: "32 Divorce/Sep./Annul."
@@ -109,7 +120,10 @@ sarah:
       is_eligible: true
       monthly_amount: 0
       listing:
-        "Sarah Marshall": {}
+        "Sarah Marshall":
+          100198:
+            amount: 0
+            period: "Monthly"
       household_size: 1
     assets:
       is_eligible: true
@@ -125,6 +139,94 @@ sarah:
           last: "Snow"
           dob: null
           phones: null
+    emergency:
+      is_emergency: false
+
+victoria:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are an adult woman seeking help with custody and child support issues after separating from your partner and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (804) 555-0147.
+      - Your current name is Victoria Lynn Rodriguez.
+      - You were previously married and your maiden name was Victoria Lynn Patterson.
+      - You had a previous marriage to Marcus James Rodriguez and took his last name.
+      - You live in Henry County.
+      - You are currently separated from your current partner, whose name is Jason Michael Chen.
+      - Jason Michael Chen is the opposing party.
+      - You have three children: Sophie (age 8), Michael (age 6), and Emma (age 4). Sophie is from your first marriage to Marcus, and Michael and Emma are with Jason.
+      - You work part-time as a receptionist earning $1,200 per month.
+      - Michael has a part-time job delivering groceries and makes $400 per month (your adult son from first marriage).
+      - You receive child support of $350 per month from Marcus for Sophie.
+      - You own a used car worth $8,500 with a loan outstanding.
+      - You have $2,100 in a savings account.
+      - You own some jewelry with sentimental value worth approximately $1,500.
+      - You are a US citizen.
+      - This is not an emergency, but you need legal help establishing custody and support for your two youngest children.
+  expected_state:
+    phone:
+      is_valid: true
+      phone_number: "(804) 555-0147"
+    names:
+      names:
+        - first: "Victoria"
+          middle: "Lynn"
+          last: "Rodriguez"
+        - first: "Victoria"
+          middle: "Lynn"
+          last: "Patterson"
+    service_area:
+      location: "Henry County"
+      is_eligible: true
+      fips_code: 51089
+    case_type:
+      is_eligible: true
+      legal_problem_code: "31 Custody/Visitation"
+    adverse_parties:
+      adverse_parties:
+        - first: "Jason"
+          middle: "Michael"
+          last: "Chen"
+          dob: null
+          phones: null
+    domestic_violence:
+      is_experiencing: false
+      perpetrators: []
+    income:
+      is_eligible: true
+      monthly_amount: 1950
+      listing:
+        "Victoria":
+          "261":
+            amount: 1200
+            period: "Monthly"
+          "256":
+            amount: 350
+            period: "Monthly"
+        "Sophie":
+          "100198":
+            amount: 0
+            period: "Monthly"
+        "Michael":
+          "261":
+            amount: 400
+            period: "Monthly"
+        "Emma":
+          "100198":
+            amount: 0
+            period: "Monthly"
+      household_size: 4
+    assets:
+      is_eligible: true
+      listing:
+        - "Savings account": 2100
+        - "Jewelry": 1500
+      total_value: 3600
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
     emergency:
       is_emergency: false
 
