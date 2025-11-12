@@ -103,6 +103,7 @@ sarah:
     phone:
       is_valid: true
       phone_number: "(866) 534-5243"
+      phone_type: "mobile"
     names:
       names:
         - first: "Sarah"
@@ -128,8 +129,8 @@ sarah:
       is_eligible: true
       monthly_amount: 0
       listing:
-        "Sarah Marshall":
-          100198:
+        "Sarah":
+          "100198":
             amount: 0
             period: "Monthly"
       household_size: 1
