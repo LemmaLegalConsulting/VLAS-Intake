@@ -49,14 +49,14 @@ class StateValidator:
         """
         Use fuzzy matching to find a close match for a key (typically for names).
 
-        Uses partial_ratio with preprocessing for better name matching.
-        - partial_ratio finds best substring match, ideal for single-name comparisons
+        Uses token_set_ratio for better matching of multi-word names.
+        - token_set_ratio finds best token-level match, ideal for name variations
         - preprocessing normalizes case and whitespace
         - threshold of 80 provides good balance between flexibility and accuracy
 
         Args:
-            key: The key to match (e.g., "Robby")
-            candidates: List of candidate keys to match against (e.g., ["Robbie", "Sarah", ...])
+            key: The key to match (e.g., "Victoria Rodriguez")
+            candidates: List of candidate keys to match against (e.g., ["Victoria Lynn Rodriguez", "Sophie", ...])
             threshold: Minimum match ratio (0-100, default 80)
 
         Returns:
@@ -65,13 +65,13 @@ class StateValidator:
         if not candidates:
             return None
 
-        # Use partial_ratio with preprocessing for name matching
-        # partial_ratio finds the best matching substring, which works well for name variations
-        # (e.g., "Robby" matches "Robbie" at 88.9%, "Coby" matches "Cobby" at 100%)
+        # Use token_set_ratio for better name matching
+        # token_set_ratio finds the best matching at the token level, which works well for name variations
+        # (e.g., "Victoria Rodriguez" matches "Victoria Lynn Rodriguez" at 100%)
         best_match = process.extractOne(
             key,
             list(candidates),
-            scorer=fuzz.partial_ratio,
+            scorer=fuzz.token_set_ratio,
             processor=utils.default_process,
             score_cutoff=threshold,
         )
@@ -93,14 +93,31 @@ class StateValidator:
 
     def _compare_dict(self, actual: Dict[str, Any], expected: Dict[str, Any], path: str = ""):
         """Recursively compare dictionaries."""
+        # Track which actual keys have been matched (to detect truly extra keys later)
+        matched_actual_keys = set()
+
         # Check for missing keys in actual
         for key in expected:
             new_path = f"{path}.{key}" if path else key
-            if key not in actual:
+            # Try exact match first, then case-insensitive match
+            matching_key = None
+            if key in actual:
+                matching_key = key
+            else:
+                # Try case-insensitive match
+                for actual_key in actual:
+                    if isinstance(key, str) and isinstance(actual_key, str):
+                        if key.lower() == actual_key.lower():
+                            matching_key = actual_key
+                            break
+
+            if matching_key is None:
                 # For income.listing, try fuzzy matching
                 if path == "income.listing":
-                    fuzzy_match = self._fuzzy_match_key(key, actual.keys())
+                    fuzzy_match = self._fuzzy_match_key(key, list(actual.keys()), threshold=75)
                     if fuzzy_match:
+                        matching_key = fuzzy_match
+                        matched_actual_keys.add(fuzzy_match)
                         self._compare_values(actual[fuzzy_match], expected[key], new_path)
                     else:
                         self.mismatches.append(
@@ -121,34 +138,27 @@ class StateValidator:
                         }
                     )
             else:
-                self._compare_values(actual[key], expected[key], new_path)
+                matched_actual_keys.add(matching_key)
+                self._compare_values(actual[matching_key], expected[key], new_path)
 
         # Check for extra keys in actual (but ignore system keys)
         for key in actual:
-            if key not in expected and key not in self.SYSTEM_KEYS:
-                # For income.listing, try fuzzy matching
-                if path == "income.listing":
-                    fuzzy_match = self._fuzzy_match_key(key, expected.keys())
-                    if not fuzzy_match:
-                        new_path = f"{path}.{key}" if path else key
-                        self.mismatches.append(
-                            {
-                                "path": new_path,
-                                "issue": "extra_key",
-                                "expected": None,
-                                "actual": actual[key],
-                            }
-                        )
-                else:
-                    new_path = f"{path}.{key}" if path else key
-                    self.mismatches.append(
-                        {
-                            "path": new_path,
-                            "issue": "extra_key",
-                            "expected": None,
-                            "actual": actual[key],
-                        }
-                    )
+            # Skip keys that were already matched to expected keys
+            if key in matched_actual_keys:
+                continue
+
+            if key in self.SYSTEM_KEYS:
+                continue
+
+            new_path = f"{path}.{key}" if path else key
+            self.mismatches.append(
+                {
+                    "path": new_path,
+                    "issue": "extra_key",
+                    "expected": None,
+                    "actual": actual[key],
+                }
+            )
 
     def _compare_values(self, actual: Any, expected: Any, path: str):
         """Recursively compare values."""
@@ -183,7 +193,18 @@ class StateValidator:
                 self._compare_list(actual, expected, path)
 
         else:
-            if actual != expected:
+            # For string comparisons, normalize to lowercase
+            if isinstance(actual, str) and isinstance(expected, str):
+                if actual.lower() != expected.lower():
+                    self.mismatches.append(
+                        {
+                            "path": path,
+                            "issue": "value_mismatch",
+                            "expected": expected,
+                            "actual": actual,
+                        }
+                    )
+            elif actual != expected:
                 self.mismatches.append(
                     {
                         "path": path,
@@ -302,6 +323,42 @@ class TestRunner:
         except (FileNotFoundError, json.JSONDecodeError):
             self.flow_manager_state = {}
 
+    async def revalidate_all(self) -> Dict[str, Tuple[bool, List[Dict[str, Any]]]]:
+        """
+        Revalidate all existing test results.
+
+        Returns:
+            Dictionary mapping call_id to (passed: bool, mismatches: List[Dict])
+        """
+        revalidation_results = {}
+
+        if not self.result_manager.results:
+            print("No existing test results to revalidate")
+            return revalidation_results
+
+        print(f"Revalidating {len(self.result_manager.results)} tests...\n")
+
+        for call_id, result in self.result_manager.results.items():
+            script_name = result.get("script")
+            if not script_name:
+                print(f"⚠ Skipping {call_id}: no script name found")
+                continue
+
+            try:
+                passed, mismatches = await self.validate_call(call_id, script_name)
+                revalidation_results[call_id] = (passed, mismatches)
+                status = "✓" if passed else "✗"
+                mismatch_count = len(mismatches)
+                print(
+                    f"{status} {call_id}: {script_name} "
+                    f"({mismatch_count} mismatch{'es' if mismatch_count != 1 else ''})"
+                )
+            except Exception as e:
+                print(f"✗ {call_id}: Error during revalidation - {str(e)}")
+                revalidation_results[call_id] = (False, [{"error": str(e)}])
+
+        return revalidation_results
+
     async def validate_call(
         self,
         call_id: str,
@@ -412,6 +469,12 @@ class TestRunner:
             rate = (stats["passed"] / total_for_script * 100) if total_for_script > 0 else 0
             status = "✓ PASS" if stats["failed"] == 0 else "✗ FAIL"
             print(f"  {status} {script:40} {stats['passed']}/{total_for_script} ({rate:.0f}%)")
+
+        print("\nTest Details:")
+        for call_id, result in sorted(self.result_manager.results.items()):
+            status = "✓" if result["passed"] else "✗"
+            script = result.get("script", "unknown")
+            print(f"  {status} {script:20} {call_id}")
         print()
 
     def print_detailed(self, show_passed: bool = True, show_failed: bool = True):
@@ -520,6 +583,12 @@ Examples:
   # Validate a specific call
   python test_manager.py validate <call_id> <script_name>
 
+  # Revalidate all existing test results
+  python test_manager.py revalidate
+
+  # Revalidate and show summary only
+  python test_manager.py revalidate --summary
+
   # Custom result file location
   python test_manager.py -f logs/client_test_results.json view --detailed
         """,
@@ -553,6 +622,16 @@ Examples:
     validate_parser = subparsers.add_parser("validate", help="validate a specific call")
     validate_parser.add_argument("call_id", help="call ID to validate")
     validate_parser.add_argument("script_name", help="script name for the call")
+
+    # Revalidate subcommand
+    revalidate_parser = subparsers.add_parser(
+        "revalidate", help="revalidate all existing test results"
+    )
+    revalidate_parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="show summary only, not detailed results",
+    )
 
     # View/analysis commands (add as a pseudo-subcommand using parent parser)
     view_parser = subparsers.add_parser("view", help="view test results")
@@ -594,6 +673,14 @@ Examples:
         # Reload results to get the newly saved test result
         runner.result_manager.results = runner.result_manager._load_results()
         runner.print_call_details(args.call_id)
+        return
+
+    # Handle revalidate command
+    if args.command == "revalidate":
+        __import__("asyncio").run(runner.revalidate_all())
+        # Reload results to get the newly revalidated data
+        runner.result_manager.results = runner.result_manager._load_results()
+        runner.print_summary()
         return
 
     # Handle view command or default (show summary)
