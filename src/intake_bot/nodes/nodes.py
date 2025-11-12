@@ -110,19 +110,33 @@ async def system_phone_number(
 
 @convert_and_log_result("phone")
 async def record_phone_number(
-    flow_manager: FlowManager, phone_number: str
+    flow_manager: FlowManager, phone_number: str, phone_type: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Collect the caller's US phone number.
+    Collect the caller's US phone number and type.
 
     Args:
         phone_number (str): The caller's 10 digit US phone number.
+        phone_type (str): The type of phone (mobile, home, work, or other).
     """
     is_valid, validated_phone_number = await validator.check_phone_number(phone_number=phone_number)
 
     status = status_helper(is_valid)
+
+    # Validate phone_type against PhoneType enum
+    try:
+        from intake_bot.models.validator import PhoneType
+
+        validated_phone_type = PhoneType(phone_type.lower())
+    except ValueError:
+        status = Status.ERROR
+        validated_phone_type = None
+
     result = PhoneNumberResult(
-        status=status, is_valid=is_valid, phone_number=validated_phone_number
+        status=status,
+        is_valid=is_valid,
+        phone_number=validated_phone_number,
+        phone_type=validated_phone_type,
     )
 
     if status == Status.SUCCESS:
@@ -134,7 +148,10 @@ async def record_phone_number(
             }
         )
     else:
-        result.error = "Not a valid US phone number"
+        if not is_valid:
+            result.error = "Not a valid US phone number"
+        else:
+            result.error = "Invalid phone type. Please choose from: mobile, home, work, or other"
         next_node = None
     return result, next_node
 

@@ -67,18 +67,19 @@ async def test_system_phone_number_without_phone(flow_manager):
 @pytest.mark.asyncio
 async def test_record_phone_number_valid(flow_manager, patch_validator):
     patch_validator.check_phone_number = AsyncMock(return_value=(True, "(866) 534-5243"))
-    result, next_node = await record_phone_number(flow_manager, "+18665345243")
+    result, next_node = await record_phone_number(flow_manager, "+18665345243", "mobile")
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["is_valid"] is True
     assert flow_manager.state["phone"]["phone_number"] == "(866) 534-5243"
+    assert flow_manager.state["phone"]["phone_type"] == "mobile"
     assert "record_name_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_phone_number_invalid(flow_manager, patch_validator):
     patch_validator.check_phone_number = AsyncMock(return_value=(False, "bad"))
-    result, next_node = await record_phone_number(flow_manager, "bad")
+    result, next_node = await record_phone_number(flow_manager, "bad", "mobile")
     assert result["status"] == Status.ERROR
     assert flow_manager.state["phone"]["is_valid"] is False
     assert next_node is None

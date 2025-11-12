@@ -1,6 +1,6 @@
 from enum import Enum
 
-from intake_bot.models.validator import AdverseParties, CallerNames
+from intake_bot.models.validator import AdverseParties, CallerNames, PhoneType
 from pydantic import BaseModel, ConfigDict
 
 
@@ -59,6 +59,7 @@ class IncomeResult(IntakeFlowResult):
 class PhoneNumberResult(IntakeFlowResult):
     is_valid: bool
     phone_number: str
+    phone_type: PhoneType
 
 
 class ServiceAreaResult(IntakeFlowResult):

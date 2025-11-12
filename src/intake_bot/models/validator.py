@@ -130,21 +130,37 @@ class Assets(RootModel[list[AssetEntry]]):
 
 
 ######################################################################
-# Adverse Parties
+# Phone Types
 ######################################################################
 
 
 class PhoneType(str, Enum):
-    BUSINESS = "business"
+    """Phone types for caller/contact - uses {type}_phone field naming."""
+
+    WORK = "work"
     OTHER = "other"
     HOME = "home"
     MOBILE = "mobile"
     FAX = "fax"
 
 
+class PhoneTypeAdverseParty(str, Enum):
+    """Phone types for adverse parties - uses phone_{type} field naming."""
+
+    BUSINESS = "business"
+    HOME = "home"
+    MOBILE = "mobile"
+    FAX = "fax"
+
+
+######################################################################
+# Adverse Parties
+######################################################################
+
+
 class Phone(BaseModel):
     number: str
-    type: PhoneType
+    type: PhoneTypeAdverseParty
 
     @field_validator("number", mode="after")
     @classmethod
