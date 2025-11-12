@@ -34,7 +34,20 @@ class CallerName(BaseModel):
 class CallerNames(RootModel[List[CallerName]]):
     """A list of CallerName objects."""
 
-    pass
+    @field_validator("root", mode="after")
+    @classmethod
+    def no_duplicate_names(cls, names: List[CallerName]) -> List[CallerName]:
+        """Ensure no duplicate CallerName entries exist (all fields the same)."""
+        seen = set()
+        for name in names:
+            # Create a tuple of all fields for comparison
+            name_tuple = (name.first, name.middle, name.last)
+            if name_tuple in seen:
+                raise ValueError(
+                    f"Duplicate CallerName entry found: {name.first} {name.middle or ''} {name.last}".strip()
+                )
+            seen.add(name_tuple)
+        return names
 
 
 ######################################################################
