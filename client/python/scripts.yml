@@ -5,11 +5,12 @@ celeste:
     You will need to answer questions to complete your legal aid intake.
     When you are asked a question please respond with the appropriate information.
     The following is information about you:
-      - Your phone number is (866) 534-5243.
+      - Your home phone number is (866) 534-5243.
       - Your name is Celeste Caroline Campbell.
       - Your maiden name is Celeste Caroline Smith
       - You live in Amelia County.
       - Your husband's name is Dexter Robert Campbell.
+      - Your husband's mobile phone number is (866) 534-5256.
       - Your husband is the opposing party.
       - You have two children together, James and Thomas.
       - Your husband has yelled at you and thrown things, but never hit you or the kids.
@@ -21,14 +22,17 @@ celeste:
     phone:
       is_valid: true
       phone_number: "(866) 534-5243"
+      phone_type: "home"
     names:
       names:
         - first: "Celeste"
           middle: "Caroline"
           last: "Campbell"
+          type_id: 3315536
         - first: "Celeste"
           middle: "Caroline"
           last: "Smith"
+          type_id: 334
     service_area:
       location: "Amelia County"
       is_eligible: true
@@ -42,7 +46,9 @@ celeste:
           middle: "Robert"
           last: "Campbell"
           dob: null
-          phones: null
+          phones:
+            - number: "(866) 534-5256"
+              type: "mobile"
     domestic_violence:
       is_experiencing: true
       perpetrators:
@@ -102,9 +108,11 @@ sarah:
         - first: "Sarah"
           middle: "Elizabeth"
           last: "Marshall"
+          type_id: 3315536
         - first: "Sarah"
           middle: null
           last: "Smith"
+          type_id: 334
     service_area:
       location: "Amelia County"
       is_eligible: true
@@ -174,9 +182,11 @@ victoria:
         - first: "Victoria"
           middle: "Lynn"
           last: "Rodriguez"
+          type_id: 3315536
         - first: "Victoria"
           middle: "Lynn"
           last: "Patterson"
+          type_id: 334
     service_area:
       location: "Henry County"
       is_eligible: true
