@@ -66,6 +66,21 @@ async def save_intake_legalserver(state: dict):
                 # Use matter_uuid for the income endpoint
                 await _save_income_records(client, matter_uuid, state["income"])
 
+            # TODO: Create adverse parties if they exist
+            # Currently disabled due to 401 authorization error from LegalServer API
+            # The bearer token may not have the required permissions for the adverse_parties endpoint
+            # Uncomment once permissions are verified/enabled
+            # if "adverse_parties" in state:
+            #     await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
+
+            # Create adverse parties note (temporary workaround for 401 auth issue)
+            if "adverse_parties" in state:
+                await _save_adverse_parties_note(client, matter_uuid, state["adverse_parties"])
+
+            # Create assets note if assets data exists
+            if "assets" in state:
+                await _save_assets_note(client, matter_uuid, state["assets"])
+
             # Create note with additional names if more than one name was provided
             if "names" in state and state["names"].get("names"):
                 if len(state["names"]["names"]) > 1:
@@ -288,6 +303,208 @@ async def _save_additional_names_note(
 
     except Exception as e:
         logger.error(f"Error saving additional names note: {e}")
+
+
+async def _save_adverse_parties(
+    client: httpx.AsyncClient, matter_uuid: str, adverse_parties_data: Dict[str, Any]
+) -> None:
+    """
+    Save adverse parties for a matter via the adverse_parties API endpoint.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        adverse_parties_data: Dictionary with "adverse_parties" list of party data
+    """
+    if not isinstance(adverse_parties_data, dict):
+        logger.debug("Adverse parties data not in expected format")
+        return
+
+    parties = adverse_parties_data.get("adverse_parties", [])
+    if not parties:
+        logger.debug("No adverse parties to save")
+        return
+
+    try:
+        for party in parties:
+            if not party:
+                continue
+
+            # Build payload with available fields
+            payload = {}
+
+            if first := party.get("first"):
+                payload["first"] = first
+            if last := party.get("last"):
+                payload["last"] = last
+            if middle := party.get("middle"):
+                payload["middle"] = middle
+            if suffix := party.get("suffix"):
+                payload["suffix"] = suffix
+            if dob := party.get("dob"):
+                payload["date_of_birth"] = dob
+
+            # Skip if we don't have first and last name
+            if not (payload.get("first") and payload.get("last")):
+                logger.debug("Skipping adverse party: missing first or last name")
+                continue
+
+            response = await client.post(
+                f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/adverse_parties",
+                headers=LEGALSERVER_HEADERS,
+                json=payload,
+            )
+
+            if response.status_code not in (200, 201):
+                logger.warning(
+                    f"Failed to save adverse party {payload.get('first')} {payload.get('last')}: "
+                    f"{response.status_code} - {response.text}"
+                )
+            else:
+                logger.debug(f"Adverse party created: {payload.get('first')} {payload.get('last')}")
+
+    except Exception as e:
+        logger.error(f"Error saving adverse parties: {e}")
+
+
+async def _save_adverse_parties_note(
+    client: httpx.AsyncClient, matter_uuid: str, adverse_parties_data: Dict[str, Any]
+) -> None:
+    """
+    Save adverse parties as a matter note (temporary workaround).
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        adverse_parties_data: Dictionary with "adverse_parties" list of party data
+    """
+    if not isinstance(adverse_parties_data, dict):
+        logger.debug("Adverse parties data not in expected format")
+        return
+
+    parties = adverse_parties_data.get("adverse_parties", [])
+    if not parties:
+        logger.debug("No adverse parties to save")
+        return
+
+    try:
+        # Format adverse parties for the note
+        party_lines = []
+
+        for party in parties:
+            if not party:
+                continue
+
+            # Build full name from components
+            name_parts = []
+            if first := party.get("first"):
+                name_parts.append(first)
+            if middle := party.get("middle"):
+                name_parts.append(middle)
+            if last := party.get("last"):
+                name_parts.append(last)
+            if suffix := party.get("suffix"):
+                name_parts.append(suffix)
+
+            if name_parts:
+                party_name = " ".join(name_parts)
+                if dob := party.get("dob"):
+                    party_lines.append(f"{party_name} (DOB: {dob})")
+                else:
+                    party_lines.append(party_name)
+
+        if not party_lines:
+            logger.debug("No adverse parties to format")
+            return
+
+        note_body = "\n".join(party_lines)
+
+        # Use "General Notes" (ID: 100365) as the note type for adverse parties
+        payload = {
+            "subject": "Adverse Parties",
+            "body": note_body,
+            "note_type": {"lookup_value_id": 100365},
+        }
+
+        response = await client.post(
+            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
+            headers=LEGALSERVER_HEADERS,
+            json=payload,
+        )
+
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"Failed to save adverse parties note: {response.status_code} - {response.text}"
+            )
+        else:
+            logger.debug(f"Adverse parties note created with {len(party_lines)} party(ies)")
+
+    except Exception as e:
+        logger.error(f"Error saving adverse parties note: {e}")
+
+
+async def _save_assets_note(
+    client: httpx.AsyncClient, matter_uuid: str, assets_data: Dict[str, Any]
+) -> None:
+    """
+    Save assets as a matter note.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        assets_data: Dictionary with "listing" and "total_value" of assets
+    """
+    if not isinstance(assets_data, dict):
+        logger.debug("Assets data not in expected format")
+        return
+
+    listing = assets_data.get("listing", [])
+    total_value = assets_data.get("total_value", 0)
+
+    if not listing and total_value == 0:
+        logger.debug("No assets to save")
+        return
+
+    try:
+        # Format assets for the note
+        asset_lines = []
+
+        if listing:
+            for asset_dict in listing:
+                if isinstance(asset_dict, dict):
+                    for asset_type, amount in asset_dict.items():
+                        asset_lines.append(f"{asset_type}: ${amount:,.2f}")
+
+        # Add total value
+        if total_value > 0:
+            asset_lines.append(f"\nTotal Assets: ${total_value:,.2f}")
+
+        if not asset_lines:
+            logger.debug("No assets to format")
+            return
+
+        note_body = "\n".join(asset_lines)
+
+        # Use "General Notes" (ID: 100365) as the note type for assets
+        payload = {
+            "subject": "Assets",
+            "body": note_body,
+            "note_type": {"lookup_value_id": 100365},
+        }
+
+        response = await client.post(
+            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
+            headers=LEGALSERVER_HEADERS,
+            json=payload,
+        )
+
+        if response.status_code not in (200, 201):
+            logger.warning(f"Failed to save assets note: {response.status_code} - {response.text}")
+        else:
+            logger.debug(f"Assets note created with total value: ${total_value:,.2f}")
+
+    except Exception as e:
+        logger.error(f"Error saving assets note: {e}")
 
 
 def load_state_by_call_id(call_id: str) -> Optional[Dict[str, Any]]:
