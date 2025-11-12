@@ -355,6 +355,7 @@ ineligible:
   task_messages:
     - content: >-
         Apologize to the caller that Law-Line isn't able to help them. Suggest the alternate providers.
+        After providing this information, ALWAYS call the `end_conversation` function to end the call.
 
 # End the conversation
 end:
