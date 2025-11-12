@@ -1,7 +1,7 @@
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class County(BaseModel):
@@ -36,6 +36,92 @@ class Lookup(BaseModel):
     lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
 
 
+class IncomePayload(BaseModel):
+    """Payload for creating an income record in LegalServer."""
+
+    type: Lookup = Field(..., description="Income type lookup reference (required)")
+    amount: float = Field(..., description="Income amount (required)")
+    period: str = Field(
+        ...,
+        description="Payment period (required). Valid values: Annually, Quarterly, Monthly, Semi-Monthly, Biweekly, Weekly, or numeric: 1, 4, 12, 24, 26, 52",
+    )
+    exclude: Optional[bool] = Field(default=False, description="Whether to exclude this income")
+    notes: Optional[str] = Field(default=None, description="Notes about the income")
+
+    @field_validator("period", mode="before")
+    @classmethod
+    def validate_period(cls, v):
+        """Validate period is one of the allowed values."""
+        valid_periods = {
+            "Annually",
+            "Quarterly",
+            "Monthly",
+            "Semi-Monthly",
+            "Biweekly",
+            "Weekly",
+            "1",
+            "4",
+            "12",
+            "24",
+            "26",
+            "52",
+        }
+        if v not in valid_periods:
+            raise ValueError(f"period must be one of {valid_periods}, got {v}")
+        return v
+
+
+class AdditionalNamePayload(BaseModel):
+    """Payload for creating an additional name record in LegalServer."""
+
+    first: str = Field(..., description="First name (required)")
+    last: str = Field(..., description="Last name (required)")
+    middle: Optional[str] = Field(default=None, description="Middle name")
+    suffix: Optional[str] = Field(default=None, description="Name suffix")
+    type: Lookup = Field(..., description="Name type lookup reference (required)")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class AdversePartyPayload(BaseModel):
+    """Payload for creating an adverse party record in LegalServer."""
+
+    first: Optional[str] = Field(default=None, description="First name")
+    last: Optional[str] = Field(default=None, description="Last name")
+    middle: Optional[str] = Field(default=None, description="Middle name")
+    suffix: Optional[str] = Field(default=None, description="Name suffix")
+    organization_name: Optional[str] = Field(default=None, description="Organization name")
+    date_of_birth: Optional[str] = Field(default=None, description="Date of birth (YYYY-MM-DD)")
+    phone_home: Optional[str] = Field(default=None, description="Home phone number")
+    phone_business: Optional[str] = Field(default=None, description="Business phone number")
+    phone_mobile: Optional[str] = Field(default=None, description="Mobile phone number")
+    phone_fax: Optional[str] = Field(default=None, description="Fax phone number")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+    @model_validator(mode="after")
+    def validate_name_required(self) -> "AdversePartyPayload":
+        """Validate that either (first AND last) OR organization_name is provided."""
+        has_individual = self.first and self.last
+        has_org = self.organization_name
+        if not (has_individual or has_org):
+            raise ValueError("Either (first AND last) OR organization_name is required")
+        return self
+
+
+class NotePayload(BaseModel):
+    """Payload for creating a note record in LegalServer."""
+
+    subject: str = Field(..., description="Note subject (required)")
+    body: str = Field(..., description="Note body (required)")
+    note_type: Lookup = Field(..., description="Note type lookup reference (required)")
+    is_html: Optional[bool] = Field(default=False, description="Whether body is HTML")
+    allow_etransfer: Optional[bool] = Field(default=True, description="Allow eTransfer")
+    active: Optional[bool] = Field(default=True, description="Note is active")
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
 class RejectionReason(BaseModel):
     """Rejection reason lookup object."""
 
@@ -45,16 +131,18 @@ class RejectionReason(BaseModel):
     lookup_value_uuid: Optional[str] = Field(default=None, description="UUID of the lookup value")
     lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
     lookup_type_name: Optional[str] = Field(
-        default=None, description="Name of the lookup type", readOnly=True
+        default=None, description="Name of the lookup type", json_schema_extra={"readOnly": True}
     )
     lookup_type_table_name: Optional[str] = Field(
-        default=None, description="Table name for the lookup", readOnly=True
+        default=None, description="Table name for the lookup", json_schema_extra={"readOnly": True}
     )
     lookup_type_custom: Optional[bool] = Field(
-        default=None, description="Whether this is a custom lookup", readOnly=True
+        default=None,
+        description="Whether this is a custom lookup",
+        json_schema_extra={"readOnly": True},
     )
     lookup_type_uuid: Optional[str] = Field(
-        default=None, description="UUID of the lookup type", readOnly=True
+        default=None, description="UUID of the lookup type", json_schema_extra={"readOnly": True}
     )
 
 
@@ -64,7 +152,7 @@ class Organization(BaseModel):
     organization_id: Optional[int] = Field(default=None, description="Numeric organization ID")
     organization_uuid: Optional[str] = Field(default=None, description="UUID of the organization")
     organization_name: Optional[str] = Field(
-        default=None, description="Name of the organization", readOnly=True
+        default=None, description="Name of the organization", json_schema_extra={"readOnly": True}
     )
 
 
@@ -129,13 +217,13 @@ class LegalServerCreateMatterPayload(BaseModel):
 
     # Client Name Information
     prefix: Optional[str] = Field(default=None, description="Name prefix (e.g., Dr., Mr., Ms.)")
-    first: Optional[str] = Field(
-        default=None,
-        description="Client first name. Required unless organization_name or organization_uuid is provided",
+    first: str = Field(
+        ...,
+        description="Client first name. Required field.",
     )
-    last: Optional[str] = Field(
-        default=None,
-        description="Client last name. Required unless organization_name or organization_uuid is provided",
+    last: str = Field(
+        ...,
+        description="Client last name. Required field.",
     )
     middle: Optional[str] = Field(default=None, description="Client middle name")
     suffix: Optional[str] = Field(default=None, description="Name suffix (e.g., Jr., Sr.)")
@@ -160,7 +248,7 @@ class LegalServerCreateMatterPayload(BaseModel):
 
     # Case Status (case_disposition is required)
     case_disposition: Optional[str] = Field(
-        default=None,
+        default="Incomplete Intake",
         description="Case disposition or status. REQUIRED. Determines automatic validation and field defaults. Validation rules: Incomplete Intake (intake_date=today, others null) | Open (prescreen=false, intake_date/date_open=today) | Closed (prescreen=false, intake_date/date_open/date_closed=today) | Prescreen (prescreen=true, prescreen_date=today, prescreen_user/office/program auto-populated) | Rejected (intake_date/date_rejected=today) | Pending (intake_date=today)",
     )
     case_status: Optional[str] = Field(
@@ -665,6 +753,18 @@ class LegalServerCreateMatterPayload(BaseModel):
             return None
         return v
 
+    @field_validator("citizenship", mode="before")
+    @classmethod
+    def convert_citizenship_boolean(cls, v):
+        """Convert boolean is_citizen to LegalServer citizenship lookup value.
+
+        True -> "Citizen"
+        False -> "Non-Citizen"
+        """
+        if isinstance(v, bool):
+            return "Citizen" if v else "Non-Citizen"
+        return v
+
     def validate_client_identification_complete(self) -> None:
         """Validate that either (first AND last) OR organization_name OR organization_uuid is provided.
 
@@ -678,5 +778,27 @@ class LegalServerCreateMatterPayload(BaseModel):
             raise ValueError(
                 "Either (first AND last) OR organization_name OR organization_uuid must be provided"
             )
+
+    @model_validator(mode="after")
+    def validate_after_init(self) -> "LegalServerCreateMatterPayload":
+        """Validate client identification and case_disposition after all fields are parsed.
+
+        If organization_name or organization_uuid is provided, first and last are not required.
+        Otherwise, first and last (being required fields) will have been validated.
+        """
+        # If an organization is specified, individual name fields are optional
+        has_org_name = self.organization_name
+        has_org_uuid = self.organization_uuid
+
+        # If no organization, first and last will be present (they're required fields)
+        # If organization is present, first and last can be None
+        if not (has_org_name or has_org_uuid):
+            # first and last are required fields, so they must be present here
+            if not (self.first and self.last):
+                raise ValueError(
+                    "Either (first AND last) OR organization_name OR organization_uuid must be provided"
+                )
+
+        return self
 
     model_config = ConfigDict(use_enum_values=True)

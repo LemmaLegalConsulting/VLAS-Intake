@@ -5,9 +5,17 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 import httpx
+from intake_bot.models.legalserver import (
+    AdditionalNamePayload,
+    AdversePartyPayload,
+    IncomePayload,
+    LegalServerCreateMatterPayload,
+    NotePayload,
+)
 from intake_bot.utils.ev import ev_is_true, require_ev
 from intake_bot.utils.globals import PROJECT_ROOT
 from loguru import logger
+from pydantic import ValidationError
 
 LEGALSERVER_API_BASE_URL = (
     f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2"""
@@ -84,74 +92,50 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
     """
     Build a LegalServer matter creation payload from state (flow_manager.state).
 
-    Returns None if required fields (first and last names) are missing.
+    Validates the payload against LegalServerCreateMatterPayload model.
+    Returns None if required fields are missing or validation fails.
     """
-    if not ("names" in state and state["names"].get("names")):
-        logger.warning("Cannot create matter: names not found in state")
+    names_list = state.get("names", {}).get("names", [])
+    if not names_list:
+        logger.warning("Cannot create matter: names not found or empty in state")
         return None
 
-    primary_name = state["names"]["names"][0]
-    first = primary_name.get("first")
-    last = primary_name.get("last")
+    primary_name = names_list[0]
 
-    if not first or not last:
-        logger.warning(
-            f"Cannot create matter: missing first or last name (first={first}, last={last})"
-        )
+    payload = {**primary_name}
+
+    if isinstance(state.get("phone"), dict):
+        phone_number = state["phone"].get("phone_number")
+        phone_type = state["phone"].get("phone_type", "mobile")
+        if phone_number and phone_type:
+            payload[f"{phone_type}_phone"] = phone_number
+
+    if isinstance(state.get("case_type"), dict):
+        payload["legal_problem_code"] = state["case_type"].get("legal_problem_code")
+
+    if isinstance(state.get("service_area"), dict):
+        if fips_code := state["service_area"].get("fips_code"):
+            payload["county_of_residence"] = {"county_FIPS": str(fips_code)}
+
+    if isinstance(state.get("income"), dict):
+        payload["income_eligible"] = state["income"].get("is_eligible")
+        payload["number_of_adults"] = state["income"].get("household_size")
+
+    if isinstance(state.get("assets"), dict):
+        payload["asset_eligible"] = state["assets"].get("is_eligible")
+
+    if isinstance(state.get("citizenship"), dict):
+        payload["citizenship"] = state["citizenship"].get("is_citizen")
+
+    if isinstance(state.get("domestic_violence"), dict):
+        payload["victim_of_domestic_violence"] = state["domestic_violence"].get("is_experiencing")
+
+    try:
+        validated = LegalServerCreateMatterPayload(**payload)
+        return validated.model_dump(exclude_none=True)
+    except ValidationError as e:
+        logger.warning(f"Cannot create matter: validation failed - {e}")
         return None
-
-    payload = {}
-    payload["first"] = first
-    payload["last"] = last
-    if middle := primary_name.get("middle"):
-        payload["middle"] = middle
-    if suffix := primary_name.get("suffix"):
-        payload["suffix"] = suffix
-
-    # Required: Case disposition
-    payload["case_disposition"] = "Incomplete Intake"
-
-    if "phone" in state and isinstance(state["phone"], dict):
-        if phone := state["phone"].get("phone_number"):
-            payload["mobile_phone"] = phone
-
-    if "case_type" in state:
-        if code := state["case_type"].get("legal_problem_code"):
-            payload["legal_problem_code"] = code
-
-    if "service_area" in state:
-        fips_code = state["service_area"].get("fips_code")
-        if fips_code:
-            payload["county_of_residence"] = {
-                "county_FIPS": str(fips_code),
-            }
-
-    if "income" in state and isinstance(state["income"], dict):
-        payload["income_eligible"] = state["income"].get("is_eligible", False)
-
-    if "assets" in state and isinstance(state["assets"], dict):
-        payload["asset_eligible"] = state["assets"].get("is_eligible", False)
-
-    # Maps to citizenship lookup. Valid values: "Citizen" (is_citizen=True) or "Non-Citizen" (is_citizen=False)
-    if "citizenship" in state and isinstance(state["citizenship"], dict):
-        if "is_citizen" in state["citizenship"]:
-            is_citizen = state["citizenship"].get("is_citizen")
-            # Map boolean to LegalServer citizenship lookup value
-            payload["citizenship"] = "Citizen" if is_citizen else "Non-Citizen"
-
-    if "domestic_violence" in state and isinstance(state["domestic_violence"], dict):
-        if "is_experiencing" in state["domestic_violence"]:
-            is_experiencing = state["domestic_violence"].get("is_experiencing")
-            payload["victim_of_domestic_violence"] = is_experiencing
-
-    if "income" in state and isinstance(state["income"], dict):
-        if household_size := state["income"].get("household_size"):
-            payload["number_of_adults"] = household_size
-
-    # Exclude None values
-    payload = {k: v for k, v in payload.items() if v is not None}
-
-    return payload
 
 
 async def _save_income_records(
@@ -176,28 +160,23 @@ async def _save_income_records(
 
     try:
         for person_name, income_info in listing.items():
-            if not income_info:
-                continue
-
-            for income_category_id, amount_info in income_info.items():
-                if not isinstance(amount_info, dict):
+            for income_category_id, amount_info in (income_info or {}).items():
+                try:
+                    payload = IncomePayload(
+                        type={"lookup_value_id": income_category_id},
+                        amount=amount_info.get("amount"),
+                        period=amount_info.get("period"),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to validate income for {person_name} (ID: {income_category_id}): {e}"
+                    )
                     continue
-
-                amount = amount_info.get("amount")
-                period = amount_info.get("period")
-                if amount is None or period is None:
-                    continue
-
-                payload = {
-                    "type": {"lookup_value_id": income_category_id},
-                    "amount": amount,
-                    "period": period,
-                }
 
                 response = await client.post(
                     f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes",
                     headers=LEGALSERVER_HEADERS,
-                    json=payload,
+                    json=payload.model_dump(exclude_none=True),
                 )
 
                 if response.status_code not in (200, 201):
@@ -207,7 +186,7 @@ async def _save_income_records(
                     )
                 else:
                     logger.debug(
-                        f"Income record created for {person_name} (ID: {income_category_id}): {amount} {period}"
+                        f"Income record created for {person_name} (ID: {income_category_id}): {payload.amount} {payload.period}"
                     )
 
     except Exception as e:
@@ -232,41 +211,31 @@ async def _save_additional_names(
     try:
         # Skip the primary name (index 0) and save each additional name
         for name in names_list[1:]:
-            payload = {}
-
-            if first := name.get("first"):
-                payload["first"] = first
-            if last := name.get("last"):
-                payload["last"] = last
-            if middle := name.get("middle"):
-                payload["middle"] = middle
-            if suffix := name.get("suffix"):
-                payload["suffix"] = suffix
-
-            if not (payload.get("first") and payload.get("last")):
-                logger.debug("Skipping additional name: missing first or last name")
+            try:
+                payload = AdditionalNamePayload(
+                    first=name.get("first"),
+                    last=name.get("last"),
+                    middle=name.get("middle"),
+                    suffix=name.get("suffix"),
+                    type={"lookup_value_id": name.get("type_id", 333)},
+                )
+            except Exception as e:
+                logger.warning(f"Failed to validate additional name: {e}")
                 continue
-
-            # Type is required - get type_id from name object (should be int from model dump)
-            # Default to 333 (Former Name) if somehow not set
-            type_id = name.get("type_id", 333)
-            payload["type"] = {"lookup_value_id": type_id}
 
             response = await client.post(
                 f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names",
                 headers=LEGALSERVER_HEADERS,
-                json=payload,
+                json=payload.model_dump(exclude_none=True),
             )
 
             if response.status_code not in (200, 201):
                 logger.warning(
-                    f"Failed to save additional name {payload.get('first')} {payload.get('last')}: "
+                    f"Failed to save additional name {payload.first} {payload.last}: "
                     f"{response.status_code} - {response.text}"
                 )
             else:
-                logger.debug(
-                    f"Additional name created: {payload.get('first')} {payload.get('last')} (type_id: {type_id})"
-                )
+                logger.debug(f"Additional name created: {payload.first} {payload.last}")
 
     except Exception as e:
         logger.error(f"Error saving additional names: {e}")
@@ -294,36 +263,45 @@ async def _save_adverse_parties(
 
     try:
         for party in parties:
-            payload = {}
+            try:
+                # Extract base party data
+                payload_data = {
+                    "first": party.get("first"),
+                    "last": party.get("last"),
+                    "middle": party.get("middle"),
+                    "suffix": party.get("suffix"),
+                    "date_of_birth": party.get("dob"),
+                }
 
-            if first := party.get("first"):
-                payload["first"] = first
-            if last := party.get("last"):
-                payload["last"] = last
-            if middle := party.get("middle"):
-                payload["middle"] = middle
-            if suffix := party.get("suffix"):
-                payload["suffix"] = suffix
-            if dob := party.get("dob"):
-                payload["date_of_birth"] = dob
+                # Add phones if present - map from phones array to individual phone fields
+                phones = party.get("phones", [])
+                if phones:
+                    for phone in phones:
+                        phone_number = phone.get("number")
+                        phone_type = phone.get("type", "").lower()
+                        if phone_number and phone_type:
+                            # Map phone type to field name: phone_{type}
+                            field_name = f"phone_{phone_type}"
+                            payload_data[field_name] = phone_number
 
-            if not (payload.get("first") and payload.get("last")):
-                logger.debug("Skipping adverse party: missing first or last name")
+                payload = AdversePartyPayload(**payload_data)
+            except Exception as e:
+                logger.warning(f"Failed to validate adverse party: {e}")
                 continue
 
             response = await client.post(
                 f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties",
                 headers=LEGALSERVER_HEADERS,
-                json=payload,
+                json=payload.model_dump(exclude_none=True),
             )
 
             if response.status_code not in (200, 201):
                 logger.warning(
-                    f"Failed to save adverse party {payload.get('first')} {payload.get('last')}: "
+                    f"Failed to save adverse party {payload.first} {payload.last}: "
                     f"{response.status_code} - {response.text}"
                 )
             else:
-                logger.debug(f"Adverse party created: {payload.get('first')} {payload.get('last')}")
+                logger.debug(f"Adverse party created: {payload.first} {payload.last}")
 
     except Exception as e:
         logger.error(f"Error saving adverse parties: {e}")
@@ -367,19 +345,20 @@ async def _save_assets_note(
             logger.debug("No assets to format")
             return
 
-        note_body = "\n".join(asset_lines)
-
-        # Use "General Notes" (ID: 100365) as the note type for assets
-        payload = {
-            "subject": "Assets",
-            "body": note_body,
-            "note_type": {"lookup_value_id": 100365},
-        }
+        try:
+            payload = NotePayload(
+                subject="Assets",
+                body="\n".join(asset_lines),
+                note_type={"lookup_value_id": 100365},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to validate assets note: {e}")
+            return
 
         response = await client.post(
             f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes",
             headers=LEGALSERVER_HEADERS,
-            json=payload,
+            json=payload.model_dump(exclude_none=True),
         )
 
         if response.status_code not in (200, 201):
