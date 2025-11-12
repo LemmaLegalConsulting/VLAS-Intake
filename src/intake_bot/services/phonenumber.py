@@ -1,3 +1,5 @@
+import sys
+
 import phonenumbers
 
 
@@ -30,3 +32,15 @@ def phone_number_is_valid(phone_number: str, region: str = "US") -> tuple[bool, 
     except phonenumbers.phonenumberutil.NumberParseException:
         valid = False
     return valid, phone_number
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python phonenumber.py <phone_number>")
+        sys.exit(1)
+
+    input_phone_number = sys.argv[1]
+    valid, phone_number = phone_number_is_valid(input_phone_number)
+
+    print(f"""Input : {input_phone_number}""")
+    print(f"""Result: {phone_number} {"✔️" if valid else "❌"}""")
