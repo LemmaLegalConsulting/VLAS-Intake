@@ -5,6 +5,8 @@ import pytest
 from intake_bot.services.legalserver import (
     _build_matter_payload,
     _save_additional_names_note,
+    _save_adverse_parties_note,
+    _save_assets_note,
     _save_income_records,
 )
 
@@ -554,6 +556,300 @@ class TestSaveAdditionalNamesNote:
             assert mock_logger.debug.call_count >= 1
             call_args = mock_logger.debug.call_args_list[-1][0][0]
             assert "2" in call_args  # 2 additional names (excluding primary)
+
+
+@pytest.mark.asyncio
+class TestSaveAdversePartiesNote:
+    """Tests for _save_adverse_parties_note helper function."""
+
+    async def test_save_single_adverse_party_note(self):
+        """Test saving a single adverse party as a note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {"first": "Jason", "middle": "Michael", "last": "Chen", "dob": None}
+            ]
+        }
+
+        await _save_adverse_parties_note(mock_client, "test-uuid-123", adverse_parties_data)
+
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert "test-uuid-123" in call_args[0][0]
+        assert call_args[1]["json"]["subject"] == "Adverse Parties"
+        assert call_args[1]["json"]["body"] == "Jason Michael Chen"
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_id": 100365}
+
+    async def test_save_multiple_adverse_parties_note(self):
+        """Test saving multiple adverse parties as a single note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {"first": "John", "last": "Doe"},
+                {"first": "Jane", "last": "Smith"},
+                {"first": "Bob", "last": "Johnson"},
+            ]
+        }
+
+        await _save_adverse_parties_note(mock_client, "test-uuid-456", adverse_parties_data)
+
+        call_args = mock_client.post.call_args
+        expected_body = "John Doe\nJane Smith\nBob Johnson"
+        assert call_args[1]["json"]["body"] == expected_body
+
+    async def test_adverse_party_with_dob(self):
+        """Test that adverse party with DOB is formatted with DOB included."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [{"first": "John", "last": "Doe", "dob": "1990-01-15"}]
+        }
+
+        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+
+        call_args = mock_client.post.call_args
+        assert "John Doe (DOB: 1990-01-15)" in call_args[1]["json"]["body"]
+
+    async def test_adverse_party_with_all_name_components(self):
+        """Test formatting adverse party with all name components."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {
+                    "first": "Sarah",
+                    "middle": "Jane",
+                    "last": "Anderson",
+                    "suffix": "Jr.",
+                    "dob": "1985-06-20",
+                }
+            ]
+        }
+
+        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+
+        call_args = mock_client.post.call_args
+        assert "Sarah Jane Anderson Jr. (DOB: 1985-06-20)" in call_args[1]["json"]["body"]
+
+    async def test_skip_empty_adverse_parties_list(self):
+        """Test that no note is created when adverse parties list is empty."""
+        mock_client = AsyncMock()
+
+        adverse_parties_data = {"adverse_parties": []}
+
+        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_when_adverse_parties_data_not_dict(self):
+        """Test handling of non-dict adverse parties data."""
+        mock_client = AsyncMock()
+
+        await _save_adverse_parties_note(mock_client, "test-uuid", "invalid-data")
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_adverse_parties_with_no_name_components(self):
+        """Test that adverse parties with no name components are skipped."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {},  # Empty adverse party
+                {"first": "John", "last": "Doe"},
+            ]
+        }
+
+        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"]["body"] == "John Doe"
+
+    async def test_handle_failed_adverse_parties_note_creation(self):
+        """Test that failed note creation is logged as warning."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+
+        adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+            mock_logger.warning.assert_called()
+
+    async def test_handle_exception_in_save_adverse_parties_note(self):
+        """Test that exceptions are handled gracefully."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
+
+        adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+            mock_logger.error.assert_called()
+
+    async def test_successful_adverse_parties_note_creation_logs_debug(self):
+        """Test that successful note creation is logged with party count."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {"first": "John", "last": "Doe"},
+                {"first": "Jane", "last": "Smith"},
+            ]
+        }
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+            call_args = mock_logger.debug.call_args_list[-1][0][0]
+            assert "2" in call_args
+
+
+@pytest.mark.asyncio
+class TestSaveAssetsNote:
+    """Tests for _save_assets_note helper function."""
+
+    async def test_save_single_asset(self):
+        """Test saving a single asset as a note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        assets_data = {
+            "listing": [{"savings account": 2100}],
+            "total_value": 2100,
+        }
+
+        await _save_assets_note(mock_client, "test-uuid-123", assets_data)
+
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert "test-uuid-123" in call_args[0][0]
+        assert call_args[1]["json"]["subject"] == "Assets"
+        assert "savings account: $2,100.00" in call_args[1]["json"]["body"]
+        assert "Total Assets: $2,100.00" in call_args[1]["json"]["body"]
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_id": 100365}
+
+    async def test_save_multiple_assets(self):
+        """Test saving multiple assets as a single note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        assets_data = {
+            "listing": [
+                {"savings account": 2100},
+                {"jewelry": 1500},
+                {"vehicle": 8000},
+            ],
+            "total_value": 11600,
+        }
+
+        await _save_assets_note(mock_client, "test-uuid-456", assets_data)
+
+        call_args = mock_client.post.call_args
+        body = call_args[1]["json"]["body"]
+        assert "savings account: $2,100.00" in body
+        assert "jewelry: $1,500.00" in body
+        assert "vehicle: $8,000.00" in body
+        assert "Total Assets: $11,600.00" in body
+
+    async def test_asset_formatting_with_currency(self):
+        """Test that assets are formatted as currency with proper formatting."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        assets_data = {
+            "listing": [{"real property": 250000}],
+            "total_value": 250000,
+        }
+
+        await _save_assets_note(mock_client, "test-uuid", assets_data)
+
+        call_args = mock_client.post.call_args
+        assert "real property: $250,000.00" in call_args[1]["json"]["body"]
+
+    async def test_skip_empty_assets_listing(self):
+        """Test that no note is created when assets listing is empty and total is 0."""
+        mock_client = AsyncMock()
+
+        assets_data = {"listing": [], "total_value": 0}
+
+        await _save_assets_note(mock_client, "test-uuid", assets_data)
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_when_assets_data_not_dict(self):
+        """Test handling of non-dict assets data."""
+        mock_client = AsyncMock()
+
+        await _save_assets_note(mock_client, "test-uuid", "invalid-data")
+
+        mock_client.post.assert_not_called()
+
+    async def test_skip_assets_with_no_listing_and_zero_value(self):
+        """Test that no note is created when no assets and total value is 0."""
+        mock_client = AsyncMock()
+
+        assets_data = {"listing": [], "total_value": 0}
+
+        await _save_assets_note(mock_client, "test-uuid", assets_data)
+
+        mock_client.post.assert_not_called()
+
+    async def test_save_assets_with_only_total_value(self):
+        """Test saving assets when only total value is present."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        assets_data = {"listing": [], "total_value": 5000}
+
+        await _save_assets_note(mock_client, "test-uuid", assets_data)
+
+        call_args = mock_client.post.call_args
+        assert "Total Assets: $5,000.00" in call_args[1]["json"]["body"]
+
+    async def test_handle_failed_assets_note_creation(self):
+        """Test that failed note creation is logged as warning."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+
+        assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_assets_note(mock_client, "test-uuid", assets_data)
+            mock_logger.warning.assert_called()
+
+    async def test_handle_exception_in_save_assets_note(self):
+        """Test that exceptions are handled gracefully."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
+
+        assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_assets_note(mock_client, "test-uuid", assets_data)
+            mock_logger.error.assert_called()
+
+    async def test_successful_assets_note_creation_logs_debug(self):
+        """Test that successful note creation is logged with total value."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        assets_data = {
+            "listing": [{"savings": 1000}, {"jewelry": 500}],
+            "total_value": 1500,
+        }
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_assets_note(mock_client, "test-uuid", assets_data)
+            call_args = mock_logger.debug.call_args_list[-1][0][0]
+            assert "$1,500.00" in call_args
 
 
 @pytest.mark.asyncio
