@@ -112,13 +112,31 @@ class StateValidator:
                             break
 
             if matching_key is None:
-                # For income.listing, try fuzzy matching
-                if path == "income.listing":
+                # For income.listing and any nested level, try fuzzy matching on string keys
+                if "income.listing" in path and isinstance(key, str):
                     fuzzy_match = self._fuzzy_match_key(key, list(actual.keys()), threshold=75)
                     if fuzzy_match:
                         matching_key = fuzzy_match
                         matched_actual_keys.add(fuzzy_match)
-                        self._compare_values(actual[fuzzy_match], expected[key], new_path)
+                        # Use the actual matched key in the path, not the expected key
+                        fuzzy_new_path = f"{path}.{fuzzy_match}" if path else fuzzy_match
+                        self._compare_values(actual[fuzzy_match], expected[key], fuzzy_new_path)
+                    else:
+                        self.mismatches.append(
+                            {
+                                "path": new_path,
+                                "issue": "missing_key",
+                                "expected": expected[key],
+                                "actual": None,
+                            }
+                        )
+                # Also try numeric key matching (e.g., 100198 vs "100198")
+                elif "income.listing" in path and isinstance(key, int):
+                    str_key = str(key)
+                    if str_key in actual:
+                        matching_key = str_key
+                        matched_actual_keys.add(str_key)
+                        self._compare_values(actual[str_key], expected[key], new_path)
                     else:
                         self.mismatches.append(
                             {
