@@ -5,7 +5,7 @@ import pytest
 from intake_bot.services.legalserver import (
     _build_matter_payload,
     _save_additional_names_note,
-    _save_adverse_parties_note,
+    _save_adverse_parties,
     _save_assets_note,
     _save_income_records,
 )
@@ -559,11 +559,12 @@ class TestSaveAdditionalNamesNote:
 
 
 @pytest.mark.asyncio
-class TestSaveAdversePartiesNote:
-    """Tests for _save_adverse_parties_note helper function."""
+@pytest.mark.asyncio
+class TestSaveAdverseParties:
+    """Tests for _save_adverse_parties helper function."""
 
-    async def test_save_single_adverse_party_note(self):
-        """Test saving a single adverse party as a note."""
+    async def test_save_single_adverse_party(self):
+        """Test saving a single adverse party via API."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -573,17 +574,18 @@ class TestSaveAdversePartiesNote:
             ]
         }
 
-        await _save_adverse_parties_note(mock_client, "test-uuid-123", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid-123", adverse_parties_data)
 
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
-        assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["subject"] == "Adverse Parties"
-        assert call_args[1]["json"]["body"] == "Jason Michael Chen"
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_id": 100365}
+        assert "test-uuid-123/adverse_parties" in call_args[0][0]
+        assert call_args[1]["json"]["first"] == "Jason"
+        assert call_args[1]["json"]["middle"] == "Michael"
+        assert call_args[1]["json"]["last"] == "Chen"
+        assert "dob" not in call_args[1]["json"]  # None values excluded
 
-    async def test_save_multiple_adverse_parties_note(self):
-        """Test saving multiple adverse parties as a single note."""
+    async def test_save_multiple_adverse_parties(self):
+        """Test saving multiple adverse parties via API."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -595,14 +597,12 @@ class TestSaveAdversePartiesNote:
             ]
         }
 
-        await _save_adverse_parties_note(mock_client, "test-uuid-456", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid-456", adverse_parties_data)
 
-        call_args = mock_client.post.call_args
-        expected_body = "John Doe\nJane Smith\nBob Johnson"
-        assert call_args[1]["json"]["body"] == expected_body
+        assert mock_client.post.call_count == 3
 
     async def test_adverse_party_with_dob(self):
-        """Test that adverse party with DOB is formatted with DOB included."""
+        """Test that adverse party with DOB is included in payload."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -610,13 +610,13 @@ class TestSaveAdversePartiesNote:
             "adverse_parties": [{"first": "John", "last": "Doe", "dob": "1990-01-15"}]
         }
 
-        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
 
         call_args = mock_client.post.call_args
-        assert "John Doe (DOB: 1990-01-15)" in call_args[1]["json"]["body"]
+        assert call_args[1]["json"]["date_of_birth"] == "1990-01-15"
 
     async def test_adverse_party_with_all_name_components(self):
-        """Test formatting adverse party with all name components."""
+        """Test adverse party with all name components."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -632,18 +632,23 @@ class TestSaveAdversePartiesNote:
             ]
         }
 
-        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
 
         call_args = mock_client.post.call_args
-        assert "Sarah Jane Anderson Jr. (DOB: 1985-06-20)" in call_args[1]["json"]["body"]
+        payload = call_args[1]["json"]
+        assert payload["first"] == "Sarah"
+        assert payload["middle"] == "Jane"
+        assert payload["last"] == "Anderson"
+        assert payload["suffix"] == "Jr."
+        assert payload["date_of_birth"] == "1985-06-20"
 
     async def test_skip_empty_adverse_parties_list(self):
-        """Test that no note is created when adverse parties list is empty."""
+        """Test that no API call is made when adverse parties list is empty."""
         mock_client = AsyncMock()
 
         adverse_parties_data = {"adverse_parties": []}
 
-        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
 
         mock_client.post.assert_not_called()
 
@@ -651,39 +656,39 @@ class TestSaveAdversePartiesNote:
         """Test handling of non-dict adverse parties data."""
         mock_client = AsyncMock()
 
-        await _save_adverse_parties_note(mock_client, "test-uuid", "invalid-data")
+        await _save_adverse_parties(mock_client, "test-uuid", "invalid-data")
 
         mock_client.post.assert_not_called()
 
-    async def test_skip_adverse_parties_with_no_name_components(self):
-        """Test that adverse parties with no name components are skipped."""
+    async def test_skip_adverse_party_without_first_and_last_name(self):
+        """Test that adverse parties without first and last name are skipped."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         adverse_parties_data = {
             "adverse_parties": [
-                {},  # Empty adverse party
+                {"middle": "Michael"},  # Missing first and last
                 {"first": "John", "last": "Doe"},
             ]
         }
 
-        await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
 
-        call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["body"] == "John Doe"
+        # Should only call once for John Doe
+        assert mock_client.post.call_count == 1
 
-    async def test_handle_failed_adverse_parties_note_creation(self):
-        """Test that failed note creation is logged as warning."""
+    async def test_handle_failed_adverse_party_creation(self):
+        """Test that failed adverse party creation is logged as warning."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
 
         adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
             mock_logger.warning.assert_called()
 
-    async def test_handle_exception_in_save_adverse_parties_note(self):
+    async def test_handle_exception_in_save_adverse_parties(self):
         """Test that exceptions are handled gracefully."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
@@ -691,11 +696,11 @@ class TestSaveAdversePartiesNote:
         adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
+            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
             mock_logger.error.assert_called()
 
-    async def test_successful_adverse_parties_note_creation_logs_debug(self):
-        """Test that successful note creation is logged with party count."""
+    async def test_successful_adverse_party_creation_logs_debug(self):
+        """Test that successful adverse party creation is logged."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -707,9 +712,12 @@ class TestSaveAdversePartiesNote:
         }
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties_note(mock_client, "test-uuid", adverse_parties_data)
-            call_args = mock_logger.debug.call_args_list[-1][0][0]
-            assert "2" in call_args
+            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
+            # Should have called debug for each successful creation
+            debug_calls = [
+                call for call in mock_logger.debug.call_args_list if "created" in str(call).lower()
+            ]
+            assert len(debug_calls) >= 2
 
 
 @pytest.mark.asyncio

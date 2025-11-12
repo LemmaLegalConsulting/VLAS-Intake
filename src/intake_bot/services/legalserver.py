@@ -66,16 +66,9 @@ async def save_intake_legalserver(state: dict):
                 # Use matter_uuid for the income endpoint
                 await _save_income_records(client, matter_uuid, state["income"])
 
-            # TODO: Create adverse parties if they exist
-            # Currently disabled due to 401 authorization error from LegalServer API
-            # The bearer token may not have the required permissions for the adverse_parties endpoint
-            # Uncomment once permissions are verified/enabled
-            # if "adverse_parties" in state:
-            #     await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
-
-            # Create adverse parties note (temporary workaround for 401 auth issue)
+            # Create adverse parties if they exist
             if "adverse_parties" in state:
-                await _save_adverse_parties_note(client, matter_uuid, state["adverse_parties"])
+                await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
 
             # Create assets note if assets data exists
             if "assets" in state:
@@ -365,82 +358,6 @@ async def _save_adverse_parties(
 
     except Exception as e:
         logger.error(f"Error saving adverse parties: {e}")
-
-
-async def _save_adverse_parties_note(
-    client: httpx.AsyncClient, matter_uuid: str, adverse_parties_data: Dict[str, Any]
-) -> None:
-    """
-    Save adverse parties as a matter note (temporary workaround).
-
-    Args:
-        client: AsyncClient for making HTTP requests
-        matter_uuid: The matter UUID from the matter creation response
-        adverse_parties_data: Dictionary with "adverse_parties" list of party data
-    """
-    if not isinstance(adverse_parties_data, dict):
-        logger.debug("Adverse parties data not in expected format")
-        return
-
-    parties = adverse_parties_data.get("adverse_parties", [])
-    if not parties:
-        logger.debug("No adverse parties to save")
-        return
-
-    try:
-        # Format adverse parties for the note
-        party_lines = []
-
-        for party in parties:
-            if not party:
-                continue
-
-            # Build full name from components
-            name_parts = []
-            if first := party.get("first"):
-                name_parts.append(first)
-            if middle := party.get("middle"):
-                name_parts.append(middle)
-            if last := party.get("last"):
-                name_parts.append(last)
-            if suffix := party.get("suffix"):
-                name_parts.append(suffix)
-
-            if name_parts:
-                party_name = " ".join(name_parts)
-                if dob := party.get("dob"):
-                    party_lines.append(f"{party_name} (DOB: {dob})")
-                else:
-                    party_lines.append(party_name)
-
-        if not party_lines:
-            logger.debug("No adverse parties to format")
-            return
-
-        note_body = "\n".join(party_lines)
-
-        # Use "General Notes" (ID: 100365) as the note type for adverse parties
-        payload = {
-            "subject": "Adverse Parties",
-            "body": note_body,
-            "note_type": {"lookup_value_id": 100365},
-        }
-
-        response = await client.post(
-            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
-            headers=LEGALSERVER_HEADERS,
-            json=payload,
-        )
-
-        if response.status_code not in (200, 201):
-            logger.warning(
-                f"Failed to save adverse parties note: {response.status_code} - {response.text}"
-            )
-        else:
-            logger.debug(f"Adverse parties note created with {len(party_lines)} party(ies)")
-
-    except Exception as e:
-        logger.error(f"Error saving adverse parties note: {e}")
 
 
 async def _save_assets_note(
