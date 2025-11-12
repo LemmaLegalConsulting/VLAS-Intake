@@ -66,15 +66,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
     result = await bot(runner_args)
 
-    if result and isinstance(result, dict) and "code" in result:
-        logger.debug(f"""Closing websocket with code: {result["code"]}""")
-        try:
+    # Close the websocket after bot finishes
+    try:
+        if result and isinstance(result, dict) and "code" in result:
+            logger.debug(f"""Closing websocket with code: {result["code"]}""")
             await websocket.close(code=result["code"])
-        except Exception as e:
-            logger.debug(f"Error closing websocket with code: {e}")
-    else:
-        # Ensure WebSocket is closed after bot finishes
-        try:
+        else:
             await websocket.close()
-        except Exception as e:
-            logger.debug(f"Error closing websocket: {e}")
+    except Exception as e:
+        logger.debug(f"Error closing websocket: {e}")
