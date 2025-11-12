@@ -10,7 +10,7 @@ from intake_bot.utils.globals import PROJECT_ROOT
 from loguru import logger
 
 LEGALSERVER_API_BASE_URL = (
-    f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2/"""
+    f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2"""
 )
 
 LEGALSERVER_HEADERS = {
@@ -31,19 +31,14 @@ async def save_intake_legalserver(state: dict):
 
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            # Build the main matter payload
             payload = _build_matter_payload(state)
-
-            # Early return if we don't have required fields
             if payload is None:
                 logger.warning("Skipping LegalServer save: required fields missing")
                 return
-
             logger.debug(f"Matter payload: {payload}")
 
-            # Create the matter
             matter_response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}matters",
+                f"{LEGALSERVER_API_BASE_URL}/matters",
                 headers=LEGALSERVER_HEADERS,
                 json=payload,
             )
@@ -56,26 +51,26 @@ async def save_intake_legalserver(state: dict):
             matter_data = matter_response.json()
             logger.debug(f"Matter response data keys: {matter_data.keys()}")
 
-            # The API returns data nested under a "data" key
             matter_info = matter_data.get("data", matter_data)
             matter_uuid = matter_info.get("matter_uuid")
-            logger.info(f"Matter created successfully: {matter_uuid}")
 
-            # Create income records if income data exists
+            if case_id := matter_info.get("case_id"):
+                subdomain = require_ev("LEGAL_SERVER_SUBDOMAIN")
+                profile_url = f"https://{subdomain}.legalserver.org/matter/profile/view/{case_id}"
+                logger.debug(f"Matter created successfully: {matter_uuid} - View: {profile_url}")
+            else:
+                logger.debug(f"Matter created successfully: {matter_uuid}")
+
             if "income" in state:
-                # Use matter_uuid for the income endpoint
                 await _save_income_records(client, matter_uuid, state["income"])
 
-            # Create adverse parties if they exist
             if "adverse_parties" in state:
                 await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
 
-            # Create assets note if assets data exists
             if "assets" in state:
                 await _save_assets_note(client, matter_uuid, state["assets"])
 
-            # Create additional names if more than one name was provided
-            if "names" in state and state["names"].get("names"):
+            if "names" in state and "names" in state["names"]:
                 if len(state["names"]["names"]) > 1:
                     await _save_additional_names(client, matter_uuid, state["names"]["names"])
 
@@ -91,7 +86,6 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     Returns None if required fields (first and last names) are missing.
     """
-    # Required: Client name (first and last)
     if not ("names" in state and state["names"].get("names")):
         logger.warning("Cannot create matter: names not found in state")
         return None
@@ -117,18 +111,14 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
     # Required: Case disposition
     payload["case_disposition"] = "Incomplete Intake"
 
-    # Phone number
     if "phone" in state and isinstance(state["phone"], dict):
         if phone := state["phone"].get("phone_number"):
             payload["mobile_phone"] = phone
 
-    # Legal problem code
     if "case_type" in state:
         if code := state["case_type"].get("legal_problem_code"):
             payload["legal_problem_code"] = code
 
-    # Service area / County
-    # All valid service areas have FIPS codes in service_areas.yaml
     if "service_area" in state:
         fips_code = state["service_area"].get("fips_code")
         if fips_code:
@@ -136,32 +126,27 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
                 "county_FIPS": str(fips_code),
             }
 
-    # Eligibility flags
     if "income" in state and isinstance(state["income"], dict):
         payload["income_eligible"] = state["income"].get("is_eligible", False)
 
     if "assets" in state and isinstance(state["assets"], dict):
         payload["asset_eligible"] = state["assets"].get("is_eligible", False)
 
-    # Citizenship
     # Maps to citizenship lookup. Valid values: "Citizen" (is_citizen=True) or "Non-Citizen" (is_citizen=False)
-    # See LEGALSERVER_FIELD_MAPPING.md for full mapping details.
     if "citizenship" in state and isinstance(state["citizenship"], dict):
         if "is_citizen" in state["citizenship"]:
             is_citizen = state["citizenship"].get("is_citizen")
             # Map boolean to LegalServer citizenship lookup value
             payload["citizenship"] = "Citizen" if is_citizen else "Non-Citizen"
 
-    # Domestic violence
     if "domestic_violence" in state and isinstance(state["domestic_violence"], dict):
         if "is_experiencing" in state["domestic_violence"]:
             is_experiencing = state["domestic_violence"].get("is_experiencing")
             payload["victim_of_domestic_violence"] = is_experiencing
 
-    # Household size
     if "income" in state and isinstance(state["income"], dict):
         if household_size := state["income"].get("household_size"):
-            payload["number_of_adults"] = household_size  # Simplified; could be split
+            payload["number_of_adults"] = household_size
 
     # Exclude None values
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -190,32 +175,27 @@ async def _save_income_records(
         return
 
     try:
-        # For each household member with income, create an income record
         for person_name, income_info in listing.items():
-            if not income_info:  # Skip empty records
+            if not income_info:
                 continue
 
-            # Extract income details (expecting format like {261: {"amount": 80000, "period": "year"}})
-            # where the key is the income category ID
             for income_category_id, amount_info in income_info.items():
                 if not isinstance(amount_info, dict):
                     continue
 
                 amount = amount_info.get("amount")
                 period = amount_info.get("period")
-
-                if not amount:
+                if not (amount or period):
                     continue
 
-                # Use the income category ID directly as the LegalServer lookup value
                 payload = {
                     "type": {"lookup_value_id": income_category_id},
-                    "amount": amount,  # Send as number, not string
-                    "period": period,  # period is already in LegalServer format
+                    "amount": amount,
+                    "period": period,
                 }
 
                 response = await client.post(
-                    f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/incomes",
+                    f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes",
                     headers=LEGALSERVER_HEADERS,
                     json=payload,
                 )
@@ -252,7 +232,6 @@ async def _save_additional_names(
     try:
         # Skip the primary name (index 0) and save each additional name
         for name in names_list[1:]:
-            # Build payload with available fields
             payload = {}
 
             if first := name.get("first"):
@@ -264,7 +243,6 @@ async def _save_additional_names(
             if suffix := name.get("suffix"):
                 payload["suffix"] = suffix
 
-            # Skip if we don't have first and last name
             if not (payload.get("first") and payload.get("last")):
                 logger.debug("Skipping additional name: missing first or last name")
                 continue
@@ -275,7 +253,7 @@ async def _save_additional_names(
             payload["type"] = {"lookup_value_id": type_id}
 
             response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/additional_names",
+                f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names",
                 headers=LEGALSERVER_HEADERS,
                 json=payload,
             )
@@ -316,10 +294,6 @@ async def _save_adverse_parties(
 
     try:
         for party in parties:
-            if not party:
-                continue
-
-            # Build payload with available fields
             payload = {}
 
             if first := party.get("first"):
@@ -333,13 +307,12 @@ async def _save_adverse_parties(
             if dob := party.get("dob"):
                 payload["date_of_birth"] = dob
 
-            # Skip if we don't have first and last name
             if not (payload.get("first") and payload.get("last")):
                 logger.debug("Skipping adverse party: missing first or last name")
                 continue
 
             response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/adverse_parties",
+                f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties",
                 headers=LEGALSERVER_HEADERS,
                 json=payload,
             )
@@ -379,7 +352,6 @@ async def _save_assets_note(
         return
 
     try:
-        # Format assets for the note
         asset_lines = []
 
         if listing:
@@ -388,7 +360,6 @@ async def _save_assets_note(
                     for asset_type, amount in asset_dict.items():
                         asset_lines.append(f"{asset_type}: ${amount:,.2f}")
 
-        # Add total value
         if total_value > 0:
             asset_lines.append(f"\nTotal Assets: ${total_value:,.2f}")
 
@@ -406,7 +377,7 @@ async def _save_assets_note(
         }
 
         response = await client.post(
-            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
+            f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes",
             headers=LEGALSERVER_HEADERS,
             json=payload,
         )
