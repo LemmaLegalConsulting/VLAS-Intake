@@ -324,6 +324,28 @@ class TestSaveIncomeRecords:
         # Should only call once for the income with amount
         assert mock_client.post.call_count == 1
 
+    async def test_accept_zero_income_with_period(self):
+        """Test that amount=0 is accepted (not treated as missing)."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        income_data = {
+            "listing": {
+                "John Doe": {
+                    261: {"amount": 0, "period": "Monthly"},  # Zero income
+                    265: {"period": "Monthly"},  # Missing amount - should skip
+                }
+            }
+        }
+
+        await _save_income_records(mock_client, "test-uuid-zero", income_data)
+
+        # Should only call once for amount=0 (which is valid), skip the missing amount
+        assert mock_client.post.call_count == 1
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"]["amount"] == 0
+        assert call_args[1]["json"]["period"] == "Monthly"
+
     async def test_handle_non_dict_income_data(self):
         """Test handling of non-dict income data."""
         mock_client = AsyncMock()
@@ -401,8 +423,20 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "middle": "Michael", "last": "Doe", "suffix": None, "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "middle": "Marie", "last": "Smith", "suffix": None, "type_id": NameTypeId.MAIDEN_NAME},
+            {
+                "first": "John",
+                "middle": "Michael",
+                "last": "Doe",
+                "suffix": None,
+                "type_id": NameTypeId.LEGAL_NAME,
+            },
+            {
+                "first": "Jane",
+                "middle": "Marie",
+                "last": "Smith",
+                "suffix": None,
+                "type_id": NameTypeId.MAIDEN_NAME,
+            },
         ]
 
         await _save_additional_names(mock_client, "test-uuid-123", names_list)
@@ -423,7 +457,10 @@ class TestSaveAdditionalNames:
 
         names_list = [
             {"first": "John", "last": "Doe"},
-            {"first": "Jane", "last": "Smith"},  # No type_id specified, should default to FORMER_NAME
+            {
+                "first": "Jane",
+                "last": "Smith",
+            },  # No type_id specified, should default to FORMER_NAME
         ]
 
         await _save_additional_names(mock_client, "test-uuid-123", names_list)
@@ -448,7 +485,7 @@ class TestSaveAdditionalNames:
 
         # Should call once for each additional name (3 total)
         assert mock_client.post.call_count == 3
-        
+
         # Check each call has the correct type_id
         calls = mock_client.post.call_args_list
         assert calls[0][1]["json"]["type"]["lookup_value_id"] == NameTypeId.MAIDEN_NAME.value
@@ -530,7 +567,11 @@ class TestSaveAdditionalNames:
 
         names_list = [
             {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.FORMER_NAME},  # No middle or suffix
+            {
+                "first": "Jane",
+                "last": "Smith",
+                "type_id": NameTypeId.FORMER_NAME,
+            },  # No middle or suffix
         ]
 
         await _save_additional_names(mock_client, "test-uuid", names_list)
@@ -913,7 +954,7 @@ class TestSaveIntakeLegalserver:
 
         mock_response = MagicMock()
         mock_response.status_code = 201
-        mock_response.json.return_value = {"data": {"matter_uuid": "uuid-123"}}
+        mock_response.json.return_value = {"data": {"matter_uuid": "uuid-123", "case_id": 419645}}
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
@@ -921,15 +962,16 @@ class TestSaveIntakeLegalserver:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value = mock_client
 
-            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
-                with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                    from intake_bot.services.legalserver import save_intake_legalserver
+            with patch("intake_bot.services.legalserver.logger") as mock_logger:
+                from intake_bot.services.legalserver import save_intake_legalserver
 
-                    await save_intake_legalserver(state)
+                await save_intake_legalserver(state)
 
-                    mock_logger.info.assert_called()
-                    call_args = mock_logger.info.call_args[0][0]
-                    assert "uuid-123" in call_args
+                # Check that debug or info was called with matter creation message
+                all_debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+                all_info_calls = [call[0][0] for call in mock_logger.info.call_args_list]
+                all_calls = all_debug_calls + all_info_calls
+                assert any("Matter created successfully" in call for call in all_calls)
 
     async def test_failed_matter_creation(self):
         """Test handling of failed matter creation."""

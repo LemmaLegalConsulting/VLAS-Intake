@@ -185,7 +185,7 @@ async def _save_income_records(
 
                 amount = amount_info.get("amount")
                 period = amount_info.get("period")
-                if not (amount or period):
+                if amount is None or period is None:
                     continue
 
                 payload = {
