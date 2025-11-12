@@ -144,7 +144,7 @@ async def record_name(
     flow_manager: FlowManager, first: str, middle: str, last: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record the caller's name.
+    Record the caller's primary name and set it as the main contact name.
 
     Args:
         first (str): The caller's first name.
@@ -157,6 +157,7 @@ async def record_name(
                 "first": first,
                 "middle": middle,
                 "last": last,
+                "type_id": 3315536,  # Legal Name - the primary/official name
             }
         )
     except ValidationError as e:
@@ -545,34 +546,36 @@ async def record_names(
     flow_manager: FlowManager, names: list[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record the caller's other names (maiden name, previous marriage names, legally changed names, etc.).
+    Record the caller's additional names (maiden name, previous marriage names, legally changed names, etc.).
 
     This function combines the previously recorded primary name with any additional names
     the caller provides, creating a complete list of all names associated with the caller.
 
     Args:
         names (list[dict]):
-            REQUIRED: A list of CallerName objects. Each object contains:
+            REQUIRED: A list of additional name objects. Each object contains:
             - "first" (str, required): The first name
             - "middle" (str, optional): The middle name
             - "last" (str, required): The last name
+            - "type_id" (int, optional): The alias type ID (333=Former Name, 334=Maiden Name, 817=Nickname, 3315536=Legal Name)
+              Defaults to 333 (Former Name) if not specified.
 
             IMPORTANT:
             1. The "names" argument is REQUIRED - always pass it, never omit it
-            2. Use EXACT field names: "first", "middle", "last"
-               (not first_name, last_name, firstname, lastname, etc.)
+            2. Use EXACT field names: "first", "middle", "last", "type_id"
             3. Pass an empty list [] if the caller has no additional names
+            4. If type_id is not specified, it defaults to 333 (Former Name)
 
-            Example 1 - One additional name:
-                names=[{"first": "Sarah", "middle": "Jane", "last": "Smith"}]
+            Example 1 - One additional name with type:
+                names=[{"first": "Sarah", "middle": "Jane", "last": "Smith", "type_id": 334}]
 
             Example 2 - No additional names (empty list):
                 names=[]
 
-            Example 3 - Two additional names:
+            Example 3 - Two additional names with different types:
                 names=[
-                    {"first": "Mary", "last": "Johnson"},
-                    {"first": "Robert", "middle": "Lee", "last": "Davis"}
+                    {"first": "Mary", "last": "Johnson", "type_id": 334},
+                    {"first": "Robert", "middle": "Lee", "last": "Davis", "type_id": 333}
                 ]
     """
     try:

@@ -10,10 +10,22 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 ######################################################################
 
 
+class NameTypeId(int, Enum):
+    """LegalServer alias_type lookup values for additional names."""
+
+    FORMER_NAME = 333
+    MAIDEN_NAME = 334
+    NICKNAME = 817
+    LEGAL_NAME = 3315536
+
+
 class CallerName(BaseModel):
     first: str
     middle: Optional[str] = None
     last: str
+    type_id: NameTypeId = NameTypeId.FORMER_NAME
+
+    model_config = ConfigDict(use_enum_values=True)
 
     @field_validator("first", "last", mode="before")
     @classmethod

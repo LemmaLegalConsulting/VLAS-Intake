@@ -74,10 +74,10 @@ async def save_intake_legalserver(state: dict):
             if "assets" in state:
                 await _save_assets_note(client, matter_uuid, state["assets"])
 
-            # Create note with additional names if more than one name was provided
+            # Create additional names if more than one name was provided
             if "names" in state and state["names"].get("names"):
                 if len(state["names"]["names"]) > 1:
-                    await _save_additional_names_note(client, matter_uuid, state["names"]["names"])
+                    await _save_additional_names(client, matter_uuid, state["names"]["names"])
 
     except httpx.RequestError as e:
         logger.error(f"HTTP Request failed: {e}")
@@ -234,11 +234,11 @@ async def _save_income_records(
         logger.error(f"Error saving income records: {e}")
 
 
-async def _save_additional_names_note(
+async def _save_additional_names(
     client: httpx.AsyncClient, matter_uuid: str, names_list: list[Dict[str, Any]]
 ) -> None:
     """
-    Save additional caller names as a matter note.
+    Save additional caller names via the additional_names API endpoint.
 
     Args:
         client: AsyncClient for making HTTP requests
@@ -250,52 +250,48 @@ async def _save_additional_names_note(
         return
 
     try:
-        # Skip the primary name (index 0) and format additional names
-        additional_names = []
+        # Skip the primary name (index 0) and save each additional name
         for name in names_list[1:]:
-            # Build full name from components
-            name_parts = []
+            # Build payload with available fields
+            payload = {}
+
             if first := name.get("first"):
-                name_parts.append(first)
-            if middle := name.get("middle"):
-                name_parts.append(middle)
+                payload["first"] = first
             if last := name.get("last"):
-                name_parts.append(last)
+                payload["last"] = last
+            if middle := name.get("middle"):
+                payload["middle"] = middle
             if suffix := name.get("suffix"):
-                name_parts.append(suffix)
+                payload["suffix"] = suffix
 
-            if name_parts:
-                additional_names.append(" ".join(name_parts))
+            # Skip if we don't have first and last name
+            if not (payload.get("first") and payload.get("last")):
+                logger.debug("Skipping additional name: missing first or last name")
+                continue
 
-        if not additional_names:
-            logger.debug("No additional names to format")
-            return
+            # Type is required - get type_id from name object (should be int from model dump)
+            # Default to 333 (Former Name) if somehow not set
+            type_id = name.get("type_id", 333)
+            payload["type"] = {"lookup_value_id": type_id}
 
-        # Create note with one name per line
-        note_body = "\n".join(additional_names)
-
-        # Use "General Notes" (ID: 100365) as the note type for additional names
-        payload = {
-            "subject": "Additional Names / Aliases",
-            "body": note_body,
-            "note_type": {"lookup_value_id": 100365},
-        }
-
-        response = await client.post(
-            f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/notes",
-            headers=LEGALSERVER_HEADERS,
-            json=payload,
-        )
-
-        if response.status_code not in (200, 201):
-            logger.warning(
-                f"Failed to save additional names note: {response.status_code} - {response.text}"
+            response = await client.post(
+                f"{LEGALSERVER_API_BASE_URL}matters/{matter_uuid}/additional_names",
+                headers=LEGALSERVER_HEADERS,
+                json=payload,
             )
-        else:
-            logger.debug(f"Additional names note created with {len(additional_names)} name(s)")
+
+            if response.status_code not in (200, 201):
+                logger.warning(
+                    f"Failed to save additional name {payload.get('first')} {payload.get('last')}: "
+                    f"{response.status_code} - {response.text}"
+                )
+            else:
+                logger.debug(
+                    f"Additional name created: {payload.get('first')} {payload.get('last')} (type_id: {type_id})"
+                )
 
     except Exception as e:
-        logger.error(f"Error saving additional names note: {e}")
+        logger.error(f"Error saving additional names: {e}")
 
 
 async def _save_adverse_parties(

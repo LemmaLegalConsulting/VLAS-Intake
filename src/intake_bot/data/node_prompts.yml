@@ -302,13 +302,52 @@ record_names:
            - Legally changed names
            - Any other names they have been known by that might appear in court documents or legal records
         2. If the caller provides other names, ask them to spell each name completely, including first, middle, and last name. Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
-        3. After the caller spells each name, read it back exactly as spelled, specifying each part (first, middle, and last name), and confirm with the caller that the spelling is correct.
-           - If the caller confirms the spelling is correct, continue to the next name or proceed to the next step.
-           - If the caller indicates that any part of the name is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
-        4. If the caller has no other names to add, call the function with an empty list: names = []
-        5. Once all names are confirmed and spelled correctly (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
+        3. For each additional name, ask the caller what type of name it is:
+           - Maiden Name (Type 334): A name from before marriage or a previous marriage
+           - Former Name (Type 333): A name previously used that is no longer current
+           - Nickname (Type 817): A commonly used alternative name (not a legal name change)
+           - Legal Name (Type 3315536): Another legal name that is official in records
+           If the caller doesn't specify the type or their answer doesn't clearly match one of these, use Former Name (Type 333) as the default.
+        4. After the caller spells each name and specifies its type, read it back exactly as spelled, specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
+           - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
+           - If the caller indicates that any part of the name or type is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
+        5. If the caller has no other names to add, call the function with an empty list: names = []
+        6. Once all names are confirmed and spelled correctly with types specified (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
 
         [Field Name Requirements]
+        When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
+        Use these EXACT field names for each name:
+        - "first" (required, not first_name, firstname, or firstName)
+        - "middle" (optional, not middle_name, middlename, or middleName)
+        - "last" (required, not last_name, lastname, or lastName)
+        - "type_id" (optional but recommended: 333=Former Name, 334=Maiden Name, 817=Nickname, 3315536=Legal Name)
+          If omitted or not specified by caller, defaults to 333 (Former Name)
+
+        [Examples - ALWAYS pass the names argument]
+        Example 1 - Caller provides one additional name (maiden name):
+        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith", "type_id": 334}]
+
+        Example 2 - Caller provides no additional names (empty list):
+        names = []
+
+        Example 3 - Caller provides two additional names with different types:
+        names = [
+          {"first": "Mary", "last": "Johnson", "type_id": 334},
+          {"first": "Robert", "middle": "Lee", "last": "Davis", "type_id": 333}
+        ]
+
+        Example 4 - Caller provides name but doesn't specify type (will default to 333):
+        names = [{"first": "Jane", "last": "Doe"}]
+
+        [Critical Reminder]
+        ALWAYS call the function with the "names" argument, even if it's an empty list [].
+        Do NOT call the function without specifying the names argument.
+        Omit any fields that you don't have a value for (except names should always be provided).
+        If the caller doesn't specify a type, you will automatically apply the default type of 333 (Former Name).
+        If the type name is ambiguous, ask for clarification or use 333 as default.
+
+        [User Prompt]
+        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. For each name you provide, please also tell me what type of name it is - whether it's a maiden name, a name from a former marriage, or another type of name. If yes, please spell each name for me, starting with the first name, then middle name, and last name, and tell me what type it is.        [Field Name Requirements]
         When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
         Use these EXACT field names for each name:
         - "first" (required, not first_name, firstname, or firstNamee)
