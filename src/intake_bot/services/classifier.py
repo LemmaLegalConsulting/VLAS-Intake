@@ -86,7 +86,7 @@ class Classifier:
 
         # Default weights
         self.model_weights = {
-            "gpt-4o-mini": 0.85,
+            # "gpt-4o-mini": 0.85,
             "gpt-4.1-mini": 0.87,
             "gemini-2.5-flash-lite": 0.9,
             "gpt-5-nano": 0.9,
@@ -95,7 +95,7 @@ class Classifier:
 
         # Default enabled classifiers
         self.enabled_models = [
-            "gpt-4o-mini",
+            # "gpt-4o-mini",
             "gpt-4.1-mini",
             "gemini-2.5-flash-lite",
             "gpt-5-nano",
