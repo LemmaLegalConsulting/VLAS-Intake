@@ -35,6 +35,12 @@ async def save_intake_legalserver(state: dict):
         async with httpx.AsyncClient(timeout=30) as client:
             # Build the main matter payload
             payload = _build_matter_payload(state)
+
+            # Early return if we don't have required fields
+            if payload is None:
+                logger.warning("Skipping LegalServer save: required fields missing")
+                return
+
             logger.debug(f"Matter payload: {payload}")
 
             # Create the matter
@@ -73,21 +79,34 @@ async def save_intake_legalserver(state: dict):
         logger.error(f"Unexpected error saving intake to LegalServer: {e}")
 
 
-def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any]:
+def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
     """
     Build a LegalServer matter creation payload from state (flow_manager.state).
-    """
-    payload = {}
 
+    Returns None if required fields (first and last names) are missing.
+    """
     # Required: Client name (first and last)
-    if "names" in state and state["names"].get("names"):
-        primary_name = state["names"]["names"][0]
-        payload["first"] = primary_name.get("first")
-        payload["last"] = primary_name.get("last")
-        if middle := primary_name.get("middle"):
-            payload["middle"] = middle
-        if suffix := primary_name.get("suffix"):
-            payload["suffix"] = suffix
+    if not ("names" in state and state["names"].get("names")):
+        logger.warning("Cannot create matter: names not found in state")
+        return None
+
+    primary_name = state["names"]["names"][0]
+    first = primary_name.get("first")
+    last = primary_name.get("last")
+
+    if not first or not last:
+        logger.warning(
+            f"Cannot create matter: missing first or last name (first={first}, last={last})"
+        )
+        return None
+
+    payload = {}
+    payload["first"] = first
+    payload["last"] = last
+    if middle := primary_name.get("middle"):
+        payload["middle"] = middle
+    if suffix := primary_name.get("suffix"):
+        payload["suffix"] = suffix
 
     # Required: Case disposition
     payload["case_disposition"] = "Incomplete Intake"
