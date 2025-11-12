@@ -1,10 +1,12 @@
 import asyncio
+import inspect
 import json
 import re
+import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import yaml
 from intake_bot.models.classifier import (
@@ -86,7 +88,7 @@ class Classifier:
         self.model_weights = {
             "gpt-4o-mini": 0.85,
             "gpt-4.1-mini": 0.87,
-            "gemini-2.5-flash": 0.9,
+            "gemini-2.5-flash-lite": 0.9,
             "gpt-5-nano": 0.9,
             "keyword": 0.5,
         }
@@ -95,7 +97,7 @@ class Classifier:
         self.enabled_models = [
             "gpt-4o-mini",
             "gpt-4.1-mini",
-            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
             "gpt-5-nano",
             "keyword",
         ]
@@ -150,9 +152,9 @@ class Classifier:
 
         # Try to initialize Gemini provider
         try:
-            all_providers.append(self.GeminiProvider(model_name="gemini-2.5-flash"))
+            all_providers.append(self.GeminiProvider(model_name="gemini-2.5-flash-lite"))
         except ValueError as e:
-            logger.warning(f"""Could not initialize gemini-2.5-flash provider: {e}""")
+            logger.warning(f"""Could not initialize gemini-2.5-flash-lite provider: {e}""")
 
         # Always add keyword provider
         try:
@@ -183,7 +185,7 @@ class Classifier:
         questions_data = [q.model_dump() for q in questions]
         questions_json = json.dumps(questions_data, indent=2)
 
-        provider = self.GeminiProvider(model_name="gemini-2.5-flash")
+        provider = self.GeminiProvider(model_name="gemini-2.5-flash-lite")
 
         try:
 
@@ -428,6 +430,9 @@ class Classifier:
                 "prompt": final_prompt,
                 "taxonomy": list(taxonomy.keys()) if taxonomy else [],
             }
+            # Add reasoning_effort if provider has it set
+            if provider.reasoning_effort:
+                provider_kwargs["reasoning_effort"] = provider.reasoning_effort
             tasks.append(
                 (provider.model_name, asyncio.create_task(provider.classify(**provider_kwargs)))
             )
@@ -476,6 +481,7 @@ class Classifier:
         PROVIDER_TIMEOUT = 45.0  # 45 seconds max for any single provider call
 
         client: Optional[AsyncOpenAI] = None
+        reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None
 
         def __init__(self, model_name: str):
             """Initialize provider.
@@ -674,7 +680,13 @@ class Classifier:
                 raise last_exception
             raise RuntimeError(f"""Failed after {self.MAX_RETRIES} attempts""")
 
-        async def classify(self, problem_description: str, prompt: str, **kwargs) -> Dict[str, Any]:
+        async def classify(
+            self,
+            problem_description: str,
+            prompt: str,
+            reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None,
+            **kwargs,
+        ) -> Dict[str, Any]:
             """Common classification logic for OpenAI-compatible clients.
 
             Uses self.client which should be an AsyncOpenAI instance.
@@ -682,6 +694,8 @@ class Classifier:
             Args:
               problem_description: The problem description to classify.
               prompt: The prompt template to use.
+              reasoning_effort: Reasoning effort level for gpt-5 models. Can be "minimal", "low", "medium", or "high".
+              **kwargs: Additional arguments (ignored).
 
             Returns:
               Dict with 'labels' and 'questions' keys.
@@ -693,14 +707,30 @@ class Classifier:
                         start_time = time.time()
                         logger.debug(f"""[{self.model_name}] Starting API call""")
 
-                    response = await self.client.chat.completions.create(
-                        model=self.model_name,
-                        messages=[
+                    # Build request parameters
+                    request_params = {
+                        "model": self.model_name,
+                        "messages": [
                             {"role": "system", "content": prompt},
                             {"role": "user", "content": problem_description},
                         ],
-                        response_format={"type": "json_object"},
-                    )
+                        "response_format": {"type": "json_object"},
+                    }
+
+                    # Add reasoning_effort if provided and client supports it
+                    if reasoning_effort:
+                        try:
+                            sig = inspect.signature(self.client.chat.completions.create)
+                            if "reasoning_effort" in sig.parameters:
+                                request_params["reasoning_effort"] = reasoning_effort
+                                if DEBUG:
+                                    logger.debug(
+                                        f"""[{self.model_name}] Using reasoning_effort={reasoning_effort}"""
+                                    )
+                        except Exception:
+                            pass
+
+                    response = await self.client.chat.completions.create(**request_params)
 
                     if DEBUG:
                         elapsed = time.time() - start_time
@@ -766,6 +796,8 @@ class Classifier:
             super().__init__(model_name)
             api_key = require_ev("OPENAI_API_KEY")
             self.client = AsyncOpenAI(api_key=api_key)
+            if model_name.startswith("gpt-5"):
+                self.reasoning_effort = "minimal"
 
     class GeminiProvider(Provider):
         """
@@ -773,7 +805,7 @@ class Classifier:
         https://ai.google.dev/gemini-api/docs/openai
         """
 
-        def __init__(self, model_name: str = "gemini-2.5-flash"):
+        def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
             """Initialize Gemini provider.
 
             Args:
@@ -909,3 +941,22 @@ class Classifier:
             ]
             logger.debug(f"""[KeywordProvider] {labels}""")
             return {"labels": labels, "questions": []}
+
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python classifier.py '<legal problem description>'")
+        print(
+            "Example: python classifier.py 'I am going through a divorce and need help with custody'"
+        )
+        sys.exit(1)
+
+    problem_description = sys.argv[1]
+
+    print(f"Classifying: {problem_description}\n")
+
+    classifier = Classifier()
+    result = asyncio.run(classifier.classify(problem_description))
+
+    print("Classification Results:")
+    print(json.dumps(result.model_dump(), indent=2))
