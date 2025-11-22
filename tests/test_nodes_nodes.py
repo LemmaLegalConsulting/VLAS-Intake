@@ -96,9 +96,11 @@ async def test_record_name_valid(flow_manager):
     assert result["names"][0]["first"] == "John"
     assert result["names"][0]["middle"] == "Q"
     assert result["names"][0]["last"] == "Public"
+    assert result["names"][0]["type"] == "Legal Name"  # Primary name should be Legal Name
     assert flow_manager.state["names"]["names"][0]["first"] == "John"
     assert flow_manager.state["names"]["names"][0]["middle"] == "Q"
     assert flow_manager.state["names"]["names"][0]["last"] == "Public"
+    assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"  # Verify type in state
     assert "record_service_area_prompt" in next_node
 
 
@@ -473,12 +475,21 @@ async def test_record_citizenship_routes_to_ssn_last_4(flow_manager):
 async def test_record_names_with_prior_name(flow_manager):
     """Test record_names when a main name was already recorded at the start."""
     # Simulate the main name recorded at the start (from record_name)
-    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+    flow_manager.state["names"] = {
+        "names": [
+            {
+                "first": "John",
+                "middle": "Q",
+                "last": "Public",
+                "type": "Legal Name",  # Primary name should have Legal Name type
+            }
+        ]
+    }
 
     # Now user provides additional names
     additional_names = [
-        {"first": "Jon", "last": "Doe"},
-        {"first": "Jack", "middle": "Q", "last": "Public"},
+        {"first": "Jon", "last": "Doe", "type": "Former Name"},
+        {"first": "Jack", "middle": "Q", "last": "Public", "type": "Maiden Name"},
     ]
 
     result, next_node = await record_names(flow_manager, additional_names)
@@ -487,15 +498,19 @@ async def test_record_names_with_prior_name(flow_manager):
     assert result["status"] == Status.SUCCESS
     # Should have 3 names: original + 2 additional
     assert len(result["names"]) == 3
-    # First name should be the original one
+    # First name should be the original one with Legal Name type
     assert result["names"][0]["first"] == "John"
     assert result["names"][0]["middle"] == "Q"
     assert result["names"][0]["last"] == "Public"
-    # Additional names follow
+    assert result["names"][0]["type"] == "Legal Name"  # Verify type is preserved
+    # Additional names follow with their types
     assert result["names"][1]["first"] == "Jon"
+    assert result["names"][1]["type"] == "Former Name"
     assert result["names"][2]["first"] == "Jack"
+    assert result["names"][2]["type"] == "Maiden Name"
     # State should be overwritten with combined names
     assert len(flow_manager.state["names"]["names"]) == 3
+    assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
     assert "record_emergency_prompt" in next_node
 
 

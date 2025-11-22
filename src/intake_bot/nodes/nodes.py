@@ -176,7 +176,7 @@ async def record_name(
                 "first": first,
                 "middle": middle,
                 "last": last,
-                "type_id": 3315536,  # Legal Name - the primary/official name
+                "type": "Legal Name",  # Primary/official name
             }
         )
     except ValidationError as e:
