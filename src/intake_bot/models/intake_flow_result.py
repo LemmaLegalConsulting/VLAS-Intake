@@ -44,6 +44,10 @@ class DateOfBirthResult(IntakeFlowResult):
     date_of_birth: str
 
 
+class SSNLast4Result(IntakeFlowResult):
+    ssn_last_4: str
+
+
 class DomesticViolenceResult(IntakeFlowResult):
     is_experiencing: bool
     perpetrators: list[str]

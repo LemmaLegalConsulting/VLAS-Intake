@@ -292,6 +292,22 @@ record_citizenship:
     - content: >-
         Explain that US citizenship is only one part of determining eligibility for Law-Line assistance, and then ask if the caller is a US citizen. If the caller refuses to answer or avoids answering, treat that as a "no".
 
+# SSN Last 4
+record_ssn_last_4:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Ask the caller for the last 4 digits of their social security number. Explain that you only need the last 4 digits.
+        2. The caller may provide the digits in various formats (for example: "1234", "123-4", "1-23-4", etc.). Accept any reasonable format with 4 digits.
+        3. After receiving the digits, read them back to the caller exactly as four digits and ask them to confirm they are correct.
+           - If the caller confirms the digits are correct, proceed to the next step.
+           - If the caller indicates the digits are incorrect, ask them to provide the correct last 4 digits and repeat the confirmation process.
+        4. If the caller refuses to provide this information or provides a value that is not exactly 4 digits, explain that you need exactly 4 digits and ask them to try again.
+        5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct.
+
+        [User Prompt]
+        Please provide the last 4 digits of your social security number. You can say them as "1234" or "1-2-3-4" - I only need the last 4 digits. Once provided, I will read them back to confirm if they are correct.
+
 # Date of Birth
 record_date_of_birth:
   task_messages:

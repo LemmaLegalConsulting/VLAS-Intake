@@ -13,6 +13,7 @@ from intake_bot.models.intake_flow_result import (
     IntakeFlowResult,
     PhoneNumberResult,
     ServiceAreaResult,
+    SSNLast4Result,
     Status,
 )
 from intake_bot.models.validator import (
@@ -552,10 +553,42 @@ async def record_citizenship(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
-            **prompts.get("record_date_of_birth"),
-            "functions": [record_date_of_birth],
+            **prompts.get("record_ssn_last_4"),
+            "functions": [record_ssn_last_4],
         }
     )
+    return result, next_node
+
+
+@convert_and_log_result("ssn_last_4")
+async def record_ssn_last_4(
+    flow_manager: FlowManager, ssn_last_4: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Collect the last 4 digits of the caller's social security number.
+
+    Args:
+        ssn_last_4 (str): The last 4 digits of the caller's SSN (accepts various formats like XXXX, XXX-X, etc.)
+    """
+    is_valid, formatted_ssn = await validator.check_ssn_last_4(ssn_last_4=ssn_last_4)
+
+    status = status_helper(is_valid)
+    result = SSNLast4Result(
+        status=status,
+        ssn_last_4=formatted_ssn,
+    )
+
+    if status == Status.SUCCESS:
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_date_of_birth"),
+                "functions": [record_date_of_birth],
+            }
+        )
+    else:
+        result.error = "Invalid SSN. Please provide the last 4 digits in format: XXXX or XXX-X."
+        next_node = None
     return result, next_node
 
 
@@ -575,7 +608,7 @@ async def record_date_of_birth(
     status = status_helper(is_valid)
     result = DateOfBirthResult(
         status=status,
-        date_of_birth=formatted_dob if is_valid else "",
+        date_of_birth=formatted_dob,
     )
 
     if status == Status.SUCCESS:

@@ -81,6 +81,27 @@ class IntakeValidator:
 
         return False, ""
 
+    async def check_ssn_last_4(self, ssn_last_4: str) -> tuple[bool, str]:
+        """
+        Validate the last 4 digits of a social security number.
+
+        Args:
+            ssn_last_4 (str): The last 4 digits of SSN (accepts various formats like XXXX, XXX-X, X-XXX, X-X-XX, etc.)
+
+        Returns:
+            tuple[bool, str]: A tuple containing:
+                - bool: True if valid (exactly 4 digits after removing separators), False otherwise.
+                - str: The 4-digit SSN if valid, or empty string if invalid.
+        """
+        # Remove common separators (hyphens, spaces)
+        cleaned = ssn_last_4.strip().replace("-", "").replace(" ", "").replace("_", "")
+        
+        # Check if it's exactly 4 digits
+        if len(cleaned) == 4 and cleaned.isdigit():
+            return True, cleaned
+        
+        return False, ""
+
     async def check_service_area(self, location: str) -> tuple[str, int]:
         """
         Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.

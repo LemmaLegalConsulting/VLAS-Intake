@@ -22,6 +22,7 @@ from intake_bot.nodes.nodes import (
     record_names,
     record_phone_number,
     record_service_area,
+    record_ssn_last_4,
     system_phone_number,
 )
 
@@ -352,7 +353,7 @@ async def test_record_citizenship(flow_manager):
     result, next_node = await record_citizenship(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
-    assert "record_date_of_birth_prompt" in next_node
+    assert "record_ssn_last_4_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -406,6 +407,66 @@ async def test_record_date_of_birth_future_date(flow_manager, patch_validator):
     assert result["status"] == Status.ERROR
     assert result["date_of_birth"] == ""
     assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_valid(flow_manager, patch_validator):
+    """Test record_ssn_last_4 with valid SSN last 4 digits."""
+    patch_validator.check_ssn_last_4 = AsyncMock(return_value=(True, "1234"))
+    result, next_node = await record_ssn_last_4(flow_manager, "1234")
+    assert result["status"] == Status.SUCCESS
+    assert result["ssn_last_4"] == "1234"
+    assert flow_manager.state["ssn_last_4"]["ssn_last_4"] == "1234"
+    assert "record_date_of_birth_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_formatted_input(flow_manager, patch_validator):
+    """Test record_ssn_last_4 with formatted input like 123-4."""
+    patch_validator.check_ssn_last_4 = AsyncMock(return_value=(True, "1234"))
+    result, next_node = await record_ssn_last_4(flow_manager, "123-4")
+    assert result["status"] == Status.SUCCESS
+    assert result["ssn_last_4"] == "1234"
+    assert "record_date_of_birth_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_invalid(flow_manager, patch_validator):
+    """Test record_ssn_last_4 with invalid input (too short)."""
+    patch_validator.check_ssn_last_4 = AsyncMock(return_value=(False, ""))
+    result, next_node = await record_ssn_last_4(flow_manager, "123")
+    assert result["status"] == Status.ERROR
+    assert result["ssn_last_4"] == ""
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_too_long(flow_manager, patch_validator):
+    """Test record_ssn_last_4 with invalid input (too long)."""
+    patch_validator.check_ssn_last_4 = AsyncMock(return_value=(False, ""))
+    result, next_node = await record_ssn_last_4(flow_manager, "12345")
+    assert result["status"] == Status.ERROR
+    assert result["ssn_last_4"] == ""
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_non_digits(flow_manager, patch_validator):
+    """Test record_ssn_last_4 with non-digit input."""
+    patch_validator.check_ssn_last_4 = AsyncMock(return_value=(False, ""))
+    result, next_node = await record_ssn_last_4(flow_manager, "abcd")
+    assert result["status"] == Status.ERROR
+    assert result["ssn_last_4"] == ""
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_citizenship_routes_to_ssn_last_4(flow_manager):
+    """Test that record_citizenship routes to record_ssn_last_4 node."""
+    result, next_node = await record_citizenship(flow_manager, True)
+    assert result["status"] == Status.SUCCESS
+    assert result["is_citizen"] is True
+    assert "record_ssn_last_4_prompt" in next_node
 
 
 @pytest.mark.asyncio

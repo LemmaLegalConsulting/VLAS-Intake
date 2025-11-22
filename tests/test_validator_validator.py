@@ -322,3 +322,35 @@ async def test_check_date_of_birth_today():
     is_valid, formatted_dob = await validator.check_date_of_birth(today)
     assert is_valid is False
     assert formatted_dob == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "ssn_input,expected_valid,expected_formatted",
+    [
+        ("1234", True, "1234"),  # basic 4 digits
+        ("123-4", True, "1234"),  # with one hyphen
+        ("1-234", True, "1234"),  # with hyphen at different position
+        ("1-2-3-4", True, "1234"),  # multiple hyphens
+        ("1 2 3 4", True, "1234"),  # with spaces
+        ("1_2_3_4", True, "1234"),  # with underscores
+        ("1-2-34", True, "1234"),  # mixed separators
+        ("9876", True, "9876"),  # different valid digits
+        ("0000", True, "0000"),  # all zeros
+        ("9999", True, "9999"),  # all nines
+        ("123", False, ""),  # too short
+        ("12345", False, ""),  # too long
+        ("abcd", False, ""),  # letters only
+        ("12-34a", False, ""),  # contains letter
+        ("12-34!", False, ""),  # contains special character
+        ("", False, ""),  # empty string
+        ("   ", False, ""),  # only spaces
+        ("1-2-3", False, ""),  # only 3 digits with separators
+        ("12-34-567", False, ""),  # 5 digits
+    ],
+)
+async def test_check_ssn_last_4(ssn_input, expected_valid, expected_formatted):
+    validator = IntakeValidator()
+    is_valid, formatted_ssn = await validator.check_ssn_last_4(ssn_input)
+    assert is_valid == expected_valid
+    assert formatted_ssn == expected_formatted

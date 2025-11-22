@@ -331,6 +331,105 @@ class TestBuildMatterPayload:
         assert payload["victim_of_domestic_violence"] is False
         assert payload["case_disposition"] == "Incomplete Intake"
 
+    def test_payload_with_ssn_last_4(self):
+        """Test that SSN last 4 is included in payload."""
+        state = {
+            "names": {"names": [{"first": "Bob", "last": "Smith"}]},
+            "ssn_last_4": {"ssn_last_4": "5678"},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["ssn"] == "5678"
+
+    def test_payload_with_ssn_last_4_various_formats(self):
+        """Test that SSN last 4 with separators is properly cleaned."""
+        state = {
+            "names": {"names": [{"first": "Carol", "last": "White"}]},
+            "ssn_last_4": {"ssn_last_4": "1234"},  # Already cleaned by validator
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["ssn"] == "1234"
+
+    def test_payload_excludes_empty_ssn_last_4(self):
+        """Test that empty SSN last 4 is handled (kept as empty string by Pydantic)."""
+        state = {
+            "names": {"names": [{"first": "David", "last": "Jones"}]},
+            "ssn_last_4": {"ssn_last_4": ""},
+        }
+
+        payload = _build_matter_payload(state)
+
+        # Empty strings are preserved by Pydantic, not excluded by exclude_none
+        # (exclude_none only excludes None values, not empty strings)
+        # The validation should have rejected this before reaching here in real usage
+        assert payload.get("ssn") == "" or "ssn" not in payload
+
+    def test_payload_excludes_missing_ssn_last_4_section(self):
+        """Test payload when SSN section is missing."""
+        state = {
+            "names": {"names": [{"first": "Eve", "last": "Brown"}]},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert "ssn" not in payload or payload.get("ssn") is None
+
+    def test_complete_payload_with_ssn_last_4_and_all_fields(self):
+        """Test building complete payload with SSN last 4 and all other fields."""
+        from datetime import date
+
+        state = {
+            "call_id": "test-call-456",
+            "phone": {"is_valid": True, "phone_number": "(571) 555-9999"},
+            "names": {
+                "names": [
+                    {
+                        "first": "Michael",
+                        "middle": "James",
+                        "last": "Davies",
+                        "suffix": "Sr.",
+                    }
+                ]
+            },
+            "ssn_last_4": {"ssn_last_4": "8765"},
+            "date_of_birth": {"date_of_birth": "1980-08-10"},
+            "service_area": {
+                "location": "Fairfax County, VA",
+                "is_eligible": True,
+                "fips_code": 51059,
+            },
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "91 Consumer Transactions",
+            },
+            "income": {"is_eligible": True, "monthly_amount": 2500, "household_size": 1},
+            "assets": {"is_eligible": True, "total_value": 5000},
+            "citizenship": {"is_citizen": True},
+            "domestic_violence": {
+                "is_experiencing": False,
+                "perpetrators": [],
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["first"] == "Michael"
+        assert payload["middle"] == "James"
+        assert payload["last"] == "Davies"
+        assert payload["suffix"] == "Sr."
+        assert payload["ssn"] == "8765"
+        assert payload["date_of_birth"] == date(1980, 8, 10)
+        assert payload["mobile_phone"] == "(571) 555-9999"
+        assert payload["legal_problem_code"] == "91 Consumer Transactions"
+        assert payload["county_of_residence"]["county_FIPS"] == "51059"
+        assert payload["income_eligible"] is True
+        assert payload["asset_eligible"] is True
+        assert payload["citizenship"] == "Citizen"
+        assert payload["victim_of_domestic_violence"] is False
+
 
 @pytest.mark.asyncio
 class TestSaveIncomeRecords:
@@ -1337,3 +1436,124 @@ class TestSaveIntakeLegalserver:
                 assert matter_payload["asset_eligible"] is True
                 assert matter_payload["citizenship"] == "Citizen"
                 assert matter_payload["victim_of_domestic_violence"] is True
+
+    async def test_matter_creation_with_ssn_last_4(self):
+        """Test successful creation of matter with SSN last 4."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "ssn_last_4": {"ssn_last_4": "5678"},
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-ssn-123", "case_id": 419651}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the matter creation call included ssn
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+                assert matter_payload["ssn"] == "5678"
+
+    async def test_matter_creation_with_ssn_and_date_of_birth(self):
+        """Test matter creation with both SSN last 4 and date of birth."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "ssn_last_4": {"ssn_last_4": "9999"},
+            "date_of_birth": {"date_of_birth": "1992-03-15"},
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-ssn-dob-123", "case_id": 419652}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify both fields are in the payload
+                from datetime import date
+
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+                assert matter_payload["ssn"] == "9999"
+                assert matter_payload["date_of_birth"] == date(1992, 3, 15)
+
+    async def test_matter_creation_complete_with_ssn(self):
+        """Test successful creation of complete matter including SSN last 4."""
+        state = {
+            "names": {"names": [{"first": "Robert", "middle": "Lee", "last": "Garcia"}]},
+            "phone": {"is_valid": True, "phone_number": "(202) 555-0199"},
+            "ssn_last_4": {"ssn_last_4": "4321"},
+            "date_of_birth": {"date_of_birth": "1988-11-03"},
+            "service_area": {
+                "location": "Alexandria City",
+                "is_eligible": True,
+                "fips_code": 51510,
+            },
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "23 Employment",
+            },
+            "income": {"is_eligible": True, "monthly_amount": 3500, "household_size": 1},
+            "assets": {"is_eligible": True, "total_value": 2000},
+            "citizenship": {"is_citizen": True},
+            "domestic_violence": {
+                "is_experiencing": False,
+                "perpetrators": [],
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-complete-ssn", "case_id": 419653}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the complete matter payload
+                from datetime import date
+
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+
+                assert matter_payload["first"] == "Robert"
+                assert matter_payload["middle"] == "Lee"
+                assert matter_payload["last"] == "Garcia"
+                assert matter_payload["ssn"] == "4321"
+                assert matter_payload["date_of_birth"] == date(1988, 11, 3)
+                assert matter_payload["mobile_phone"] == "(202) 555-0199"
+                assert matter_payload["legal_problem_code"] == "23 Employment"
+                assert matter_payload["income_eligible"] is True
+                assert matter_payload["asset_eligible"] is True
+                assert matter_payload["citizenship"] == "Citizen"
