@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
-from intake_bot.models.validator import NameTypeId
+from intake_bot.models.validator import NameTypeValue
 from intake_bot.services.legalserver import (
     _build_matter_payload,
     _save_additional_names,
@@ -233,7 +233,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "is_eligible": True,
-            "listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}},
+            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}},
         }
 
         await _save_income_records(mock_client, "test-uuid-123", income_data)
@@ -241,7 +241,7 @@ class TestSaveIncomeRecords:
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
         assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["type"] == {"lookup_value_id": 261}
+        assert call_args[1]["json"]["type"] == {"lookup_value_name": "Employment"}
         assert call_args[1]["json"]["amount"] == 50000
         assert call_args[1]["json"]["period"] == "Annually"
 
@@ -253,8 +253,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "is_eligible": True,
             "listing": {
-                "John Doe": {261: {"amount": 50000, "period": "Annually"}},
-                "Jane Doe": {261: {"amount": 60000, "period": "Annually"}},
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}},
+                "Jane Doe": {"Employment": {"amount": 60000, "period": "Annually"}},
             },
         }
 
@@ -269,9 +269,9 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "listing": {
-                "Person A": {261: {"amount": 5000, "period": "Monthly"}},
-                "Person B": {268: {"amount": 1000, "period": "Weekly"}},
-                "Person C": {256: {"amount": 2000, "period": "Biweekly"}},
+                "Person A": {"Employment": {"amount": 5000, "period": "Monthly"}},
+                "Person B": {"Unemployment Compensation": {"amount": 1000, "period": "Weekly"}},
+                "Person C": {"Child Support": {"amount": 2000, "period": "Biweekly"}},
             }
         }
 
@@ -294,7 +294,7 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "listing": {
-                "John Doe": {261: {"amount": 50000, "period": "Annually"}},
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}},
                 "Jane Doe": {},  # Empty record
                 "Child": None,  # None record
             }
@@ -313,8 +313,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "John Doe": {
-                    261: {"amount": 50000, "period": "Annually"},
-                    265: {"period": "Annually"},  # Missing amount
+                    "Employment": {"amount": 50000, "period": "Annually"},
+                    "Pension/Retirement (Not Soc. Sec.)": {"period": "Annually"},  # Missing amount
                 }
             }
         }
@@ -332,8 +332,10 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "John Doe": {
-                    261: {"amount": 0, "period": "Monthly"},  # Zero income
-                    265: {"period": "Monthly"},  # Missing amount - should skip
+                    "Employment": {"amount": 0, "period": "Monthly"},  # Zero income
+                    "Pension/Retirement (Not Soc. Sec.)": {
+                        "period": "Monthly"
+                    },  # Missing amount - should skip
                 }
             }
         }
@@ -372,7 +374,9 @@ class TestSaveIncomeRecords:
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, reason="Bad Request"))
 
-        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}}}
+        income_data = {
+            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}}
+        }
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_income_records(mock_client, "test-uuid", income_data)
@@ -386,8 +390,8 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "Person": {
-                    261: {"amount": 5000, "period": "Monthly"},
-                    256: {"amount": 500, "period": "Monthly"},
+                    "Employment": {"amount": 5000, "period": "Monthly"},
+                    "Child Support": {"amount": 500, "period": "Monthly"},
                 }
             }
         }
@@ -396,15 +400,17 @@ class TestSaveIncomeRecords:
 
         calls = mock_client.post.call_args_list
         types = [call[1]["json"]["type"] for call in calls]
-        assert {"lookup_value_id": 261} in types
-        assert {"lookup_value_id": 256} in types
+        assert {"lookup_value_name": "Employment"} in types
+        assert {"lookup_value_name": "Child Support"} in types
 
     async def test_handle_exception_in_save_income_records(self):
         """Test that exceptions in save_income_records are handled gracefully."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
 
-        income_data = {"listing": {"John Doe": {261: {"amount": 50000, "period": "Annually"}}}}
+        income_data = {
+            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}}
+        }
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             # Should not raise
@@ -412,7 +418,6 @@ class TestSaveIncomeRecords:
             mock_logger.error.assert_called()
 
 
-@pytest.mark.asyncio
 @pytest.mark.asyncio
 class TestSaveAdditionalNames:
     """Tests for _save_additional_names helper function."""
@@ -428,14 +433,14 @@ class TestSaveAdditionalNames:
                 "middle": "Michael",
                 "last": "Doe",
                 "suffix": None,
-                "type_id": NameTypeId.LEGAL_NAME,
+                "type": NameTypeValue.LEGAL_NAME,
             },
             {
                 "first": "Jane",
                 "middle": "Marie",
                 "last": "Smith",
                 "suffix": None,
-                "type_id": NameTypeId.MAIDEN_NAME,
+                "type": NameTypeValue.MAIDEN_NAME,
             },
         ]
 
@@ -448,10 +453,10 @@ class TestSaveAdditionalNames:
         assert call_args[1]["json"]["middle"] == "Marie"
         assert call_args[1]["json"]["last"] == "Smith"
         assert "suffix" not in call_args[1]["json"]  # None values excluded
-        assert call_args[1]["json"]["type"]["lookup_value_id"] == NameTypeId.MAIDEN_NAME.value
+        assert call_args[1]["json"]["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
 
-    async def test_save_additional_name_with_default_type_id(self):
-        """Test that type_id defaults to 333 (Former Name) when not specified."""
+    async def test_save_additional_name_with_default_type(self):
+        """Test that type defaults to Former Name when not specified."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
@@ -460,25 +465,25 @@ class TestSaveAdditionalNames:
             {
                 "first": "Jane",
                 "last": "Smith",
-            },  # No type_id specified, should default to FORMER_NAME
+            },  # No type specified, should default to FORMER_NAME
         ]
 
         await _save_additional_names(mock_client, "test-uuid-123", names_list)
 
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["type"]["lookup_value_id"] == NameTypeId.FORMER_NAME.value
+        assert call_args[1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
 
     async def test_save_multiple_additional_names(self):
-        """Test saving multiple additional names via API with different type_ids."""
+        """Test saving multiple additional names via API with different types."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.MAIDEN_NAME},
-            {"first": "Bob", "last": "Johnson", "type_id": NameTypeId.FORMER_NAME},
-            {"first": "Alice", "last": "Williams"},  # No type_id, defaults to FORMER_NAME
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
+            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
+            {"first": "Bob", "last": "Johnson", "type": NameTypeValue.FORMER_NAME},
+            {"first": "Alice", "last": "Williams"},  # No type, defaults to FORMER_NAME
         ]
 
         await _save_additional_names(mock_client, "test-uuid-456", names_list)
@@ -486,17 +491,17 @@ class TestSaveAdditionalNames:
         # Should call once for each additional name (3 total)
         assert mock_client.post.call_count == 3
 
-        # Check each call has the correct type_id
+        # Check each call has the correct type
         calls = mock_client.post.call_args_list
-        assert calls[0][1]["json"]["type"]["lookup_value_id"] == NameTypeId.MAIDEN_NAME.value
-        assert calls[1][1]["json"]["type"]["lookup_value_id"] == NameTypeId.FORMER_NAME.value
-        assert calls[2][1]["json"]["type"]["lookup_value_id"] == NameTypeId.FORMER_NAME.value
+        assert calls[0][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
+        assert calls[1][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
+        assert calls[2][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
 
     async def test_skip_when_only_primary_name(self):
         """Test that no API call is made when only primary name exists."""
         mock_client = AsyncMock()
 
-        names_list = [{"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME}]
+        names_list = [{"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME}]
 
         await _save_additional_names(mock_client, "test-uuid-789", names_list)
 
@@ -524,9 +529,9 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"middle": "Marie", "type_id": NameTypeId.MAIDEN_NAME},  # Missing first and last
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.MAIDEN_NAME},
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
+            {"middle": "Marie", "type": NameTypeValue.MAIDEN_NAME},  # Missing first and last
+            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
         ]
 
         await _save_additional_names(mock_client, "test-uuid", names_list)
@@ -540,13 +545,13 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
             {
                 "first": "Sarah",
                 "middle": "Jane",
                 "last": "Anderson",
                 "suffix": "Jr.",
-                "type_id": NameTypeId.MAIDEN_NAME,
+                "type": NameTypeValue.MAIDEN_NAME,
             },
         ]
 
@@ -558,7 +563,7 @@ class TestSaveAdditionalNames:
         assert payload["middle"] == "Jane"
         assert payload["last"] == "Anderson"
         assert payload["suffix"] == "Jr."
-        assert payload["type"]["lookup_value_id"] == NameTypeId.MAIDEN_NAME.value
+        assert payload["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
 
     async def test_format_name_with_partial_components(self):
         """Test that names with missing components are handled correctly."""
@@ -566,11 +571,11 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
             {
                 "first": "Jane",
                 "last": "Smith",
-                "type_id": NameTypeId.FORMER_NAME,
+                "type": NameTypeValue.FORMER_NAME,
             },  # No middle or suffix
         ]
 
@@ -582,7 +587,7 @@ class TestSaveAdditionalNames:
         assert payload["last"] == "Smith"
         assert "middle" not in payload
         assert "suffix" not in payload
-        assert payload["type"]["lookup_value_id"] == NameTypeId.FORMER_NAME.value
+        assert payload["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
 
     async def test_handle_failed_name_creation(self):
         """Test that failed name creation is logged as warning."""
@@ -590,8 +595,8 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.MAIDEN_NAME},
+            {"first": "John", "last": "Doe", "type_id": NameTypeValue.LEGAL_NAME},
+            {"first": "Jane", "last": "Smith", "type_id": NameTypeValue.MAIDEN_NAME},
         ]
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
@@ -604,23 +609,23 @@ class TestSaveAdditionalNames:
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.MAIDEN_NAME},
+            {"first": "John", "last": "Doe", "type_id": NameTypeValue.LEGAL_NAME},
+            {"first": "Jane", "last": "Smith", "type_id": NameTypeValue.MAIDEN_NAME},
         ]
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_additional_names(mock_client, "test-uuid", names_list)
             mock_logger.error.assert_called()
 
-    async def test_successful_name_creation_logs_debug_with_type_id(self):
-        """Test that successful name creation is logged with type_id."""
+    async def test_successful_name_creation_logs_debug_with_type(self):
+        """Test that successful name creation is logged with type."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeId.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeId.MAIDEN_NAME},
-            {"first": "Bob", "last": "Johnson", "type_id": NameTypeId.FORMER_NAME},
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
+            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
+            {"first": "Bob", "last": "Johnson", "type": NameTypeValue.FORMER_NAME},
         ]
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
@@ -815,7 +820,7 @@ class TestSaveAssetsNote:
         assert call_args[1]["json"]["subject"] == "Assets"
         assert "savings account: $2,100.00" in call_args[1]["json"]["body"]
         assert "Total Assets: $2,100.00" in call_args[1]["json"]["body"]
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_id": 100365}
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
 
     async def test_save_multiple_assets(self):
         """Test saving multiple assets as a single note."""

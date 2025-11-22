@@ -113,7 +113,7 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
 async def test_check_income(income, period, expected_eligible, expected_monthly_income):
     validator = IntakeValidator()
     income_detail = IncomeDetail(amount=income, period=IncomePeriod(period))
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert is_eligible == expected_eligible
@@ -126,7 +126,7 @@ async def test_check_income_weekly_period():
     validator = IntakeValidator()
     # 520/week = 2080/month = eligible
     income_detail = IncomeDetail(amount=520, period=IncomePeriod.WEEKLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 2253  # (520 * 52) / 12 = 2253.33 -> 2253
@@ -139,7 +139,7 @@ async def test_check_income_biweekly_period():
     validator = IntakeValidator()
     # 1040/biweekly = 2253/month = eligible (note: 1040 * 26 / 12 = 2253.33)
     income_detail = IncomeDetail(amount=1040, period=IncomePeriod.BIWEEKLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 2253  # (1040 * 26) / 12 = 2253.33 -> 2253
@@ -152,7 +152,7 @@ async def test_check_income_semi_monthly_period():
     validator = IntakeValidator()
     # 1200/semi-monthly = 2400/month = eligible
     income_detail = IncomeDetail(amount=1200, period=IncomePeriod.SEMI_MONTHLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 2400  # 1200 * 2 = 2400
@@ -165,7 +165,7 @@ async def test_check_income_quarterly_period():
     validator = IntakeValidator()
     # 6000/quarter = 2000/month = eligible
     income_detail = IncomeDetail(amount=6000, period=IncomePeriod.QUARTERLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 2000  # (6000 * 4) / 12 = 2000
@@ -178,15 +178,15 @@ async def test_check_income_all_periods_mixed():
     validator = IntakeValidator()
     # Person 1: 2000/month
     income_detail_1 = IncomeDetail(amount=2000, period=IncomePeriod.MONTHLY)
-    member_income_1 = MemberIncome({261: income_detail_1})
+    member_income_1 = MemberIncome({"Employment": income_detail_1})
 
     # Person 2: 24000/year = 2000/month
     income_detail_2 = IncomeDetail(amount=24000, period=IncomePeriod.ANNUALLY)
-    member_income_2 = MemberIncome({256: income_detail_2})
+    member_income_2 = MemberIncome({"Child Support": income_detail_2})
 
     # Person 3: 520/week = 2253/month
     income_detail_3 = IncomeDetail(amount=520, period=IncomePeriod.WEEKLY)
-    member_income_3 = MemberIncome({257: income_detail_3})
+    member_income_3 = MemberIncome({"Spousal Support": income_detail_3})
 
     household_income = HouseholdIncome(
         {
@@ -209,7 +209,7 @@ async def test_check_income_weekly_ineligible():
     validator = IntakeValidator()
     # 3850/week = 16683/month = ineligible
     income_detail = IncomeDetail(amount=3850, period=IncomePeriod.WEEKLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 16683  # (3850 * 52) / 12 = 16683.33 -> 16683
@@ -222,7 +222,7 @@ async def test_check_income_semi_monthly_ineligible():
     validator = IntakeValidator()
     # 2500/semi-monthly = 5000/month = ineligible
     income_detail = IncomeDetail(amount=2500, period=IncomePeriod.SEMI_MONTHLY)
-    member_income = MemberIncome({261: income_detail})
+    member_income = MemberIncome({"Employment": income_detail})
     household_income = HouseholdIncome({"Test Person": member_income})
     is_eligible, monthly_income = await validator.check_income(income=household_income)
     assert monthly_income == 5000  # 2500 * 2 = 5000
