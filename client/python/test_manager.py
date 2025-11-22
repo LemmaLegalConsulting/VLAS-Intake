@@ -343,7 +343,8 @@ class TestRunner:
 
     async def revalidate_all(self) -> Dict[str, Tuple[bool, List[Dict[str, Any]]]]:
         """
-        Revalidate all existing test results.
+        Revalidate all existing test results, but only for call_ids that have state data.
+        Tests without state data are removed from results.
 
         Returns:
             Dictionary mapping call_id to (passed: bool, mismatches: List[Dict])
@@ -354,9 +355,25 @@ class TestRunner:
             print("No existing test results to revalidate")
             return revalidation_results
 
-        print(f"Revalidating {len(self.result_manager.results)} tests...\n")
+        # Store the initial set of call_ids to revalidate
+        call_ids = list(self.result_manager.results.keys())
+        print(f"Revalidating {len(call_ids)} tests...\n")
 
-        for call_id, result in self.result_manager.results.items():
+        # Track which call_ids to remove (no state data)
+        call_ids_to_remove = []
+
+        for call_id in call_ids:
+            # Skip if this call_id doesn't have state data
+            if call_id not in self.flow_manager_state:
+                call_ids_to_remove.append(call_id)
+                print(f"⊘ Skipping {call_id}: no state data available")
+                continue
+
+            result = self.result_manager.results.get(call_id)
+            if not result:
+                print(f"⚠ Skipping {call_id}: not found in results")
+                continue
+
             script_name = result.get("script")
             if not script_name:
                 print(f"⚠ Skipping {call_id}: no script name found")
@@ -372,8 +389,17 @@ class TestRunner:
                     f"({mismatch_count} mismatch{'es' if mismatch_count != 1 else ''})"
                 )
             except Exception as e:
-                print(f"✗ {call_id}: Error during revalidation - {str(e)}")
+                print(f"ERROR {call_id}: Error during revalidation - {str(e)}")
                 revalidation_results[call_id] = (False, [{"error": str(e)}])
+
+        # Remove call_ids without state data from results
+        for call_id in call_ids_to_remove:
+            if call_id in self.result_manager.results:
+                del self.result_manager.results[call_id]
+
+        # Save the cleaned results
+        if call_ids_to_remove:
+            self.result_manager.save_results()
 
         return revalidation_results
 
@@ -397,44 +423,58 @@ class TestRunner:
         # Load expected state from scripts if not provided
         if expected_state is None:
             if script_name not in self.scripts:
-                return False, [
+                error_mismatches = [
                     {
                         "path": "root",
                         "issue": "script_not_found",
                         "message": f"Script '{script_name}' not found in scripts.yml",
                     }
                 ]
+                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.save_results()
+                return False, error_mismatches
 
             script_config = self.scripts[script_name]
             if isinstance(script_config, str):
-                return False, [
+                error_mismatches = [
                     {
                         "path": "root",
                         "issue": "invalid_script_format",
                         "message": f"Script '{script_name}' is in old string format, no expected_state available",
                     }
                 ]
+                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.save_results()
+                return False, error_mismatches
 
             if "expected_state" not in script_config:
-                return False, [
+                error_mismatches = [
                     {
                         "path": "root",
                         "issue": "missing_expected_state",
                         "message": f"Script '{script_name}' does not have 'expected_state' defined",
                     }
                 ]
+                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.save_results()
+                return False, error_mismatches
 
             expected_state = script_config["expected_state"]
 
-        # Load actual state
+        # Load actual state - at this point we know the call_id exists because
+        # revalidate_all skips call_ids not in flow_manager_state
         if call_id not in self.flow_manager_state:
-            return False, [
+            # This should not happen during revalidate, but handle it for validate command
+            error_mismatches = [
                 {
                     "path": "root",
                     "issue": "call_id_not_found",
                     "message": f"call_id {call_id} not found in {self.flow_manager_state_file}",
                 }
             ]
+            self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+            self.result_manager.save_results()
+            return False, error_mismatches
 
         actual_state = self.flow_manager_state[call_id]
 
@@ -696,9 +736,14 @@ Examples:
     # Handle revalidate command
     if args.command == "revalidate":
         __import__("asyncio").run(runner.revalidate_all())
-        # Reload results to get the newly revalidated data
+        # Rebuild the in-memory results to match what was just validated
+        # (validate_call saves to disk but we need in-memory state to match)
         runner.result_manager.results = runner.result_manager._load_results()
-        runner.print_summary()
+        if hasattr(args, "summary") and args.summary:
+            runner.print_summary()
+        else:
+            runner.print_summary()
+            runner.print_detailed(show_passed=True, show_failed=True)
         return
 
     # Handle view command or default (show summary)

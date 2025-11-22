@@ -28,11 +28,11 @@ celeste:
         - first: "Celeste"
           middle: "Caroline"
           last: "Campbell"
-          type_id: 3315536
+          type: "Legal Name"
         - first: "Celeste"
           middle: "Caroline"
           last: "Smith"
-          type_id: 334
+          type: "Maiden Name"
     service_area:
       location: "Amelia County"
       is_eligible: true
@@ -58,15 +58,15 @@ celeste:
       monthly_amount: 0
       listing:
         "Celeste":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
         "James":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
         "Thomas":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
       household_size: 3
@@ -109,11 +109,11 @@ sarah:
         - first: "Sarah"
           middle: "Elizabeth"
           last: "Marshall"
-          type_id: 3315536
+          type: "Legal Name"
         - first: "Sarah"
           middle: null
           last: "Smith"
-          type_id: 334
+          type: "Maiden Name"
     service_area:
       location: "Amelia County"
       is_eligible: true
@@ -130,7 +130,7 @@ sarah:
       monthly_amount: 0
       listing:
         "Sarah":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
       household_size: 1
@@ -183,11 +183,11 @@ victoria:
         - first: "Victoria"
           middle: "Lynn"
           last: "Rodriguez"
-          type_id: 3315536
+          type: "Legal Name"
         - first: "Victoria"
           middle: "Lynn"
           last: "Patterson"
-          type_id: 334
+          type: "Maiden Name"
     service_area:
       location: "Henry County"
       is_eligible: true
@@ -210,22 +210,22 @@ victoria:
       monthly_amount: 1950
       listing:
         "Victoria":
-          "261":
+          "Employment":
             amount: 1200
             period: "Monthly"
-          "256":
+          "Child Support":
             amount: 350
             period: "Monthly"
         "Sophie":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
         "Michael":
-          "261":
+          "Employment":
             amount: 400
             period: "Monthly"
         "Emma":
-          "100198":
+          "No Household Income":
             amount: 0
             period: "Monthly"
       household_size: 4
