@@ -175,7 +175,7 @@ record_income:
         2. For each household member (excluding perpetrators of domestic violence), collect:
            - First and last name
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
-           - Sources of income using the income category IDs provided below
+           - Sources of income using the income categories provided below
         3. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
@@ -190,49 +190,49 @@ record_income:
         - Semi-Monthly (twice a month)
         - Quarterly (four times a year)
 
-        [Income Category IDs and Descriptions]
-        When recording income sources, use these category IDs:
-        - ID 261: Employment (wages, salary, self-employment)
-        - ID 256: Child Support
-        - ID 257: Alimony
-        - ID 266: Social Security Retirement
-        - ID 100440: Social Security Disability (SSDI)
-        - ID 100355: SSI (Supplemental Security Income)
-        - ID 3317475: SSI/SSDI combo
-        - ID 3317476: Long-Term/Short-Term Disability
-        - ID 100356: Workers Compensation
-        - ID 268: Unemployment Compensation
-        - ID 265: Pension/Retirement (Not Soc. Sec.)
-        - ID 2550: TANF (Temporary Assistance for Needy Families)
-        - ID 369: Food Stamps
-        - ID 269: Veterans Benefits
-        - ID 3317477: Trust/Dividends/Annuity
-        - ID 100198: No Household Income
-        - ID 100199: Income Not Provided
-        - ID 264: Other
+        [Income Categories]
+        When recording income sources, use these category names:
+        - Employment (wages, salary, self-employment)
+        - Child Support
+        - Spousal Support
+        - Social Security Retirement
+        - Social Security Disability (SSDI)
+        - SSI (Supplemental Security Income)
+        - SSI/SSDI combo
+        - Long-Term/Short-Term Disability
+        - Workers Compensation
+        - Unemployment Compensation
+        - Pension/Retirement (Not Soc. Sec.)
+        - TANF (Temporary Assistance for Needy Families)
+        - Food Stamps
+        - Veterans Benefits
+        - Trust/Dividends/Annuity
+        - No Household Income
+        - Income Not Provided
+        - Other
 
         [User Prompt]
         To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. For each person, please provide their first and last name and their income from each source. Common sources of income include:
-        - Wages or salary (ID 261)
-        - Spousal support or alimony (ID 257)
-        - Child support (ID 256)
-        - Unemployment benefits (ID 268)
-        - Disability payments (ID 3317476 or ID 100440)
-        - Social Security (ID 266, ID 100440, or ID 100355)
-        - TANF (ID 2550)
-        - Veterans benefits (ID 269)
-        - Pension or retirement income (ID 265)
+        - Wages or salary (Employment)
+        - Spousal support or alimony (Spousal Support)
+        - Child support (Child Support)
+        - Unemployment benefits (Unemployment Compensation)
+        - Disability payments (Long-Term/Short-Term Disability or Social Security Disability)
+        - Social Security (Social Security Retirement, Social Security Disability, or SSI)
+        - TANF (TANF)
+        - Veterans benefits (Veterans Benefits)
+        - Pension or retirement income (Pension/Retirement)
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who perpetrated domestic violence against the caller. These individuals should be completely excluded from the income calculation.
         - Income periods must be one of: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.
         - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
-        - When recording income, use the numeric category IDs as keys (not text descriptions) to ensure accurate processing.
+        - When recording income, use the income category names as keys to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
         - If perpetrators were accidentally included in the income data, the system will automatically remove them before processing.
 
-        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the numeric income category IDs in the function call.
+        Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the income category names in the function call.
 
 # Income over limit
 confirm_income_over_limit:
@@ -304,11 +304,11 @@ record_names:
            - Any other names they have been known by that might appear in court documents or legal records
         2. If the caller provides other names, ask them to spell each name completely, including first, middle, and last name. Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
         3. For each additional name, ask the caller what type of name it is:
-           - Maiden Name (Type 334): A name from before marriage or a previous marriage
-           - Former Name (Type 333): A name previously used that is no longer current
-           - Nickname (Type 817): A commonly used alternative name (not a legal name change)
-           - Legal Name (Type 3315536): Another legal name that is official in records
-           If the caller doesn't specify the type or their answer doesn't clearly match one of these, use Former Name (Type 333) as the default.
+           - Maiden Name: A name from before marriage or a previous marriage
+           - Former Name: A name previously used that is no longer current
+           - Nickname: A commonly used alternative name (not a legal name change)
+           - Legal Name: Another legal name that is official in records
+           If the caller doesn't specify the type or their answer doesn't clearly match one of these, use Former Name as the default.
         4. After the caller spells each name and specifies its type, read it back exactly as spelled, specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
            - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
            - If the caller indicates that any part of the name or type is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
@@ -321,56 +321,34 @@ record_names:
         - "first" (required, not first_name, firstname, or firstName)
         - "middle" (optional, not middle_name, middlename, or middleName)
         - "last" (required, not last_name, lastname, or lastName)
-        - "type_id" (optional but recommended: 333=Former Name, 334=Maiden Name, 817=Nickname, 3315536=Legal Name)
-          If omitted or not specified by caller, defaults to 333 (Former Name)
+        - "type" (optional but recommended: "Former Name", "Maiden Name", "Nickname", "Legal Name", "Other")
+          If omitted or not specified by caller, defaults to "Former Name"
 
         [Examples - ALWAYS pass the names argument]
         Example 1 - Caller provides one additional name (maiden name):
-        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith", "type_id": 334}]
+        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith", "type": "Maiden Name"}]
 
         Example 2 - Caller provides no additional names (empty list):
         names = []
 
         Example 3 - Caller provides two additional names with different types:
         names = [
-          {"first": "Mary", "last": "Johnson", "type_id": 334},
-          {"first": "Robert", "middle": "Lee", "last": "Davis", "type_id": 333}
+          {"first": "Mary", "last": "Johnson", "type": "Maiden Name"},
+          {"first": "Robert", "middle": "Lee", "last": "Davis", "type": "Former Name"}
         ]
 
-        Example 4 - Caller provides name but doesn't specify type (will default to 333):
+        Example 4 - Caller provides name but doesn't specify type (will default to "Former Name"):
         names = [{"first": "Jane", "last": "Doe"}]
 
         [Critical Reminder]
         ALWAYS call the function with the "names" argument, even if it's an empty list [].
         Do NOT call the function without specifying the names argument.
         Omit any fields that you don't have a value for (except names should always be provided).
-        If the caller doesn't specify a type, you will automatically apply the default type of 333 (Former Name).
-        If the type name is ambiguous, ask for clarification or use 333 as default.
+        If the caller doesn't specify a type, you will automatically apply the default type of "Former Name".
+        If the type name is ambiguous, ask for clarification or use "Former Name" as default.
 
         [User Prompt]
-        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. For each name you provide, please also tell me what type of name it is - whether it's a maiden name, a name from a former marriage, or another type of name. If yes, please spell each name for me, starting with the first name, then middle name, and last name, and tell me what type it is.        [Field Name Requirements]
-        When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
-        Use these EXACT field names for each name:
-        - "first" (required, not first_name, firstname, or firstNamee)
-        - "middle" (optional, not middle_name, middlename, or middleName)
-        - "last" (required, not last_name, lastname, or lastName)
-
-        [Examples - ALWAYS pass the names argument]
-        Example 1 - Caller provides one additional name:
-        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith"}]
-
-        Example 2 - Caller provides no additional names (empty list):
-        names = []
-
-        Example 3 - Caller provides two additional names:
-        names = [{"first": "Mary", "last": "Johnson"}, {"first": "Robert", "middle": "Lee", "last": "Davis"}]
-
-        [Critical Reminder]
-        ALWAYS call the function with the "names" argument, even if it's an empty list [].
-        Do NOT call the function without specifying the names argument.
-
-        [User Prompt]
-        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. If yes, please spell each name for me, starting with the first name, then middle name, and last name.
+        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. For each name you provide, please also tell me what type of name it is - whether it's a maiden name, a name from a former marriage, or another type of name. If yes, please spell each name for me, starting with the first name, then middle name, and last name, and tell me what type it is.
 
 # Emergency
 record_emergency:

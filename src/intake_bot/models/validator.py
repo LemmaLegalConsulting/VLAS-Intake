@@ -10,20 +10,21 @@ from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 ######################################################################
 
 
-class NameTypeId(int, Enum):
-    """LegalServer alias_type lookup values for additional names."""
+class NameTypeValue(str, Enum):
+    """LegalServer alias_type lookup values for additional names. Matches the `lookup_value_name`."""
 
-    FORMER_NAME = 333
-    MAIDEN_NAME = 334
-    NICKNAME = 817
-    LEGAL_NAME = 3315536
+    FORMER_NAME = "Former Name"
+    MAIDEN_NAME = "Maiden Name"
+    NICKNAME = "Nickname"
+    LEGAL_NAME = "Legal Name"
+    OTHER = "Other"
 
 
 class CallerName(BaseModel):
     first: str
     middle: Optional[str] = None
     last: str
-    type_id: NameTypeId = NameTypeId.FORMER_NAME
+    type: NameTypeValue = NameTypeValue.FORMER_NAME
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -94,7 +95,7 @@ class IncomeDetail(BaseModel):
         return v
 
 
-class MemberIncome(RootModel[dict[int, IncomeDetail]]):  # income_category_id -> IncomeDetail
+class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_category_name -> IncomeDetail
     pass
 
 

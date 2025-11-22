@@ -37,9 +37,14 @@ class Lookup(BaseModel):
 
 
 class IncomePayload(BaseModel):
-    """Payload for creating an income record in LegalServer."""
+    """Payload for creating an income record in LegalServer.
 
-    type: Lookup = Field(..., description="Income type lookup reference (required)")
+    Uses income category name (lookup_value_name) to identify the income type.
+    """
+
+    type: Lookup = Field(
+        ..., description="Income type lookup reference with lookup_value_name (required)"
+    )
     amount: float = Field(..., description="Income amount (required)")
     period: str = Field(
         ...,

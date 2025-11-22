@@ -43,31 +43,35 @@ async def save_intake_legalserver(state: dict):
             if payload is None:
                 logger.warning("Skipping LegalServer save: required fields missing")
                 return
-            logger.debug(f"Matter payload: {payload}")
+            logger.debug(f"""Matter payload: {payload}""")
 
             matter_response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}/matters",
+                f"""{LEGALSERVER_API_BASE_URL}/matters""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload,
             )
 
             if matter_response.status_code not in (200, 201):
-                logger.error(f"Failed to create matter: {matter_response.status_code}")
-                logger.error(f"Response: {matter_response.text}")
+                logger.error(f"""Failed to create matter: {matter_response.status_code}""")
+                logger.error(f"""Response: {matter_response.text}""")
                 return
 
             matter_data = matter_response.json()
-            logger.debug(f"Matter response data keys: {matter_data.keys()}")
+            logger.debug(f"""Matter response data keys: {matter_data.keys()}""")
 
             matter_info = matter_data.get("data", matter_data)
             matter_uuid = matter_info.get("matter_uuid")
 
             if case_id := matter_info.get("case_id"):
                 subdomain = require_ev("LEGAL_SERVER_SUBDOMAIN")
-                profile_url = f"https://{subdomain}.legalserver.org/matter/profile/view/{case_id}"
-                logger.debug(f"Matter created successfully: {matter_uuid} - View: {profile_url}")
+                profile_url = (
+                    f"""https://{subdomain}.legalserver.org/matter/profile/view/{case_id}"""
+                )
+                logger.debug(
+                    f"""Matter created successfully: {matter_uuid} - View: {profile_url}"""
+                )
             else:
-                logger.debug(f"Matter created successfully: {matter_uuid}")
+                logger.debug(f"""Matter created successfully: {matter_uuid}""")
 
             if "income" in state:
                 await _save_income_records(client, matter_uuid, state["income"])
@@ -83,9 +87,9 @@ async def save_intake_legalserver(state: dict):
                     await _save_additional_names(client, matter_uuid, state["names"]["names"])
 
     except httpx.RequestError as e:
-        logger.error(f"HTTP Request failed: {e}")
+        logger.error(f"""HTTP Request failed: {e}""")
     except Exception as e:
-        logger.error(f"Unexpected error saving intake to LegalServer: {e}")
+        logger.error(f"""Unexpected error saving intake to LegalServer: {e}""")
 
 
 def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
@@ -108,7 +112,7 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         phone_number = state["phone"].get("phone_number")
         phone_type = state["phone"].get("phone_type", "mobile")
         if phone_number and phone_type:
-            payload[f"{phone_type}_phone"] = phone_number
+            payload[f"""{phone_type}_phone"""] = phone_number
 
     if isinstance(state.get("case_type"), dict):
         payload["legal_problem_code"] = state["case_type"].get("legal_problem_code")
@@ -134,7 +138,7 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         validated = LegalServerCreateMatterPayload(**payload)
         return validated.model_dump(exclude_none=True)
     except ValidationError as e:
-        logger.warning(f"Cannot create matter: validation failed - {e}")
+        logger.warning(f"""Cannot create matter: validation failed - {e}""")
         return None
 
 
@@ -148,6 +152,7 @@ async def _save_income_records(
         client: AsyncClient for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         income_data: Dictionary with "listing" of household member income data
+            Structure: {person_name: {income_category_name: {amount, period}}}
     """
     if not isinstance(income_data, dict):
         logger.debug("Income data not in expected format")
@@ -160,37 +165,37 @@ async def _save_income_records(
 
     try:
         for person_name, income_info in listing.items():
-            for income_category_id, amount_info in (income_info or {}).items():
+            for income_category_name, amount_info in (income_info or {}).items():
                 try:
                     payload = IncomePayload(
-                        type={"lookup_value_id": income_category_id},
+                        type={"lookup_value_name": income_category_name},
                         amount=amount_info.get("amount"),
                         period=amount_info.get("period"),
                     )
                 except Exception as e:
                     logger.warning(
-                        f"Failed to validate income for {person_name} (ID: {income_category_id}): {e}"
+                        f"""Failed to validate income for {person_name} ({income_category_name}): {e}"""
                     )
                     continue
 
                 response = await client.post(
-                    f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes",
+                    f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes""",
                     headers=LEGALSERVER_HEADERS,
                     json=payload.model_dump(exclude_none=True),
                 )
 
                 if response.status_code not in (200, 201):
                     logger.warning(
-                        f"Failed to save income for {person_name} (ID: {income_category_id}): "
-                        f"{response.status_code} - {response.text}"
+                        f"""Failed to save income for {person_name} ({income_category_name}): """
+                        f"""{response.status_code} - {response.text}"""
                     )
                 else:
                     logger.debug(
-                        f"Income record created for {person_name} (ID: {income_category_id}): {payload.amount} {payload.period}"
+                        f"""Income record created for {person_name} ({income_category_name}): ${payload.amount} {payload.period}"""
                     )
 
     except Exception as e:
-        logger.error(f"Error saving income records: {e}")
+        logger.error(f"""Error saving income records: {e}""")
 
 
 async def _save_additional_names(
@@ -217,28 +222,28 @@ async def _save_additional_names(
                     last=name.get("last"),
                     middle=name.get("middle"),
                     suffix=name.get("suffix"),
-                    type={"lookup_value_id": name.get("type_id", 333)},
+                    type={"lookup_value_name": name.get("type", "Former Name")},
                 )
             except Exception as e:
-                logger.warning(f"Failed to validate additional name: {e}")
+                logger.warning(f"""Failed to validate additional name: {e}""")
                 continue
 
             response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names",
+                f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload.model_dump(exclude_none=True),
             )
 
             if response.status_code not in (200, 201):
                 logger.warning(
-                    f"Failed to save additional name {payload.first} {payload.last}: "
-                    f"{response.status_code} - {response.text}"
+                    f"""Failed to save additional name {payload.first} {payload.last}: """
+                    f"""{response.status_code} - {response.text}"""
                 )
             else:
-                logger.debug(f"Additional name created: {payload.first} {payload.last}")
+                logger.debug(f"""Additional name created: {payload.first} {payload.last}""")
 
     except Exception as e:
-        logger.error(f"Error saving additional names: {e}")
+        logger.error(f"""Error saving additional names: {e}""")
 
 
 async def _save_adverse_parties(
@@ -281,30 +286,30 @@ async def _save_adverse_parties(
                         phone_type = phone.get("type", "").lower()
                         if phone_number and phone_type:
                             # Map phone type to field name: phone_{type}
-                            field_name = f"phone_{phone_type}"
+                            field_name = f"""phone_{phone_type}"""
                             payload_data[field_name] = phone_number
 
                 payload = AdversePartyPayload(**payload_data)
             except Exception as e:
-                logger.warning(f"Failed to validate adverse party: {e}")
+                logger.warning(f"""Failed to validate adverse party: {e}""")
                 continue
 
             response = await client.post(
-                f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties",
+                f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload.model_dump(exclude_none=True),
             )
 
             if response.status_code not in (200, 201):
                 logger.warning(
-                    f"Failed to save adverse party {payload.first} {payload.last}: "
-                    f"{response.status_code} - {response.text}"
+                    f"""Failed to save adverse party {payload.first} {payload.last}: """
+                    f"""{response.status_code} - {response.text}"""
                 )
             else:
-                logger.debug(f"Adverse party created: {payload.first} {payload.last}")
+                logger.debug(f"""Adverse party created: {payload.first} {payload.last}""")
 
     except Exception as e:
-        logger.error(f"Error saving adverse parties: {e}")
+        logger.error(f"""Error saving adverse parties: {e}""")
 
 
 async def _save_assets_note(
@@ -336,10 +341,10 @@ async def _save_assets_note(
             for asset_dict in listing:
                 if isinstance(asset_dict, dict):
                     for asset_type, amount in asset_dict.items():
-                        asset_lines.append(f"{asset_type}: ${amount:,.2f}")
+                        asset_lines.append(f"""{asset_type}: ${amount:,.2f}""")
 
         if total_value > 0:
-            asset_lines.append(f"\nTotal Assets: ${total_value:,.2f}")
+            asset_lines.append(f"""\nTotal Assets: ${total_value:,.2f}""")
 
         if not asset_lines:
             logger.debug("No assets to format")
@@ -349,76 +354,360 @@ async def _save_assets_note(
             payload = NotePayload(
                 subject="Assets",
                 body="\n".join(asset_lines),
-                note_type={"lookup_value_id": 100365},
+                note_type={"lookup_value_name": "General Notes"},
             )
         except Exception as e:
-            logger.warning(f"Failed to validate assets note: {e}")
+            logger.warning(f"""Failed to validate assets note: {e}""")
             return
 
         response = await client.post(
-            f"{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes",
+            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
             headers=LEGALSERVER_HEADERS,
             json=payload.model_dump(exclude_none=True),
         )
 
         if response.status_code not in (200, 201):
-            logger.warning(f"Failed to save assets note: {response.status_code} - {response.text}")
+            logger.warning(
+                f"""Failed to save assets note: {response.status_code} - {response.text}"""
+            )
         else:
-            logger.debug(f"Assets note created with total value: ${total_value:,.2f}")
+            logger.debug(f"""Assets note created with total value: ${total_value:,.2f}""")
 
     except Exception as e:
-        logger.error(f"Error saving assets note: {e}")
+        logger.error(f"""Error saving assets note: {e}""")
 
 
-def load_state_by_call_id(call_id: str) -> Optional[Dict[str, Any]]:
+async def get_common_lookup_types() -> list[str] | None:
     """
-    Load intake state from flow_manager_state.json by call_id.
+    Get list of common system lookup types available in LegalServer.
 
-    Args:
-        call_id: The call ID to look up
+    LegalServer API v2 does not provide an endpoint to list all lookups,
+    so this returns a curated list of common system lookups that can be queried.
+
+    You can query any lookup type with query_lookup_values(), even if it's not
+    in this common list, as long as it exists in your LegalServer instance.
 
     Returns:
-        The state dictionary for the call, or None if not found
+        List of common lookup type table names
     """
-    state_file = Path(PROJECT_ROOT) / "logs/flow_manager_state.json"
+    common_lookup_types = [
+        "alias_type",
+        "citizenship",
+        "country_of_origin",
+        "current_living_situation",
+        "employment_status",
+        "ethnicity",
+        "how_referred",
+        "immigration_status",
+        "income_type",
+        "language",
+        "legal_problem_category",
+        "marital_status",
+        "military_service",
+        "military_status",
+        "note_type",
+        "race",
+    ]
+    return common_lookup_types
 
-    if not state_file.exists():
-        logger.error(f"State file not found: {state_file}")
+
+async def get_custom_lookups() -> Dict[str, Any] | None:
+    """
+    Query LegalServer API for all custom lookup tables.
+
+    Custom lookups are user-defined lookup tables specific to each LegalServer instance.
+    System lookups are accessed via /api/v2/lookups/{table_name}.
+
+    Returns:
+        Dictionary with custom lookups data, or None if query fails
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Query custom lookups endpoint
+            response = await client.get(
+                f"{LEGALSERVER_API_BASE_URL}/custom_lookups",
+                headers=LEGALSERVER_HEADERS,
+            )
+
+            if response.status_code not in (200, 201):
+                logger.error(f"Failed to query custom lookups: {response.status_code}")
+                logger.error(f"Response: {response.text}")
+                return None
+
+            data = response.json()
+            logger.debug(f"Custom lookups response keys: {data.keys()}")
+            return data
+
+    except httpx.RequestError as e:
+        logger.error(f"HTTP Request failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error querying custom lookups: {e}")
+        return None
+
+
+async def query_lookup_values(
+    lookup_identifier: str, is_custom: bool = False
+) -> Dict[str, Any] | None:
+    """
+    Query LegalServer API for lookup values of a specific type.
+
+    Args:
+        lookup_identifier: For system lookups: the lookup table name (e.g., "alias_type", "income_type")
+                          For custom lookups: the lookup table UUID
+        is_custom: If True, query custom lookups; if False, query system lookups (default)
+
+    Returns:
+        Dictionary of lookup values with their IDs and names, or None if query fails
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Construct URL based on lookup type
+            if is_custom:
+                url = f"{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"
+            else:
+                url = f"{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"
+
+            response = await client.get(url, headers=LEGALSERVER_HEADERS)
+
+            if response.status_code not in (200, 201):
+                lookup_type = "custom lookup" if is_custom else "lookup table"
+                logger.error(
+                    f"Failed to query {lookup_type} '{lookup_identifier}': {response.status_code}"
+                )
+                logger.error(f"Response: {response.text}")
+                return None
+
+            data = response.json()
+            logger.debug(f"Lookup response keys: {data.keys()}")
+
+            # Extract lookup values from response
+            lookup_values = data.get("data", data)
+            if isinstance(lookup_values, dict) and "data" in data:
+                # Nested response
+                values = lookup_values
+            elif isinstance(lookup_values, list):
+                # List of values
+                values = lookup_values
+            else:
+                values = lookup_values
+
+            return {
+                "lookup_type": lookup_identifier,
+                "is_custom": is_custom,
+                "values": values,
+                "raw_response": data,
+            }
+
+    except httpx.RequestError as e:
+        logger.error(f"HTTP Request failed: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error querying lookup values: {e}")
+        return None
+
+
+async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
+    """
+    Search for a lookup value by ID across all queryable system lookup types.
+
+    This can help identify which lookup table contains a specific ID.
+
+    Args:
+        lookup_value_id: The ID to search for
+
+    Returns:
+        Dictionary with lookup_type and the matching lookup value, or None if not found
+    """
+    # Get all common lookup types
+    common_types = await get_common_lookup_types()
+    if not common_types:
+        logger.error("Failed to get common lookup types")
         return None
 
     try:
-        with open(state_file, "r") as f:
-            all_states = json.load(f)
+        async with httpx.AsyncClient(timeout=30) as client:
+            # Query each lookup type to find the ID
+            for lookup_type in common_types:
+                url = f"{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"
 
-        if call_id not in all_states:
-            logger.error(f"No state found for call_id: {call_id}")
+                try:
+                    response = await client.get(url, headers=LEGALSERVER_HEADERS, timeout=10)
+
+                    if response.status_code not in (200, 201):
+                        continue
+
+                    data = response.json()
+                    values = data.get("data", [])
+
+                    # Handle both list and dict responses
+                    if isinstance(values, list):
+                        for item in values:
+                            if isinstance(item, dict) and item.get("id") == lookup_value_id:
+                                return {
+                                    "lookup_type": lookup_type,
+                                    "lookup_value": item,
+                                }
+                    elif isinstance(values, dict):
+                        if values.get("id") == lookup_value_id:
+                            return {
+                                "lookup_type": lookup_type,
+                                "lookup_value": values,
+                            }
+                except Exception as e:
+                    logger.debug(f"Error querying {lookup_type}: {e}")
+                    continue
+
+            logger.warning(f"Lookup ID {lookup_value_id} not found in common lookup types")
             return None
 
-        state = all_states[call_id]
-        logger.info(f"Loaded state for call_id: {call_id}")
-        return state
-
-    except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse state file: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Error loading state: {e}")
+        logger.error(f"Error searching for lookup ID: {e}")
         return None
 
 
 if __name__ == "__main__":
+
+    def load_state_by_call_id(call_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Load intake state from flow_manager_state.json by call_id.
+
+        Args:
+            call_id: The call ID to look up
+
+        Returns:
+            The state dictionary for the call, or None if not found
+        """
+        state_file = Path(PROJECT_ROOT) / "logs/flow_manager_state.json"
+
+        if not state_file.exists():
+            logger.error(f"""State file not found: {state_file}""")
+            return None
+
+        try:
+            with open(state_file, "r") as f:
+                all_states = json.load(f)
+
+            if call_id not in all_states:
+                logger.error(f"""No state found for call_id: {call_id}""")
+                return None
+
+            state = all_states[call_id]
+            logger.info(f"""Loaded state for call_id: {call_id}""")
+            return state
+
+        except json.JSONDecodeError as e:
+            logger.error(f"""Failed to parse state file: {e}""")
+            return None
+        except Exception as e:
+            logger.error(f"""Error loading state: {e}""")
+            return None
+
+    def upload_call(call_id: str):
+        state = load_state_by_call_id(call_id)
+        if state is None:
+            logger.error(f"""Failed to load state for call_id: {call_id}""")
+            sys.exit(1)
+        asyncio.run(save_intake_legalserver(state))
+
+    def query_lookup(lookup_type: str, is_custom: bool = False):
+        """Query and display lookup values for a given lookup type or UUID."""
+        result = asyncio.run(query_lookup_values(lookup_type, is_custom=is_custom))
+        if result is None:
+            lookup_kind = "custom lookup" if is_custom else "lookup type"
+            logger.error(f"Failed to query {lookup_kind}: {lookup_type}")
+            sys.exit(1)
+
+        lookup_kind = "Custom Lookup" if result["is_custom"] else "Lookup Type"
+        print(f"{lookup_kind}: {result['lookup_type']}")
+        print(f"Total Values: {len(result['values'])}")
+        print("\nLookup Values:")
+        print(json.dumps(result["values"], indent=2))
+
+    def list_available_lookups():
+        """Query and display available lookup types."""
+        lookup_types = asyncio.run(get_common_lookup_types())
+        if lookup_types is None:
+            logger.error("Failed to retrieve available lookup types from LegalServer")
+            sys.exit(1)
+
+        print("=" * 60)
+        print("Common System Lookup Types (queryable via LegalServer API)")
+        print("=" * 60)
+        for lookup_type in lookup_types:
+            print(f"  - {lookup_type}")
+        print("\nNote: Not all system lookups in the API documentation may be directly")
+        print("queryable. If you get a 404 error, the lookup type may use a different")
+        print("name or may not be accessible via this endpoint in your instance.")
+        print("\nFor a comprehensive list of system lookup types, see:")
+        print(
+            "https://www.apidocs.legalserver.org/docs/ls-apis/c829022494710-search-lookup-general"
+        )
+        print("\n" + "=" * 60)
+        print("Usage:")
+        print("=" * 60)
+        print("Query a specific lookup type:")
+        print("  python legalserver.py --query-lookup alias_type")
+        print("\nDiscover custom lookups in your instance:")
+        print("  python legalserver.py --query-custom-lookups")
+        print("\nThen query a custom lookup by its UUID:")
+        print("  python legalserver.py --query-custom-lookup <uuid>")
+
+    def query_custom_lookups():
+        """Query and display custom lookup tables available in the LegalServer instance."""
+        result = asyncio.run(get_custom_lookups())
+        if result is None:
+            logger.error("Failed to retrieve custom lookups from LegalServer")
+            sys.exit(1)
+
+        print(json.dumps(result, indent=2))
+
+    # Parse command line arguments
     if len(sys.argv) < 2:
-        print("Usage: python legalserver.py <call_id>")
+        print(
+            "Usage: python legalserver.py <command> [args]\n"
+            "Commands:\n"
+            "  --upload <call_id>              Upload intake data for a call to LegalServer\n"
+            "  --query-lookup [type]           Query system lookup values by type\n"
+            "                                  Omit type to see common lookup types\n"
+            "                                  Examples: alias_type, income_type, note_type\n"
+            "  --query-custom-lookup <uuid>    Query a specific custom lookup by UUID\n"
+            "  --query-custom-lookups          List all custom lookup tables\n"
+            "                                  in your LegalServer instance"
+        )
         sys.exit(1)
 
-    call_id = sys.argv[1]
-    state = load_state_by_call_id(call_id)
+    command = sys.argv[1]
 
-    if state is None:
-        print(f"Failed to load state for call_id: {call_id}")
+    if command == "--upload":
+        if len(sys.argv) < 3:
+            print("Usage: python legalserver.py --upload <call_id>")
+            sys.exit(1)
+        call_id = sys.argv[2]
+        upload_call(call_id)
+    elif command == "--query-lookup":
+        if len(sys.argv) < 3:
+            # No lookup type provided, show available types
+            list_available_lookups()
+        else:
+            lookup_type = sys.argv[2]
+            query_lookup(lookup_type, is_custom=False)
+    elif command == "--query-custom-lookup":
+        if len(sys.argv) < 3:
+            print("Usage: python legalserver.py --query-custom-lookup <uuid>")
+            sys.exit(1)
+        lookup_uuid = sys.argv[2]
+        query_lookup(lookup_uuid, is_custom=True)
+    elif command == "--query-custom-lookups":
+        query_custom_lookups()
+    else:
+        print(f"Unknown command: {command}")
+        print(
+            "Usage: python legalserver.py <command> [args]\n"
+            "Commands:\n"
+            "  --upload <call_id>              Upload intake data for a call to LegalServer\n"
+            "  --query-lookup [type]           Query system lookup values by type\n"
+            "  --query-custom-lookup <uuid>    Query a specific custom lookup by UUID\n"
+            "  --query-custom-lookups          List all custom lookup tables"
+        )
         sys.exit(1)
-
-    print(f"Loaded state for call_id: {call_id}")
-    print(json.dumps(state, indent=2))
-
-    asyncio.run(save_intake_legalserver(state))

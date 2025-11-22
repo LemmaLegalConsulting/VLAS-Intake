@@ -1,18 +1,25 @@
-Alimony: 257
-Child Support: 256
-Employment: 261
-Food Stamps: 369
-Income Not Provided: 100199
-Long-Term/Short-Term Disability: 3317476
-No Household Income: 100198
-Other: 264
-Pension/Retirement (Not Soc. Sec.): 265
-SSI: 100355
-SSI/SSDI combo: 3317475
-Social Security Disability: 100440
-Social Security Retirement: 266
-TANF: 2550
-Trust/Dividends/Annuity: 3317477
-Unemployment Compensation: 268
-Veterans Benefits: 269
-Workers Compensation: 100356
+# Income category lookup values for LegalServer matter_income field
+# Source: LegalServer form field (data-field-table="matter_income")
+# Maps income category names to their lookup_value_id values for reference only
+#
+# When saving income records to LegalServer, use the category name (key)
+# and LegalServer will resolve it to the appropriate lookup_value_id
+
+"Income Not Provided": 100199
+"No Household Income": 100198
+"Long-Term/Short-Term Disability": 3317476
+"Social Security Dependent Benefits": 3332134
+"SSI/SSDI combo": 3317475
+"Trust/Dividends/Annuity": 3317477
+"Child Support": 256
+"Employment": 261
+"Other": 264
+"Pension/Retirement (Not Soc. Sec.)": 265
+"Social Security Disability": 100440
+"Social Security Retirement": 266
+"Spousal Support": 257
+"SSI": 100355
+"TANF": 2550
+"Unemployment Compensation": 268
+"Veterans Benefits": 269
+"Workers Compensation": 100356
