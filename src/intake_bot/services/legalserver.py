@@ -142,7 +142,7 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     try:
         validated = LegalServerCreateMatterPayload(**payload)
-        return validated.model_dump(exclude_none=True)
+        return validated.model_dump(mode="json", exclude_none=True)
     except ValidationError as e:
         logger.warning(f"""Cannot create matter: validation failed - {e}""")
         return None

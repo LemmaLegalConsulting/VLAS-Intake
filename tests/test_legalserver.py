@@ -145,8 +145,6 @@ class TestBuildMatterPayload:
 
     def test_payload_with_date_of_birth(self):
         """Test that date of birth is included in payload."""
-        from datetime import date
-
         state = {
             "names": {"names": [{"first": "Isabel", "last": "Martinez"}]},
             "date_of_birth": {"date_of_birth": "1990-05-15"},
@@ -154,12 +152,10 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert payload["date_of_birth"] == date(1990, 5, 15)
+        assert payload["date_of_birth"] == "1990-05-15"
 
     def test_payload_with_date_of_birth_iso_format(self):
-        """Test that date of birth is stored as date object."""
-        from datetime import date
-
+        """Test that date of birth is serialized as ISO format string."""
         state = {
             "names": {"names": [{"first": "Jack", "last": "Wilson"}]},
             "date_of_birth": {"date_of_birth": "1985-12-25"},
@@ -167,9 +163,9 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        # Pydantic converts YYYY-MM-DD strings to date objects
-        assert payload["date_of_birth"] == date(1985, 12, 25)
-        assert isinstance(payload["date_of_birth"], date)
+        # Pydantic converts date objects to ISO format strings with mode='json'
+        assert payload["date_of_birth"] == "1985-12-25"
+        assert isinstance(payload["date_of_birth"], str)
 
     def test_payload_excludes_none_date_of_birth(self):
         """Test that None date_of_birth is excluded from payload."""
@@ -243,9 +239,8 @@ class TestBuildMatterPayload:
         assert payload["middle"] == "Jane"
         assert payload["last"] == "Anderson"
         assert payload["suffix"] == "Jr."
-        from datetime import date
 
-        assert payload["date_of_birth"] == date(1975, 3, 20)
+        assert payload["date_of_birth"] == "1975-03-20"
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
         assert payload["county_of_residence"]["county_FIPS"] == "51013"
@@ -379,7 +374,6 @@ class TestBuildMatterPayload:
 
     def test_complete_payload_with_ssn_last_4_and_all_fields(self):
         """Test building complete payload with SSN last 4 and all other fields."""
-        from datetime import date
 
         state = {
             "call_id": "test-call-456",
@@ -421,7 +415,7 @@ class TestBuildMatterPayload:
         assert payload["last"] == "Davies"
         assert payload["suffix"] == "Sr."
         assert payload["ssn"] == "8765"
-        assert payload["date_of_birth"] == date(1980, 8, 10)
+        assert payload["date_of_birth"] == "1980-08-10"
         assert payload["mobile_phone"] == "(571) 555-9999"
         assert payload["legal_problem_code"] == "91 Consumer Transactions"
         assert payload["county_of_residence"]["county_FIPS"] == "51059"
@@ -1264,11 +1258,9 @@ class TestSaveIntakeLegalserver:
                 await save_intake_legalserver(state)
 
                 # Verify the matter creation call included date_of_birth
-                from datetime import date
-
                 first_call = mock_client.post.call_args_list[0]
                 matter_payload = first_call[1]["json"]
-                assert matter_payload["date_of_birth"] == date(1990, 5, 15)
+                assert matter_payload["date_of_birth"] == "1990-05-15"
 
     async def test_matter_creation_with_different_date_formats(self):
         """Test matter creation with various valid date formats (all converted to ISO)."""
@@ -1301,15 +1293,11 @@ class TestSaveIntakeLegalserver:
 
                     await save_intake_legalserver(state)
 
-                    # Verify the payload contains the correct date object
-                    from datetime import date
-
+                    # Verify the payload contains the correct ISO format date string
                     first_call = mock_client.post.call_args_list[0]
                     matter_payload = first_call[1]["json"]
-                    # expected_iso is YYYY-MM-DD string, Pydantic converts to date object
-                    parts = expected_iso.split("-")
-                    expected_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
-                    assert matter_payload["date_of_birth"] == expected_date
+                    # With mode='json', dates are serialized to ISO format strings
+                    assert matter_payload["date_of_birth"] == expected_iso
 
     async def test_matter_creation_without_date_of_birth(self):
         """Test matter creation when date_of_birth is not provided."""
@@ -1421,15 +1409,13 @@ class TestSaveIntakeLegalserver:
                 await save_intake_legalserver(state)
 
                 # Verify the complete matter payload
-                from datetime import date
-
                 first_call = mock_client.post.call_args_list[0]
                 matter_payload = first_call[1]["json"]
 
                 assert matter_payload["first"] == "Rebecca"
                 assert matter_payload["middle"] == "Anne"
                 assert matter_payload["last"] == "Thompson"
-                assert matter_payload["date_of_birth"] == date(1985, 7, 22)
+                assert matter_payload["date_of_birth"] == "1985-07-22"
                 assert matter_payload["mobile_phone"] == "(703) 555-1234"
                 assert matter_payload["legal_problem_code"] == "01 Domestic Violence"
                 assert matter_payload["income_eligible"] is True
@@ -1492,12 +1478,10 @@ class TestSaveIntakeLegalserver:
                 await save_intake_legalserver(state)
 
                 # Verify both fields are in the payload
-                from datetime import date
-
                 first_call = mock_client.post.call_args_list[0]
                 matter_payload = first_call[1]["json"]
                 assert matter_payload["ssn"] == "9999"
-                assert matter_payload["date_of_birth"] == date(1992, 3, 15)
+                assert matter_payload["date_of_birth"] == "1992-03-15"
 
     async def test_matter_creation_complete_with_ssn(self):
         """Test successful creation of complete matter including SSN last 4."""
@@ -1542,8 +1526,6 @@ class TestSaveIntakeLegalserver:
                 await save_intake_legalserver(state)
 
                 # Verify the complete matter payload
-                from datetime import date
-
                 first_call = mock_client.post.call_args_list[0]
                 matter_payload = first_call[1]["json"]
 
@@ -1551,7 +1533,7 @@ class TestSaveIntakeLegalserver:
                 assert matter_payload["middle"] == "Lee"
                 assert matter_payload["last"] == "Garcia"
                 assert matter_payload["ssn"] == "4321"
-                assert matter_payload["date_of_birth"] == date(1988, 11, 3)
+                assert matter_payload["date_of_birth"] == "1988-11-03"
                 assert matter_payload["mobile_phone"] == "(202) 555-0199"
                 assert matter_payload["legal_problem_code"] == "23 Employment"
                 assert matter_payload["income_eligible"] is True
