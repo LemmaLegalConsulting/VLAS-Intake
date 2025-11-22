@@ -8,6 +8,8 @@ celeste:
       - Your home phone number is (866) 534-5243.
       - Your name is Celeste Caroline Campbell.
       - Your maiden name is Celeste Caroline Smith
+      - Your date of birth is January 15, 1985.
+      - The last 4 digits of your social security number are 5234.
       - You live in Amelia County.
       - Your husband's name is Dexter Robert Campbell.
       - Your husband's mobile phone number is (866) 534-5256.
@@ -77,6 +79,10 @@ celeste:
       receives_benefits: false
     citizenship:
       is_citizen: true
+    date_of_birth:
+      date_of_birth: "1985-01-15"
+    ssn_last_4:
+      ssn_last_4: "5234"
     emergency:
       is_emergency: false
 
@@ -90,6 +96,8 @@ sarah:
       - Your phone number is (866) 534-5243.
       - Your name is Sarah Elizabeth Marshall.
       - Your maiden name is Sarah Smith.
+      - Your date of birth is March 22, 1988.
+      - The last 4 digits of your social security number are 7891.
       - You live in Amelia County.
       - Your husband's name is Aldous Snow.
       - Your husband is the opposing party.
@@ -141,6 +149,10 @@ sarah:
       receives_benefits: false
     citizenship:
       is_citizen: true
+    date_of_birth:
+      date_of_birth: "1988-03-22"
+    ssn_last_4:
+      ssn_last_4: "7891"
     adverse_parties:
       adverse_parties:
         - first: "Aldous"
@@ -173,6 +185,8 @@ victoria:
       - You have $2,100 in a savings account.
       - You own some jewelry with sentimental value worth approximately $1,500.
       - You are a US citizen.
+      - Your date of birth is July 8, 1980.
+      - The last 4 digits of your social security number are 3456.
       - This is not an emergency, but you need legal help establishing custody and support for your two youngest children.
   expected_state:
     phone:
@@ -238,6 +252,10 @@ victoria:
       receives_benefits: false
     citizenship:
       is_citizen: true
+    date_of_birth:
+      date_of_birth: "1980-07-08"
+    ssn_last_4:
+      ssn_last_4: "3456"
     emergency:
       is_emergency: false
 
