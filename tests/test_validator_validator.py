@@ -273,3 +273,52 @@ async def test_get_alternative_providers():
     assert isinstance(alternatives, list)
     assert "Center for Legal Help" in alternatives
     assert "Local Legal Help" in alternatives
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dob_input,expected_valid,expected_output",
+    [
+        ("01/15/1980", True, "1980-01-15"),  # MM/DD/YYYY format
+        ("01-15-1980", True, "1980-01-15"),  # MM-DD-YYYY format
+        ("1980-01-15", True, "1980-01-15"),  # ISO format
+        ("January 15, 1980", True, "1980-01-15"),  # Month name format
+        ("Jan 15, 1980", True, "1980-01-15"),  # Abbreviated month
+        ("01/15/80", True, "1980-01-15"),  # 2-digit year
+        ("12/31/1999", True, "1999-12-31"),  # end of century
+        ("02/29/2000", True, "2000-02-29"),  # leap year
+        ("invalid date", False, ""),  # invalid date string
+        ("13/15/1980", False, ""),  # invalid month
+        ("01/32/1980", False, ""),  # invalid day
+        ("", False, ""),  # empty string
+    ],
+)
+async def test_check_date_of_birth(dob_input, expected_valid, expected_output):
+    validator = IntakeValidator()
+    is_valid, formatted_dob = await validator.check_date_of_birth(dob_input)
+    assert is_valid == expected_valid
+    assert formatted_dob == expected_output
+
+
+@pytest.mark.asyncio
+async def test_check_date_of_birth_future_date():
+    """Test that future dates are rejected."""
+    from datetime import datetime, timedelta
+
+    validator = IntakeValidator()
+    future_date = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y")
+    is_valid, formatted_dob = await validator.check_date_of_birth(future_date)
+    assert is_valid is False
+    assert formatted_dob == ""
+
+
+@pytest.mark.asyncio
+async def test_check_date_of_birth_today():
+    """Test that today's date is rejected (must be in the past)."""
+    from datetime import datetime
+
+    validator = IntakeValidator()
+    today = datetime.now().strftime("%m/%d/%Y")
+    is_valid, formatted_dob = await validator.check_date_of_birth(today)
+    assert is_valid is False
+    assert formatted_dob == ""

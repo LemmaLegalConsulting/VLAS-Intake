@@ -143,6 +143,118 @@ class TestBuildMatterPayload:
 
         assert payload["victim_of_domestic_violence"] is False
 
+    def test_payload_with_date_of_birth(self):
+        """Test that date of birth is included in payload."""
+        from datetime import date
+
+        state = {
+            "names": {"names": [{"first": "Isabel", "last": "Martinez"}]},
+            "date_of_birth": {"date_of_birth": "1990-05-15"},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["date_of_birth"] == date(1990, 5, 15)
+
+    def test_payload_with_date_of_birth_iso_format(self):
+        """Test that date of birth is stored as date object."""
+        from datetime import date
+
+        state = {
+            "names": {"names": [{"first": "Jack", "last": "Wilson"}]},
+            "date_of_birth": {"date_of_birth": "1985-12-25"},
+        }
+
+        payload = _build_matter_payload(state)
+
+        # Pydantic converts YYYY-MM-DD strings to date objects
+        assert payload["date_of_birth"] == date(1985, 12, 25)
+        assert isinstance(payload["date_of_birth"], date)
+
+    def test_payload_excludes_none_date_of_birth(self):
+        """Test that None date_of_birth is excluded from payload."""
+        state = {
+            "names": {"names": [{"first": "Kate", "last": "Johnson"}]},
+            "date_of_birth": {"date_of_birth": None},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert "date_of_birth" not in payload
+
+    def test_payload_excludes_empty_string_date_of_birth(self):
+        """Test that empty string date_of_birth causes validation failure."""
+        state = {
+            "names": {"names": [{"first": "Leo", "last": "Brown"}]},
+            "date_of_birth": {"date_of_birth": ""},
+        }
+
+        # Empty string should fail validation and return None
+        payload = _build_matter_payload(state)
+        assert payload is None
+
+    def test_payload_excludes_missing_date_of_birth_section(self):
+        """Test that missing date_of_birth section is handled gracefully."""
+        state = {
+            "names": {"names": [{"first": "Mike", "last": "Davis"}]},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert "date_of_birth" not in payload
+
+    def test_complete_payload_with_date_of_birth_and_all_fields(self):
+        """Test building complete payload with date of birth and all other fields."""
+        state = {
+            "call_id": "test-call-123",
+            "phone": {"is_valid": True, "phone_number": "(703) 555-1234"},
+            "names": {
+                "names": [
+                    {
+                        "first": "Sarah",
+                        "middle": "Jane",
+                        "last": "Anderson",
+                        "suffix": "Jr.",
+                    }
+                ]
+            },
+            "date_of_birth": {"date_of_birth": "1975-03-20"},
+            "service_area": {
+                "location": "Arlington County, VA",
+                "is_eligible": True,
+                "fips_code": 51013,
+            },
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "42 Family Law/Domestic Relations",
+            },
+            "income": {"is_eligible": True, "monthly_amount": 3000, "household_size": 2},
+            "assets": {"is_eligible": True, "total_value": 0},
+            "citizenship": {"is_citizen": True},
+            "domestic_violence": {
+                "is_experiencing": False,
+                "perpetrators": [],
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["first"] == "Sarah"
+        assert payload["middle"] == "Jane"
+        assert payload["last"] == "Anderson"
+        assert payload["suffix"] == "Jr."
+        from datetime import date
+
+        assert payload["date_of_birth"] == date(1975, 3, 20)
+        assert payload["mobile_phone"] == "(703) 555-1234"
+        assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
+        assert payload["county_of_residence"]["county_FIPS"] == "51013"
+        assert payload["income_eligible"] is True
+        assert payload["asset_eligible"] is True
+        assert payload["citizenship"] == "Citizen"
+        assert payload["victim_of_domestic_violence"] is False
+        assert payload["case_disposition"] == "Incomplete Intake"
+
     def test_payload_excludes_none_values(self):
         """Test that None values are excluded from payload."""
         state = {
@@ -1027,3 +1139,201 @@ class TestSaveIntakeLegalserver:
                         "HTTP Request failed" in str(call)
                         for call in mock_logger.error.call_args_list
                     )
+
+    async def test_matter_creation_with_date_of_birth(self):
+        """Test successful creation of matter with date of birth."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "date_of_birth": {"date_of_birth": "1990-05-15"},
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-dob-123", "case_id": 419646}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the matter creation call included date_of_birth
+                from datetime import date
+
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+                assert matter_payload["date_of_birth"] == date(1990, 5, 15)
+
+    async def test_matter_creation_with_different_date_formats(self):
+        """Test matter creation with various valid date formats (all converted to ISO)."""
+        test_dates = [
+            ("1980-01-15", "1980-01-15"),  # ISO already
+            ("1975-12-25", "1975-12-25"),  # ISO already
+            ("1990-06-30", "1990-06-30"),  # ISO already
+        ]
+
+        for input_date, expected_iso in test_dates:
+            state = {
+                "names": {"names": [{"first": "Test", "last": "User"}]},
+                "date_of_birth": {"date_of_birth": input_date},
+            }
+
+            mock_response = MagicMock()
+            mock_response.status_code = 201
+            mock_response.json.return_value = {
+                "data": {"matter_uuid": f"uuid-{input_date}", "case_id": 419647}
+            }
+
+            with patch("httpx.AsyncClient") as mock_client_class:
+                mock_client = AsyncMock()
+                mock_client.__aenter__.return_value = mock_client
+                mock_client.post = AsyncMock(return_value=mock_response)
+                mock_client_class.return_value = mock_client
+
+                with patch("intake_bot.services.legalserver.logger"):
+                    from intake_bot.services.legalserver import save_intake_legalserver
+
+                    await save_intake_legalserver(state)
+
+                    # Verify the payload contains the correct date object
+                    from datetime import date
+
+                    first_call = mock_client.post.call_args_list[0]
+                    matter_payload = first_call[1]["json"]
+                    # expected_iso is YYYY-MM-DD string, Pydantic converts to date object
+                    parts = expected_iso.split("-")
+                    expected_date = date(int(parts[0]), int(parts[1]), int(parts[2]))
+                    assert matter_payload["date_of_birth"] == expected_date
+
+    async def test_matter_creation_without_date_of_birth(self):
+        """Test matter creation when date_of_birth is not provided."""
+        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-no-dob", "case_id": 419648}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the matter creation call does not include date_of_birth
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+                assert "date_of_birth" not in matter_payload
+
+    async def test_matter_creation_with_empty_date_of_birth(self):
+        """Test matter creation when date_of_birth is empty string."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "date_of_birth": {"date_of_birth": ""},
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-empty-dob", "case_id": 419649}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Empty date should cause validation to fail, so no POST call should be made
+                # The save_intake_legalserver function returns early when payload validation fails
+                assert mock_client.post.call_count == 0
+
+    async def test_complete_intake_with_date_of_birth_and_all_fields(self):
+        """Test complete matter creation with date of birth and all other required fields."""
+        state = {
+            "call_id": "test-call-complete-dob",
+            "phone": {
+                "is_valid": True,
+                "phone_number": "(703) 555-1234",
+                "phone_type": "mobile",
+            },
+            "names": {
+                "names": [
+                    {
+                        "first": "Rebecca",
+                        "middle": "Anne",
+                        "last": "Thompson",
+                        "suffix": None,
+                    }
+                ]
+            },
+            "date_of_birth": {"date_of_birth": "1985-07-22"},
+            "service_area": {
+                "location": "Richmond City",
+                "is_eligible": True,
+                "fips_code": 51760,
+            },
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "01 Domestic Violence",
+            },
+            "income": {"is_eligible": True, "monthly_amount": 2500, "household_size": 2},
+            "assets": {"is_eligible": True, "total_value": 5000},
+            "citizenship": {"is_citizen": True},
+            "domestic_violence": {
+                "is_experiencing": True,
+                "perpetrators": ["John Smith"],
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-complete-dob", "case_id": 419650}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the complete matter payload
+                from datetime import date
+
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+
+                assert matter_payload["first"] == "Rebecca"
+                assert matter_payload["middle"] == "Anne"
+                assert matter_payload["last"] == "Thompson"
+                assert matter_payload["date_of_birth"] == date(1985, 7, 22)
+                assert matter_payload["mobile_phone"] == "(703) 555-1234"
+                assert matter_payload["legal_problem_code"] == "01 Domestic Violence"
+                assert matter_payload["income_eligible"] is True
+                assert matter_payload["asset_eligible"] is True
+                assert matter_payload["citizenship"] == "Citizen"
+                assert matter_payload["victim_of_domestic_violence"] is True

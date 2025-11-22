@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -44,6 +45,41 @@ class IntakeValidator:
         """
         valid, phone_number = phone_number_is_valid(phone_number=phone_number)
         return valid, phone_number
+
+    async def check_date_of_birth(self, dob_string: str) -> tuple[bool, str]:
+        """
+        Validate a date of birth and return its validity status and ISO format (YYYY-MM-DD).
+
+        Args:
+            dob_string (str): The date of birth string to validate (accepts various formats).
+
+        Returns:
+            tuple[bool, str]: A tuple containing:
+                - bool: True if the date of birth is valid and in the past, False otherwise.
+                - str: The ISO formatted date (YYYY-MM-DD) if valid, or empty string if invalid.
+        """
+        # Try common date formats
+        formats = [
+            "%m/%d/%Y",
+            "%m-%d-%Y",
+            "%Y-%m-%d",
+            "%B %d, %Y",
+            "%b %d, %Y",
+            "%m/%d/%y",
+            "%m-%d-%y",
+        ]
+
+        for fmt in formats:
+            try:
+                dob = datetime.strptime(dob_string.strip(), fmt)
+                # Check if date is in the past
+                if dob.date() >= datetime.now().date():
+                    return False, ""
+                return True, dob.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        return False, ""
 
     async def check_service_area(self, location: str) -> tuple[str, int]:
         """

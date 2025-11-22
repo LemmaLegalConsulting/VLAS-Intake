@@ -14,6 +14,7 @@ from intake_bot.nodes.nodes import (
     record_assets_receives_benefits,
     record_case_type,
     record_citizenship,
+    record_date_of_birth,
     record_domestic_violence,
     record_emergency,
     record_income,
@@ -351,7 +352,60 @@ async def test_record_citizenship(flow_manager):
     result, next_node = await record_citizenship(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
+    assert "record_date_of_birth_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_date_of_birth_valid(flow_manager, patch_validator):
+    """Test record_date_of_birth with a valid date."""
+    patch_validator.check_date_of_birth = AsyncMock(return_value=(True, "1980-01-15"))
+    result, next_node = await record_date_of_birth(flow_manager, "01/15/1980")
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["date_of_birth"] == "1980-01-15"
+    assert flow_manager.state["date_of_birth"]["date_of_birth"] == "1980-01-15"
     assert "record_names_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_date_of_birth_various_formats(flow_manager, patch_validator):
+    """Test record_date_of_birth accepts various date formats."""
+    test_cases = [
+        ("01/15/1980", "1980-01-15"),
+        ("01-15-1980", "1980-01-15"),
+        ("1980-01-15", "1980-01-15"),
+        ("January 15, 1980", "1980-01-15"),
+    ]
+
+    for input_date, expected_output in test_cases:
+        patch_validator.check_date_of_birth = AsyncMock(return_value=(True, expected_output))
+        result, next_node = await record_date_of_birth(flow_manager, input_date)
+        assert result["status"] == Status.SUCCESS
+        assert result["date_of_birth"] == expected_output
+
+
+@pytest.mark.asyncio
+async def test_record_date_of_birth_invalid(flow_manager, patch_validator):
+    """Test record_date_of_birth with invalid date."""
+    patch_validator.check_date_of_birth = AsyncMock(return_value=(False, ""))
+    result, next_node = await record_date_of_birth(flow_manager, "invalid date")
+    assert isinstance(result, dict)
+    assert result["status"] == Status.ERROR
+    assert result["date_of_birth"] == ""
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_date_of_birth_future_date(flow_manager, patch_validator):
+    """Test record_date_of_birth rejects future dates."""
+    from datetime import datetime, timedelta
+
+    patch_validator.check_date_of_birth = AsyncMock(return_value=(False, ""))
+    future_date = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y")
+    result, next_node = await record_date_of_birth(flow_manager, future_date)
+    assert result["status"] == Status.ERROR
+    assert result["date_of_birth"] == ""
+    assert next_node is None
 
 
 @pytest.mark.asyncio

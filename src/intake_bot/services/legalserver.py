@@ -131,6 +131,9 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
     if isinstance(state.get("citizenship"), dict):
         payload["citizenship"] = state["citizenship"].get("is_citizen")
 
+    if isinstance(state.get("date_of_birth"), dict):
+        payload["date_of_birth"] = state["date_of_birth"].get("date_of_birth")
+
     if isinstance(state.get("domestic_violence"), dict):
         payload["victim_of_domestic_violence"] = state["domestic_violence"].get("is_experiencing")
 

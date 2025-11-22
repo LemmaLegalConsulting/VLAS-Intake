@@ -40,6 +40,10 @@ class CitizenshipResult(IntakeFlowResult):
     is_citizen: bool
 
 
+class DateOfBirthResult(IntakeFlowResult):
+    date_of_birth: str
+
+
 class DomesticViolenceResult(IntakeFlowResult):
     is_experiencing: bool
     perpetrators: list[str]

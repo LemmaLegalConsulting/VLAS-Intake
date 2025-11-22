@@ -6,6 +6,7 @@ from intake_bot.models.intake_flow_result import (
     CallerNamesResult,
     CaseTypeResult,
     CitizenshipResult,
+    DateOfBirthResult,
     DomesticViolenceResult,
     EmergencyResult,
     IncomeResult,
@@ -551,10 +552,45 @@ async def record_citizenship(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
-            **prompts.get("record_names"),
-            "functions": [record_names],
+            **prompts.get("record_date_of_birth"),
+            "functions": [record_date_of_birth],
         }
     )
+    return result, next_node
+
+
+@convert_and_log_result("date_of_birth")
+async def record_date_of_birth(
+    flow_manager: FlowManager, date_of_birth: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Collect the caller's date of birth.
+
+    Args:
+        date_of_birth (str): The caller's date of birth in various formats
+                           (MM/DD/YYYY, MM-DD-YYYY, YYYY-MM-DD, Month DD, YYYY, etc.)
+    """
+    is_valid, formatted_dob = await validator.check_date_of_birth(dob_string=date_of_birth)
+
+    status = status_helper(is_valid)
+    result = DateOfBirthResult(
+        status=status,
+        date_of_birth=formatted_dob if is_valid else "",
+    )
+
+    if status == Status.SUCCESS:
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_names"),
+                "functions": [record_names],
+            }
+        )
+    else:
+        result.error = (
+            "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
+        )
+        next_node = None
     return result, next_node
 
 

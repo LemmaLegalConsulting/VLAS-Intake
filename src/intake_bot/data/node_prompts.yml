@@ -292,6 +292,22 @@ record_citizenship:
     - content: >-
         Explain that US citizenship is only one part of determining eligibility for Law-Line assistance, and then ask if the caller is a US citizen. If the caller refuses to answer or avoids answering, treat that as a "no".
 
+# Date of Birth
+record_date_of_birth:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Ask the caller for their date of birth.
+        2. The caller may provide the date in various formats (for example: "January 15, 1980", "01/15/1980", "1980-01-15", etc.). Accept any reasonable date format.
+        3. After receiving the date, read it back to the caller in a clear format (for example, "January 15, 1980") and ask them to confirm it is correct.
+           - If the caller confirms the date is correct, proceed to the next step.
+           - If the caller indicates the date is incorrect, ask them to provide their correct date of birth and repeat the confirmation process.
+        4. If the date provided is invalid or is in the future, explain that you need a valid date of birth in the past and ask them to try again.
+        5. ONLY use the `record_date_of_birth` function if the caller confirms their date of birth is correct.
+
+        [User Prompt]
+        Please provide your date of birth. You can say it in any format, such as "January 15, 1980" or "01/15/1980". Once provided, I will read it back to confirm if it is correct.
+
 # Names
 record_names:
   task_messages:
