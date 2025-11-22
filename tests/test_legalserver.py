@@ -88,6 +88,39 @@ class TestBuildMatterPayload:
         assert payload["income_eligible"] is True
         assert payload["number_of_adults"] == 3
 
+    def test_payload_with_household_composition(self):
+        """Test that household composition is properly mapped to LegalServer fields."""
+        state = {
+            "names": {"names": [{"first": "Alice", "last": "Johnson"}]},
+            "household_composition": {
+                "number_of_adults": 2,
+                "number_of_children": 3,
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["number_of_adults"] == 2
+        assert payload["number_of_children"] == 3
+
+    def test_payload_household_composition_overrides_income_household_size(self):
+        """Test that household_composition takes precedence over income household_size for number_of_adults."""
+        state = {
+            "names": {"names": [{"first": "Betty", "last": "Davis"}]},
+            "income": {"is_eligible": True, "monthly_amount": 2000, "household_size": 5},
+            "household_composition": {
+                "number_of_adults": 2,
+                "number_of_children": 3,
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["income_eligible"] is True
+        # household_composition should override the income household_size
+        assert payload["number_of_adults"] == 2
+        assert payload["number_of_children"] == 3
+
     def test_payload_with_asset_eligibility(self):
         """Test that asset eligibility flag is included."""
         state = {
@@ -1539,3 +1572,59 @@ class TestSaveIntakeLegalserver:
                 assert matter_payload["income_eligible"] is True
                 assert matter_payload["asset_eligible"] is True
                 assert matter_payload["citizenship"] == "Citizen"
+
+    async def test_matter_creation_with_household_composition(self):
+        """Test successful creation of matter with household composition."""
+        state = {
+            "names": {"names": [{"first": "Patricia", "last": "Martinez"}]},
+            "phone": {"is_valid": True, "phone_number": "(540) 555-0123"},
+            "date_of_birth": {"date_of_birth": "1982-04-10"},
+            "service_area": {
+                "location": "Roanoke City",
+                "is_eligible": True,
+                "fips_code": 51740,
+            },
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "31 Custody/Visitation",
+            },
+            "household_composition": {
+                "number_of_adults": 1,
+                "number_of_children": 2,
+            },
+            "income": {"is_eligible": True, "monthly_amount": 2800, "household_size": 3},
+            "assets": {"is_eligible": True, "total_value": 1500},
+            "citizenship": {"is_citizen": True},
+            "domestic_violence": {
+                "is_experiencing": False,
+                "perpetrators": [],
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-household-comp", "case_id": 419654}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify the matter payload includes household composition
+                first_call = mock_client.post.call_args_list[0]
+                matter_payload = first_call[1]["json"]
+
+                assert matter_payload["first"] == "Patricia"
+                assert matter_payload["last"] == "Martinez"
+                assert matter_payload["number_of_adults"] == 1
+                assert matter_payload["number_of_children"] == 2
+                assert matter_payload["income_eligible"] is True
+                assert matter_payload["asset_eligible"] is True

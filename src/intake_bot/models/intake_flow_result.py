@@ -53,6 +53,11 @@ class DomesticViolenceResult(IntakeFlowResult):
     perpetrators: list[str]
 
 
+class HouseholdCompositionResult(IntakeFlowResult):
+    number_of_adults: int
+    number_of_children: int
+
+
 class EmergencyResult(IntakeFlowResult):
     is_emergency: bool
 

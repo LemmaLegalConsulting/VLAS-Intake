@@ -55,19 +55,14 @@ celeste:
       is_experiencing: true
       perpetrators:
         - "Dexter Robert Campbell"
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 2
     income:
       is_eligible: true
       monthly_amount: 0
       listing:
         "Celeste":
-          "No Household Income":
-            amount: 0
-            period: "Monthly"
-        "James":
-          "No Household Income":
-            amount: 0
-            period: "Monthly"
-        "Thomas":
           "No Household Income":
             amount: 0
             period: "Monthly"
@@ -133,6 +128,9 @@ sarah:
       is_experiencing: true
       perpetrators:
         - "Aldous Snow"
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 0
     income:
       is_eligible: true
       monthly_amount: 0
@@ -219,6 +217,9 @@ victoria:
     domestic_violence:
       is_experiencing: false
       perpetrators: []
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 3
     income:
       is_eligible: true
       monthly_amount: 1950
@@ -230,17 +231,9 @@ victoria:
           "Child Support":
             amount: 350
             period: "Monthly"
-        "Sophie":
-          "No Household Income":
-            amount: 0
-            period: "Monthly"
         "Michael":
           "Employment":
             amount: 400
-            period: "Monthly"
-        "Emma":
-          "No Household Income":
-            amount: 0
             period: "Monthly"
       household_size: 4
     assets:

@@ -166,18 +166,41 @@ record_domestic_violence:
         - If no one has perpetrated domestic violence, pass an empty list: perpetrators = []
         - ALWAYS call the `record_domestic_violence` function after confirming the caller's response.
 
+# Household Composition
+record_household_composition:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. Ask the caller how many adults (age 18 and older) live in their household, INCLUDING themselves, EXCLUDING any perpetrators of domestic violence.
+        2. Ask the caller how many children (under age 18) live in their household.
+        3. Confirm the total number of people in the household by adding the adults and children.
+        4. Once confirmed, ALWAYS call the `record_household_composition` function with both numbers.
+
+        [User Prompt]
+        To help us understand your household situation, I need to know:
+        - How many adults (18 and older), including yourself, live in your household? (Do not count anyone who has perpetrated domestic violence against you)
+        - How many children (under 18) live in your household?
+
+        [Additional Notes]
+        - Adults must be at least 18 years old.
+        - INCLUDE YOURSELF in the adult count.
+        - Do NOT count perpetrators of domestic violence in the adult count.
+        - Children are anyone under 18 years old.
+        - Include all children who live in the household.
+        - ALWAYS call the `record_household_composition` function after confirming both numbers.
+
 # Income
 record_income:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller to provide the total number of people in the household (including all children, family members, or friends who reside in the home).
-        2. For each household member (excluding perpetrators of domestic violence), collect:
+        1. You have already collected the total number of adults and children in the household. Only ask for income from household members who HAVE income - there is no need to list all household members.
+        2. For each household member with income (excluding perpetrators of domestic violence), collect:
            - First and last name
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
-        3. If the caller or any household member claims no income (except for children), ask follow-up questions to understand how they manage essential expenses like housing, utilities, and food.
-        4. After collecting all income information, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
+        3. If the caller indicates that some household members have no income, ask them how they manage essential expenses like housing, utilities, and food.
+        4. After collecting all income information for those with income, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
         IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
 
@@ -212,7 +235,7 @@ record_income:
         - Other
 
         [User Prompt]
-        To determine your eligibility, we need to know the total monthly or yearly income for you and each member of your household with whom you share expenses or support. For each person, please provide their first and last name and their income from each source. Common sources of income include:
+        Now I need to know about income. Please tell me about the income for any household members who have income from any sources. For each person with income, provide their first and last name and their income from each source. Common sources of income include:
         - Wages or salary (Employment)
         - Spousal support or alimony (Spousal Support)
         - Child support (Child Support)

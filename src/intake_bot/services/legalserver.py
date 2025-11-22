@@ -125,6 +125,10 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         payload["income_eligible"] = state["income"].get("is_eligible")
         payload["number_of_adults"] = state["income"].get("household_size")
 
+    if isinstance(state.get("household_composition"), dict):
+        payload["number_of_adults"] = state["household_composition"].get("number_of_adults")
+        payload["number_of_children"] = state["household_composition"].get("number_of_children")
+
     if isinstance(state.get("assets"), dict):
         payload["asset_eligible"] = state["assets"].get("is_eligible")
 

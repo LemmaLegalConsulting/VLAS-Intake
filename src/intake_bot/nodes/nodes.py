@@ -9,6 +9,7 @@ from intake_bot.models.intake_flow_result import (
     DateOfBirthResult,
     DomesticViolenceResult,
     EmergencyResult,
+    HouseholdCompositionResult,
     IncomeResult,
     IntakeFlowResult,
     PhoneNumberResult,
@@ -373,6 +374,43 @@ async def record_domestic_violence(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
+            **prompts.get("record_household_composition"),
+            "functions": [record_household_composition],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("household_composition")
+async def record_household_composition(
+    flow_manager: FlowManager, number_of_adults: int, number_of_children: int
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Record the number of people in the household, excluding perpetrators of domestic violence.
+
+    Args:
+        number_of_adults (int): Number of adults in the household (18 and older), including yourself, excluding perpetrators of domestic violence.
+        number_of_children (int): Number of children in the household (under 18).
+    """
+    is_valid, _ = await validator.check_household_composition(
+        adults=number_of_adults, children=number_of_children
+    )
+
+    if not is_valid:
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error="Please provide valid numbers for the number of adults in your household, including yourself (at least 1), and children (0 or more).",
+        )
+        return result, None
+
+    result = HouseholdCompositionResult(
+        status=Status.SUCCESS,
+        number_of_adults=number_of_adults,
+        number_of_children=number_of_children,
+    )
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
             **prompts.get("record_income"),
             "functions": [record_income],
         }
@@ -401,10 +439,16 @@ async def record_income(
                         "social security": {"amount": 1200, "period": "year"},
                     }
                 }
+            Note: Only include household members who have income. Children with no income do not need to be listed.
     """
     try:
         income_validated = HouseholdIncome.model_validate(income)
-        household_size = len(income_validated.root.keys())
+        # Get household size from state instead of counting income entries
+        household_composition = flow_manager.state.get("household_composition", {})
+        adults = household_composition.get("number_of_adults", 0)
+        children = household_composition.get("number_of_children", 0)
+        household_size = adults + children
+
         is_eligible, income_monthly = await validator.check_income(income=income_validated)
     except ValidationError as e:
         logger.debug(e)

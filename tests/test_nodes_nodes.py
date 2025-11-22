@@ -17,6 +17,7 @@ from intake_bot.nodes.nodes import (
     record_date_of_birth,
     record_domestic_violence,
     record_emergency,
+    record_household_composition,
     record_income,
     record_name,
     record_names,
@@ -211,7 +212,7 @@ async def test_record_domestic_violence_true(flow_manager):
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is True
     assert "Jack the Ripper" in flow_manager.state["domestic_violence"]["perpetrators"]
-    assert "record_income_prompt" in next_node
+    assert "record_household_composition_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -220,12 +221,57 @@ async def test_record_domestic_violence_false(flow_manager):
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is False
     assert flow_manager.state["domestic_violence"]["perpetrators"] == []
+    assert "record_household_composition_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_household_composition_valid(flow_manager, patch_validator):
+    patch_validator.check_household_composition = AsyncMock(return_value=(True, 3))
+    result, next_node = await record_household_composition(flow_manager, 1, 2)
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert flow_manager.state["household_composition"]["number_of_adults"] == 1
+    assert flow_manager.state["household_composition"]["number_of_children"] == 2
     assert "record_income_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_household_composition_only_adults(flow_manager, patch_validator):
+    patch_validator.check_household_composition = AsyncMock(return_value=(True, 2))
+    result, next_node = await record_household_composition(flow_manager, 2, 0)
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert flow_manager.state["household_composition"]["number_of_adults"] == 2
+    assert flow_manager.state["household_composition"]["number_of_children"] == 0
+    assert "record_income_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_household_composition_invalid_no_adults(flow_manager, patch_validator):
+    patch_validator.check_household_composition = AsyncMock(return_value=(False, 0))
+    result, next_node = await record_household_composition(flow_manager, 0, 2)
+    assert result["status"] == Status.ERROR
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_household_composition_invalid_negative_children(
+    flow_manager, patch_validator
+):
+    patch_validator.check_household_composition = AsyncMock(return_value=(False, 0))
+    result, next_node = await record_household_composition(flow_manager, 1, -1)
+    assert result["status"] == Status.ERROR
+    assert next_node is None
 
 
 @pytest.mark.asyncio
 async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch_validator):
     patch_validator.check_income = AsyncMock(return_value=(True, 1000))
+    # Set household composition in state
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 2,
+        "number_of_children": 1,
+    }
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
@@ -237,11 +283,16 @@ async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["income"]["is_eligible"] is True
     assert flow_manager.state["income"]["monthly_amount"] == 1000
+    assert flow_manager.state["income"]["household_size"] == 3
     assert "record_assets_receives_benefits_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_income_multiple_members(flow_manager, patch_validator):
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 2,
+        "number_of_children": 1,
+    }
     patch_validator.check_income = AsyncMock(return_value=(True, 3200))
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
@@ -254,12 +305,17 @@ async def test_record_income_multiple_members(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["income"]["is_eligible"] is True
     assert flow_manager.state["income"]["monthly_amount"] == 3200
+    assert flow_manager.state["income"]["household_size"] == 3
     assert flow_manager.state["income"]["listing"] == income
     assert "record_assets_receives_benefits_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_income_valid_ineligible(flow_manager, patch_validator):
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 0,
+    }
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     patch_validator.check_income = AsyncMock(return_value=(False, 6000))
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
@@ -274,12 +330,17 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
     assert "Alternate providers" in result["error"]
     assert flow_manager.state["income"]["is_eligible"] is False
     assert flow_manager.state["income"]["monthly_amount"] == 6000
+    assert flow_manager.state["income"]["household_size"] == 1
     assert flow_manager.state["income"]["listing"] == income
     assert "confirm_income_over_limit_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_income_invalid(flow_manager):
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 0,
+    }
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {"bad": "data"}
     result, next_node = await record_income(flow_manager, income)

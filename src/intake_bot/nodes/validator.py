@@ -58,7 +58,7 @@ class IntakeValidator:
                 - bool: True if the date of birth is valid and in the past, False otherwise.
                 - str: The ISO formatted date (YYYY-MM-DD) if valid, or empty string if invalid.
         """
-        # Try common date formats
+        # Common date formats
         formats = [
             "%m/%d/%Y",
             "%m-%d-%Y",
@@ -68,17 +68,14 @@ class IntakeValidator:
             "%m/%d/%y",
             "%m-%d-%y",
         ]
-
         for fmt in formats:
             try:
                 dob = datetime.strptime(dob_string.strip(), fmt)
-                # Check if date is in the past
                 if dob.date() >= datetime.now().date():
                     return False, ""
                 return True, dob.strftime("%Y-%m-%d")
             except ValueError:
                 continue
-
         return False, ""
 
     async def check_ssn_last_4(self, ssn_last_4: str) -> tuple[bool, str]:
@@ -93,13 +90,9 @@ class IntakeValidator:
                 - bool: True if valid (exactly 4 digits after removing separators), False otherwise.
                 - str: The 4-digit SSN if valid, or empty string if invalid.
         """
-        # Remove common separators (hyphens, spaces)
         cleaned = ssn_last_4.strip().replace("-", "").replace(" ", "").replace("_", "")
-        
-        # Check if it's exactly 4 digits
         if len(cleaned) == 4 and cleaned.isdigit():
             return True, cleaned
-        
         return False, ""
 
     async def check_service_area(self, location: str) -> tuple[str, int]:
@@ -182,11 +175,36 @@ class IntakeValidator:
         for asset_entry in assets.root:
             for value in asset_entry.root.values():
                 total_value += int(value)
-
         assets_value: int = int(total_value)
         is_eligible: bool = vlas_assets_limit >= assets_value
-
         return is_eligible, assets_value
+
+    async def check_household_composition(self, adults: int, children: int) -> tuple[bool, int]:
+        """
+        Validate household composition numbers.
+
+        Args:
+            adults (int): Number of adults in the household (excluding perpetrators of domestic violence)
+            children (int): Number of children in the household (under 18)
+
+        Returns:
+            tuple[bool, int]: (is_valid, total_household_size)
+        """
+        if not isinstance(adults, int) or not isinstance(children, int):
+            return False, 0
+
+        if adults < 1:
+            return False, 0
+
+        if children < 0:
+            return False, 0
+
+        total_size = adults + children
+
+        if total_size > 25:  # Sanity check for unreasonable values
+            return False, 0
+
+        return True, total_size
 
     async def get_alternative_providers(self) -> list[str]:
         """
