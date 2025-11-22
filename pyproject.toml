@@ -16,7 +16,7 @@ dependencies = [
     "pyyaml",
     "rapidfuzz",
     "twilio",
-    "winuvloop>=0.2.0",
+    "winuvloop",
 ]
 
 [dependency-groups]
