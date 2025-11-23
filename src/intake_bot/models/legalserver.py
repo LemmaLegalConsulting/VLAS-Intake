@@ -122,7 +122,6 @@ class NotePayload(BaseModel):
     note_type: Lookup = Field(..., description="Note type lookup reference (required)")
     is_html: Optional[bool] = Field(default=False, description="Whether body is HTML")
     allow_etransfer: Optional[bool] = Field(default=True, description="Allow eTransfer")
-    active: Optional[bool] = Field(default=True, description="Note is active")
 
     model_config = ConfigDict(use_enum_values=True)
 
