@@ -1,9 +1,8 @@
 from fastapi import Request
+from intake_bot.utils.ev import get_ev, require_ev
 from loguru import logger
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Stream, VoiceResponse
-
-from intake_bot.utils.ev import get_ev, require_ev
 
 
 def create_twiml(url: str, body_data: dict = None) -> str:

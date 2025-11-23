@@ -447,32 +447,32 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
             while total_pages is None or page_number <= total_pages:
                 # Query custom lookups endpoint with pagination
                 response = await client.get(
-                    f"{LEGALSERVER_API_BASE_URL}/custom_lookups?page_number={page_number}",
+                    f"""{LEGALSERVER_API_BASE_URL}/custom_lookups?page_number={page_number}""",
                     headers=LEGALSERVER_HEADERS,
                 )
 
                 if response.status_code not in (200, 201):
                     logger.error(
-                        f"Failed to query custom lookups page {page_number}: {response.status_code}"
+                        f"""Failed to query custom lookups page {page_number}: {response.status_code}"""
                     )
-                    logger.error(f"Response: {response.text}")
+                    logger.error(f"""Response: {response.text}""")
                     return None
 
                 data = response.json()
-                logger.debug(f"Custom lookups page {page_number} response keys: {data.keys()}")
+                logger.debug(f"""Custom lookups page {page_number} response keys: {data.keys()}""")
 
                 # Extract pagination info
                 if total_pages is None:
                     total_pages = data.get("total_number_of_pages", 1)
                     logger.debug(
-                        f"Total pages: {total_pages}, Total records: {data.get('total_records', 0)}"
+                        f"""Total pages: {total_pages}, Total records: {data.get("total_records", 0)}"""
                     )
 
                 # Combine data from all pages
                 page_data = data.get("data", [])
                 all_lookups.extend(page_data)
                 logger.debug(
-                    f"Page {page_number}: retrieved {len(page_data)} lookups (total so far: {len(all_lookups)})"
+                    f"""Page {page_number}: retrieved {len(page_data)} lookups (total so far: {len(all_lookups)})"""
                 )
 
                 page_number += 1
@@ -485,10 +485,10 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
             }
 
     except httpx.RequestError as e:
-        logger.error(f"HTTP Request failed: {e}")
+        logger.error(f"""HTTP Request failed: {e}""")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error querying custom lookups: {e}")
+        logger.error(f"""Unexpected error querying custom lookups: {e}""")
         return None
 
 
@@ -510,22 +510,22 @@ async def query_lookup_values(
         async with httpx.AsyncClient(timeout=30) as client:
             # Construct URL based on lookup type
             if is_custom:
-                url = f"{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"
+                url = f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
             else:
-                url = f"{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"
+                url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"""
 
             response = await client.get(url, headers=LEGALSERVER_HEADERS)
 
             if response.status_code not in (200, 201):
                 lookup_type = "custom lookup" if is_custom else "lookup table"
                 logger.error(
-                    f"Failed to query {lookup_type} '{lookup_identifier}': {response.status_code}"
+                    f"""Failed to query {lookup_type} '{lookup_identifier}': {response.status_code}"""
                 )
-                logger.error(f"Response: {response.text}")
+                logger.error(f"""Response: {response.text}""")
                 return None
 
             data = response.json()
-            logger.debug(f"Lookup response keys: {data.keys()}")
+            logger.debug(f"""Lookup response keys: {data.keys()}""")
 
             # Extract lookup values from response
             lookup_values = data.get("data", data)
@@ -546,10 +546,10 @@ async def query_lookup_values(
             }
 
     except httpx.RequestError as e:
-        logger.error(f"HTTP Request failed: {e}")
+        logger.error(f"""HTTP Request failed: {e}""")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error querying lookup values: {e}")
+        logger.error(f"""Unexpected error querying lookup values: {e}""")
         return None
 
 
@@ -575,7 +575,7 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
         async with httpx.AsyncClient(timeout=30) as client:
             # Query each lookup type to find the ID
             for lookup_type in common_types:
-                url = f"{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"
+                url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"""
 
                 try:
                     response = await client.get(url, headers=LEGALSERVER_HEADERS, timeout=10)
@@ -601,14 +601,14 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
                                 "lookup_value": values,
                             }
                 except Exception as e:
-                    logger.debug(f"Error querying {lookup_type}: {e}")
+                    logger.debug(f"""Error querying {lookup_type}: {e}""")
                     continue
 
-            logger.warning(f"Lookup ID {lookup_value_id} not found in common lookup types")
+            logger.warning(f"""Lookup ID {lookup_value_id} not found in common lookup types""")
             return None
 
     except Exception as e:
-        logger.error(f"Error searching for lookup ID: {e}")
+        logger.error(f"""Error searching for lookup ID: {e}""")
         return None
 
 
@@ -661,12 +661,12 @@ if __name__ == "__main__":
         result = asyncio.run(query_lookup_values(lookup_type, is_custom=is_custom))
         if result is None:
             lookup_kind = "custom lookup" if is_custom else "lookup type"
-            logger.error(f"Failed to query {lookup_kind}: {lookup_type}")
+            logger.error(f"""Failed to query {lookup_kind}: {lookup_type}""")
             sys.exit(1)
 
         lookup_kind = "Custom Lookup" if result["is_custom"] else "Lookup Type"
-        print(f"{lookup_kind}: {result['lookup_type']}")
-        print(f"Total Values: {len(result['values'])}")
+        print(f"""{lookup_kind}: {result["lookup_type"]}""")
+        print(f"""Total Values: {len(result["values"])}""")
         print("\nLookup Values:")
         print(json.dumps(result["values"], indent=2))
 
@@ -681,7 +681,7 @@ if __name__ == "__main__":
         print("Common System Lookup Types (queryable via LegalServer API)")
         print("=" * 60)
         for lookup_type in lookup_types:
-            print(f"  - {lookup_type}")
+            print(f"""  - {lookup_type}""")
         print("\nNote: Not all system lookups in the API documentation may be directly")
         print("queryable. If you get a 404 error, the lookup type may use a different")
         print("name or may not be accessible via this endpoint in your instance.")
@@ -747,7 +747,7 @@ if __name__ == "__main__":
     elif command == "--query-custom-lookups":
         query_custom_lookups()
     else:
-        print(f"Unknown command: {command}")
+        print(f"""Unknown command: {command}""")
         print(
             "Usage: python legalserver.py <command> [args]\n"
             "Commands:\n"

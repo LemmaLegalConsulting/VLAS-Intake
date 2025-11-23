@@ -25,6 +25,7 @@ from intake_bot.models.validator import (
     CallerName,
     CallerNames,
     HouseholdIncome,
+    PhoneTypeCaller,
 )
 from intake_bot.nodes.utils import (
     clean_pydantic_error_message,
@@ -128,11 +129,8 @@ async def record_phone_number(
 
     status = status_helper(is_valid)
 
-    # Validate phone_type against PhoneType enum
     try:
-        from intake_bot.models.validator import PhoneType
-
-        validated_phone_type = PhoneType(phone_type.lower())
+        validated_phone_type = PhoneTypeCaller(phone_type.lower())
     except ValueError:
         status = Status.ERROR
         validated_phone_type = None

@@ -40,7 +40,7 @@ class NodePrompts:
             dict: The formatted prompt.
         """
         if key not in self.prompts:
-            raise KeyError(f"Prompt '{key}' not found.")
+            raise KeyError(f"""Prompt '{key}' not found.""")
 
         if kwargs:
             prompt = self.prompts[key].copy()

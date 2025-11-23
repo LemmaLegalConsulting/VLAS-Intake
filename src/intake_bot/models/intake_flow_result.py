@@ -1,6 +1,6 @@
 from enum import Enum
 
-from intake_bot.models.validator import Address, AdverseParties, CallerNames, PhoneType
+from intake_bot.models.validator import Address, AdverseParties, CallerNames, PhoneTypeCaller
 from pydantic import BaseModel, ConfigDict
 
 
@@ -16,12 +16,12 @@ class IntakeFlowResult(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
 
-class AdversePartiesResult(IntakeFlowResult):
-    adverse_parties: AdverseParties
-
-
 class AddressResult(IntakeFlowResult):
     address: Address
+
+
+class AdversePartiesResult(IntakeFlowResult):
+    adverse_parties: AdverseParties
 
 
 class AssetsResult(IntakeFlowResult):
@@ -48,22 +48,18 @@ class DateOfBirthResult(IntakeFlowResult):
     date_of_birth: str
 
 
-class SSNLast4Result(IntakeFlowResult):
-    ssn_last_4: str
-
-
 class DomesticViolenceResult(IntakeFlowResult):
     is_experiencing: bool
     perpetrators: list[str]
 
 
+class EmergencyResult(IntakeFlowResult):
+    is_emergency: bool
+
+
 class HouseholdCompositionResult(IntakeFlowResult):
     number_of_adults: int
     number_of_children: int
-
-
-class EmergencyResult(IntakeFlowResult):
-    is_emergency: bool
 
 
 class IncomeResult(IntakeFlowResult):
@@ -76,10 +72,14 @@ class IncomeResult(IntakeFlowResult):
 class PhoneNumberResult(IntakeFlowResult):
     is_valid: bool
     phone_number: str
-    phone_type: PhoneType
+    phone_type: PhoneTypeCaller
 
 
 class ServiceAreaResult(IntakeFlowResult):
     location: str
     is_eligible: bool
     fips_code: int
+
+
+class SSNLast4Result(IntakeFlowResult):
+    ssn_last_4: str

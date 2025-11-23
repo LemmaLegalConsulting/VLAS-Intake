@@ -23,7 +23,7 @@ def require_ev(key: str) -> str:
         ValueError: If the environment variable is not set.
     """
     if not (value := os.getenv(key)):
-        raise ValueError(f"The {key} environment variable must be set.")
+        raise ValueError(f"""The {key} environment variable must be set.""")
     return value
 
 

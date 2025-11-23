@@ -70,11 +70,11 @@ def log_flow_manager_state(flow_manager: FlowManager):
     for key, value in flow_manager.state.items():
         serialized_value = _serialize_for_logging(value)
         if isinstance(serialized_value, dict):
-            logger.debug(f"{key}:")
+            logger.debug(f"""{key}:""")
             for sub_key, sub_value in serialized_value.items():
-                logger.debug(f"  {sub_key}: {sub_value}")
+                logger.debug(f"""  {sub_key}: {sub_value}""")
         else:
-            logger.debug(f"{key}: {serialized_value}")
+            logger.debug(f"""{key}: {serialized_value}""")
     logger.debug("----------------------------------------")
 
 
@@ -102,7 +102,9 @@ async def save_state_to_json(state: dict) -> None:
                     if content:
                         results_data = json.loads(content)
             except (json.JSONDecodeError, IOError) as e:
-                logger.warning(f"Error reading {results_file}: {e}. Starting with empty results.")
+                logger.warning(
+                    f"""Error reading {results_file}: {e}. Starting with empty results."""
+                )
 
         # Serialize the state, converting enums to their values
         serialized_state = _serialize_for_logging(state)
@@ -114,10 +116,10 @@ async def save_state_to_json(state: dict) -> None:
         async with aiofiles.open(results_file, "w") as f:
             await f.write(json.dumps(results_data, indent=2))
 
-        logger.info(f"State for call_id {call_id} saved to {results_file}")
+        logger.info(f"""State for call_id {call_id} saved to {results_file}""")
 
     except Exception as e:
-        logger.error(f"Error saving state to JSON: {e}")
+        logger.error(f"""Error saving state to JSON: {e}""")
 
 
 def status_helper(status: bool) -> Status:

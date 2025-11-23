@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.models.validator import Phone, PhoneType
+from intake_bot.models.validator import PhoneAdverseParty, PhoneTypeCaller
 
 
 @pytest.mark.parametrize(
@@ -18,9 +18,9 @@ from intake_bot.models.validator import Phone, PhoneType
 )
 def test_phone_number_validation_and_formatting(input_number, expected_formatted):
     """Test that Phone model validates and formats valid US phone numbers."""
-    phone = Phone(number=input_number, type=PhoneType.MOBILE)
+    phone = PhoneAdverseParty(number=input_number, type=PhoneTypeCaller.MOBILE)
     assert phone.number == expected_formatted
-    assert phone.type == PhoneType.MOBILE
+    assert phone.type == PhoneTypeCaller.MOBILE
 
 
 @pytest.mark.parametrize(
@@ -39,4 +39,4 @@ def test_phone_number_validation_and_formatting(input_number, expected_formatted
 def test_phone_number_validation_rejects_invalid(invalid_number):
     """Test that Phone model rejects invalid phone numbers."""
     with pytest.raises(ValueError, match="Invalid US phone number"):
-        Phone(number=invalid_number, type=PhoneType.MOBILE)
+        PhoneAdverseParty(number=invalid_number, type=PhoneTypeCaller.MOBILE)

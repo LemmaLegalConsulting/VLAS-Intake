@@ -31,10 +31,8 @@ class ReferenceDataLoader:
         try:
             if not ref_file.exists():
                 raise FileNotFoundError(f"""Reference data file not found: {ref_file}""")
-
             with open(ref_file) as f:
                 ReferenceDataLoader._data = yaml.safe_load(f)
-
             logger.debug(f"""Loaded reference data from {ref_file}""")
         except Exception as e:
             logger.error(f"""Error loading reference data from {ref_file}: {e}""")

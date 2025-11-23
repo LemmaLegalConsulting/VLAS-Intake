@@ -6,6 +6,127 @@ from intake_bot.services.phonenumber import phone_number_is_valid
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
 
 ######################################################################
+# Address
+######################################################################
+
+
+class Address(BaseModel):
+    street: str
+    street_2: Optional[str] = None
+    city: str
+    state: str
+    zip: str
+
+    @field_validator("street", "city", "state", "zip", mode="after")
+    @classmethod
+    def validate_required_fields(cls, v):
+        if not v or not v.strip():
+            raise ValueError("This field is required and cannot be empty")
+        return v.strip()
+
+    @field_validator("street_2", mode="before")
+    def falsy_to_none(cls, v):
+        if not v:
+            return None
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+######################################################################
+# Adverse Parties
+######################################################################
+
+
+class PhoneTypeAdverseParty(str, Enum):
+    """Phone types for adverse parties - uses phone_{type} field naming."""
+
+    BUSINESS = "business"
+    HOME = "home"
+    MOBILE = "mobile"
+    FAX = "fax"
+
+
+class PhoneAdverseParty(BaseModel):
+    number: str
+    type: PhoneTypeAdverseParty
+
+    @field_validator("number", mode="after")
+    @classmethod
+    def validate_phone_number(cls, v):
+        is_valid, formatted = phone_number_is_valid(v)
+        if not is_valid:
+            raise ValueError(f"""Invalid US phone number: {v}""")
+        return formatted
+
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class AdverseParty(BaseModel):
+    first: str
+    middle: Optional[str] = None
+    last: str
+    dob: Optional[date] = None
+    phones: Optional[List[PhoneAdverseParty]] = None
+
+    model_config = ConfigDict(exclude_none=True)
+
+    @field_validator("middle", "dob", "phones", mode="before")
+    def falsy_to_none(cls, v):
+        if not v:
+            return None
+        return v
+
+
+class AdverseParties(RootModel[List[AdverseParty]]):
+    """A list of AdverseParty objects. At least one adverse party is required."""
+
+    root: List[AdverseParty] = Field(..., min_length=1)
+
+
+######################################################################
+# Asset
+######################################################################
+
+
+class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value (int)
+    """
+    Represents a single asset entry mapping an asset name to its integer value.
+    Example: {"car": 5000}
+    """
+
+    pass
+
+
+class Assets(RootModel[list[AssetEntry]]):
+    """
+    Represents the overall assets list as a Pydantic RootModel wrapping a list of AssetEntry.
+    Example:
+        [
+            {"car": 5000},
+            {"savings": 2000}
+        ]
+    """
+
+    pass
+
+
+######################################################################
+# Caller Phone
+######################################################################
+
+
+class PhoneTypeCaller(str, Enum):
+    """Phone types for caller/contact - uses {type}_phone field naming."""
+
+    WORK = "work"
+    OTHER = "other"
+    HOME = "home"
+    MOBILE = "mobile"
+    FAX = "fax"
+
+
+######################################################################
 # Caller Names
 ######################################################################
 
@@ -100,124 +221,3 @@ class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_category_name 
 
 class HouseholdIncome(RootModel[dict[str, MemberIncome]]):  # person_name -> MemberIncome
     pass
-
-
-######################################################################
-# Asset
-######################################################################
-
-
-class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value (int)
-    """
-    Represents a single asset entry mapping an asset name to its integer value.
-    Example: {"car": 5000}
-    """
-
-    pass
-
-
-class Assets(RootModel[list[AssetEntry]]):
-    """
-    Represents the overall assets list as a Pydantic RootModel wrapping a list of AssetEntry.
-    Example:
-        [
-            {"car": 5000},
-            {"savings": 2000}
-        ]
-    """
-
-    pass
-
-
-######################################################################
-# Phone Types
-######################################################################
-
-
-class PhoneType(str, Enum):
-    """Phone types for caller/contact - uses {type}_phone field naming."""
-
-    WORK = "work"
-    OTHER = "other"
-    HOME = "home"
-    MOBILE = "mobile"
-    FAX = "fax"
-
-
-class PhoneTypeAdverseParty(str, Enum):
-    """Phone types for adverse parties - uses phone_{type} field naming."""
-
-    BUSINESS = "business"
-    HOME = "home"
-    MOBILE = "mobile"
-    FAX = "fax"
-
-
-######################################################################
-# Adverse Parties
-######################################################################
-
-
-class Phone(BaseModel):
-    number: str
-    type: PhoneTypeAdverseParty
-
-    @field_validator("number", mode="after")
-    @classmethod
-    def validate_phone_number(cls, v):
-        is_valid, formatted = phone_number_is_valid(v)
-        if not is_valid:
-            raise ValueError(f"""Invalid US phone number: {v}""")
-        return formatted
-
-    model_config = ConfigDict(use_enum_values=True)
-
-
-class AdverseParty(BaseModel):
-    first: str
-    middle: Optional[str] = None
-    last: str
-    dob: Optional[date] = None
-    phones: Optional[List[Phone]] = None
-
-    model_config = ConfigDict(exclude_none=True)
-
-    @field_validator("middle", "dob", "phones", mode="before")
-    def falsy_to_none(cls, v):
-        if not v:
-            return None
-        return v
-
-
-class AdverseParties(RootModel[List[AdverseParty]]):
-    """A list of AdverseParty objects. At least one adverse party is required."""
-
-    root: List[AdverseParty] = Field(..., min_length=1)
-
-
-######################################################################
-# Address
-######################################################################
-
-
-class Address(BaseModel):
-    street: str
-    street_2: Optional[str] = None
-    city: str
-    state: str
-    zip: str
-
-    @field_validator("street", "city", "state", "zip", mode="after")
-    @classmethod
-    def validate_required_fields(cls, v):
-        if not v or not v.strip():
-            raise ValueError("This field is required and cannot be empty")
-        return v.strip()
-
-    @field_validator("street_2", mode="before")
-    def falsy_to_none(cls, v):
-        if not v:
-            return None
-        return v
-
-    model_config = ConfigDict(use_enum_values=True)
