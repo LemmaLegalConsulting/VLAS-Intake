@@ -49,18 +49,17 @@ class CallerNames(RootModel[List[CallerName]]):
 
     @field_validator("root", mode="after")
     @classmethod
-    def no_duplicate_names(cls, names: List[CallerName]) -> List[CallerName]:
-        """Ensure no duplicate CallerName entries exist (all fields the same)."""
+    def deduplicate_names(cls, names: List[CallerName]) -> List[CallerName]:
+        """Silently deduplicate names - keep first occurrence of each unique name."""
         seen = set()
+        deduplicated = []
         for name in names:
             # Create a tuple of all fields for comparison
             name_tuple = (name.first, name.middle, name.last)
-            if name_tuple in seen:
-                raise ValueError(
-                    f"Duplicate CallerName entry found: {name.first} {name.middle or ''} {name.last}".strip()
-                )
-            seen.add(name_tuple)
-        return names
+            if name_tuple not in seen:
+                seen.add(name_tuple)
+                deduplicated.append(name)
+        return deduplicated
 
 
 ######################################################################
@@ -180,6 +179,8 @@ class AdverseParty(BaseModel):
     last: str
     dob: Optional[date] = None
     phones: Optional[List[Phone]] = None
+
+    model_config = ConfigDict(exclude_none=True)
 
     @field_validator("middle", "dob", "phones", mode="before")
     def falsy_to_none(cls, v):
