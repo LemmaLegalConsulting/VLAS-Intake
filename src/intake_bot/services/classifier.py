@@ -30,11 +30,6 @@ class Classifier:
 
     @staticmethod
     def _load_prompts() -> Dict[str, str]:
-        """Load prompts from yaml file.
-
-        Returns:
-          Dict mapping prompt names to prompt content.
-        """
         prompts_file = Path(DATA_DIR) / "classifier_prompts.yml"
         with open(prompts_file) as f:
             prompts_data: Dict[str, str] = yaml.safe_load(f)
@@ -42,15 +37,6 @@ class Classifier:
 
     @staticmethod
     def _load_taxonomy() -> Dict[str, str]:
-        """Load taxonomy from reference data.
-
-        Parses entries like "63 Private Landlord/Tenant" into a dictionary where:
-        - key: normalized label without code (e.g., "Private Landlord/Tenant")
-        - value: full original entry (e.g., "63 Private Landlord/Tenant")
-
-        Returns:
-          A dict mapping normalized labels to full original entries.
-        """
         return ReferenceDataLoader().legal_problem_codes
 
     def __init__(self):
@@ -400,12 +386,13 @@ class Classifier:
 
         # Run providers in parallel
         tasks = []
+        taxonomy_keys = list(taxonomy.keys())
+        final_prompt = self.load_prompt(taxonomy_keys)
         for provider in self.providers:
-            final_prompt = self.load_prompt(taxonomy.keys())
             provider_kwargs = {
                 "problem_description": problem_description,
                 "prompt": final_prompt,
-                "taxonomy": list(taxonomy.keys()) if taxonomy else [],
+                "taxonomy": taxonomy_keys,
             }
             # Add reasoning_effort if provider has it set
             if provider.reasoning_effort:
@@ -597,62 +584,6 @@ class Classifier:
 
                     await asyncio.sleep(wait_time)
 
-            # All retries exhausted
-            if last_exception:
-                raise last_exception
-            raise RuntimeError(f"""Failed after {self.MAX_RETRIES} attempts""")
-
-        def _call_with_retry_sync(self, func, *args, **kwargs) -> Any:
-            """Execute sync function with retry and rate-limit handling.
-
-            Args:
-              func: Sync function to call.
-              *args: Positional arguments for the function.
-              **kwargs: Keyword arguments for the function.
-
-            Returns:
-              The result of the function call.
-
-            Raises:
-              The last exception if all retries are exhausted.
-            """
-            last_exception = None
-
-            for attempt in range(self.MAX_RETRIES):
-                try:
-                    if DEBUG and attempt > 0:
-                        logger.debug(
-                            f"""[{self.model_name}] Attempt {attempt + 1}/{self.MAX_RETRIES}"""
-                        )
-                    return func(*args, **kwargs)
-
-                except Exception as e:
-                    last_exception = e
-
-                    if not self._is_rate_limit_error(e):
-                        # Not a rate limit error, re-raise immediately
-                        raise
-
-                    if attempt == self.MAX_RETRIES - 1:
-                        # Last attempt, will re-raise after this
-                        logger.error(
-                            f"""[{self.model_name}] Max retries ({self.MAX_RETRIES}) exhausted"""
-                        )
-                        break
-
-                    # Calculate wait time
-                    wait_time = self._parse_retry_after(e)
-                    if wait_time is None:
-                        wait_time = self._calculate_backoff_delay(attempt)
-
-                    if DEBUG:
-                        logger.debug(
-                            f"""[{self.model_name}] Rate limited. Waiting {wait_time:.1f}s before retry"""
-                        )
-
-                    time.sleep(wait_time)
-
-            # All retries exhausted
             if last_exception:
                 raise last_exception
             raise RuntimeError(f"""Failed after {self.MAX_RETRIES} attempts""")
@@ -813,8 +744,7 @@ class Classifier:
             """
             if taxonomy is None:
                 return {"labels": [], "questions": []}
-            # Stopwords to filter out
-            stopwords = {
+            words_to_ignore = {
                 "the",
                 "a",
                 "an",
@@ -866,12 +796,11 @@ class Classifier:
                 "they",
             }
 
-            # Extract key terms / all meaningful words
             words = problem_description.lower().split()
             key_terms = set(
                 w.rstrip(".,!?;:()[]{}").lower()
                 for w in words
-                if len(w) > 3 and w.rstrip(".,!?;:()[]{}").lower() not in stopwords
+                if len(w) > 3 and w.rstrip(".,!?;:()[]{}").lower() not in words_to_ignore
             )
             key_phrase = " ".join(sorted(key_terms))  # All key terms for stronger signal
 
