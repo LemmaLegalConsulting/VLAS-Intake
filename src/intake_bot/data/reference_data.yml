@@ -1,0 +1,150 @@
+# Service areas served by VLAS - county/city name to FIPS code mapping
+service_areas:
+  "Amelia County": 51007
+  "Amherst County": 51009
+  "Appomattox County": 51011
+  "Bedford County": 51019
+  "Brunswick County": 51025
+  "Campbell County": 51031
+  "Danville City": 51595
+  "Emporia City": 51600
+  "Franklin City": 51630
+  "Greensville County": 51081
+  "Halifax County": 51083
+  "Henry County": 51089
+  "Isle of Wight County": 51093
+  "Lunenburg County": 51111
+  "Lynchburg City": 51680
+  "Martinsville City": 51690
+  "Mecklenburg County": 51117
+  "Nottoway County": 51135
+  "Patrick County": 51141
+  "Pittsylvania County": 51143
+  "Prince Edward County": 51147
+  "South Boston": 51083
+  "Southampton County": 51175
+  "Suffolk City": 51800
+  "Sussex County": 51183
+
+# Income category names for LegalServer matter_income field
+# Used as category labels in income records
+income_categories:
+  - "Income Not Provided"
+  - "No Household Income"
+  - "Long-Term/Short-Term Disability"
+  - "Social Security Dependent Benefits"
+  - "SSI/SSDI combo"
+  - "Trust/Dividends/Annuity"
+  - "Child Support"
+  - "Employment"
+  - "Other"
+  - "Pension/Retirement (Not Soc. Sec.)"
+  - "Social Security Disability"
+  - "Social Security Retirement"
+  - "Spousal Support"
+  - "SSI"
+  - "TANF"
+  - "Unemployment Compensation"
+  - "Veterans Benefits"
+  - "Workers Compensation"
+
+# LSC Legal Problem Codes - problem area classifications for case categorization
+# Maps: normalized label (without code) -> full entry (with code)
+legal_problem_codes:
+  "Criminal Defense": "00 Criminal Defense"
+  "Criminal Prosecution": "00 Criminal Prosecution"
+  "Traffic Violations": "00 Traffic Violations"
+  "DUI/DWI": "00 DUI/DWI"
+  "Drug Charges": "00 Drug Charges"
+  "Felony Charges": "00 Felony Charges"
+  "Business Formation/For-Profit": "00 Business Formation/For-Profit"
+  "Business/Commercial Disputes": "00 Business/Commercial Disputes"
+  "Intellectual Property": "00 Intellectual Property"
+  "Personal Injury/Damages": "00 Personal Injury/Damages"
+  "Medical Malpractice": "00 Medical Malpractice"
+  "Investment/Securities": "00 Investment/Securities"
+  "Complex Estate Planning": "00 Complex Estate Planning"
+  "Tax Planning/Complex Taxes": "00 Tax Planning/Complex Taxes"
+  "Government Employment": "00 Government Employment"
+  "Attorney Malpractice": "00 Attorney Malpractice"
+  "Bar Disciplinary": "00 Bar Disciplinary"
+  "Non-Legal Services": "00 Non-Legal Services"
+  "Bankruptcy/Debtor Relief": "01 Bankruptcy/Debtor Relief"
+  "Collect/Repo/Def/Garnsh": "02 Collect/Repo/Def/Garnsh"
+  "Contract/Warranties": "03 Contract/Warranties"
+  "Collection Practices / Creditor Harassment": "04 Collection Practices / Creditor Harassment"
+  "Predatory Lending Practices (Not Mortgages)": "05 Predatory Lending Practices (Not Mortgages)"
+  "Loans/Installment Purchases (Not Collections)": "06 Loans/Installment Purchases (Not Collections)"
+  "Public Utilities": "07 Public Utilities"
+  "Unfair and Deceptive Sales Practices (Not Real Property)": "08 Unfair and Deceptive Sales Practices (Not Real Property)"
+  "Other Consumer/Finance": "09 Other Consumer/Finance"
+  "Discipline (Including Expulsion and Suspension)": "12 Discipline (Including Expulsion and Suspension)"
+  "Special Education/Learning Disabilities": "13 Special Education/Learning Disabilities"
+  "Access (Including Bilingual, Residency, Testing)": "14 Access (Including Bilingual, Residency, Testing)"
+  "Vocational Education": "15 Vocational Education"
+  "Student Financial Aid": "16 Student Financial Aid"
+  "Other Education": "19 Other Education"
+  "Employment Discrimination": "21 Employment Discrimination"
+  "Wage Claims and Other FLSA Issues": "22 Wage Claims and Other FLSA Issues"
+  "EITC (Earned Income Tax Credit)": "23 EITC (Earned Income Tax Credit)"
+  "Taxes (Not EITC)": "24 Taxes (Not EITC)"
+  "Employee Rights": "25 Employee Rights"
+  "Agricultural Workers Issues (Not Wage Claims/FLSA Issues)": "26 Agricultural Workers Issues (Not Wage Claims/FLSA Issues)"
+  "Other Employment": "29 Other Employment"
+  "Adoption": "30 Adoption"
+  "Custody/Visitation": "31 Custody/Visitation"
+  "Divorce/Sep./Annul.": "32 Divorce/Sep./Annul."
+  "Adult Guardianship / Conservatorship": "33 Adult Guardianship / Conservatorship"
+  "Name Change": "34 Name Change"
+  "Parental Rights Termination": "35 Parental Rights Termination"
+  "Paternity": "36 Paternity"
+  "Domestic Abuse": "37 Domestic Abuse"
+  "Support": "38 Support"
+  "Other Family": "39 Other Family"
+  "Delinquent": "41 Delinquent"
+  "Neglected/Abused/Dependent": "42 Neglected/Abused/Dependent"
+  "Emancipation": "43 Emancipation"
+  "Minor Guardianship / Conservatorship": "44 Minor Guardianship / Conservatorship"
+  "Other Juvenile": "49 Other Juvenile"
+  "Medicaid": "51 Medicaid"
+  "Medicare": "52 Medicare"
+  "Goverment Children's Health Insurance Programs": "53 Goverment Children's Health Insurance Programs"
+  "Home and Community Based Care": "54 Home and Community Based Care"
+  "Private Health Insurance": "55 Private Health Insurance"
+  "Long Term Health Care Facilities": "56 Long Term Health Care Facilities"
+  "State and Local Health": "57 State and Local Health"
+  "Other Health": "59 Other Health"
+  "Federally Subsidized Housing": "61 Federally Subsidized Housing"
+  "Homeownership/Real Property (Not Foreclosure)": "62 Homeownership/Real Property (Not Foreclosure)"
+  "Private Landlord/Tenant": "63 Private Landlord/Tenant"
+  "Public Housing": "64 Public Housing"
+  "Mobile Homes": "65 Mobile Homes"
+  "Housing Discrimination": "66 Housing Discrimination"
+  "Mortgage Foreclosures (Not Predatory Lending/Practices)": "67 Mortgage Foreclosures (Not Predatory Lending/Practices)"
+  "Mortgage Predatory Lending/Practices": "68 Mortgage Predatory Lending/Practices"
+  "Other Housing": "69 Other Housing"
+  "TANF": "71 TANF"
+  "Social Security (Not SSDI)": "72 Social Security (Not SSDI)"
+  "Food Stamps": "73 Food Stamps"
+  "SSDI": "74 SSDI"
+  "SSI": "75 SSI"
+  "Unemployment Compensation": "76 Unemployment Compensation"
+  "Veterans Benefits": "77 Veterans Benefits"
+  "State and Local Income Maintenance": "78 State and Local Income Maintenance"
+  "Other Income Maintenence": "79 Other Income Maintenence"
+  "Immigration/Naturalization": "81 Immigration/Naturalization"
+  "Mental Health": "82 Mental Health"
+  "Disability Rights": "84 Disability Rights"
+  "Civil Rights": "85 Civil Rights"
+  "Human Trafficking": "86 Human Trafficking"
+  "Criminal Record Expungement": "87 Criminal Record Expungement"
+  "Other Individual Rights": "89 Other Individual Rights"
+  "Legal Assist. to Non-Profit Org. or Group (Incl. Incorp./Diss.)": "91 Legal Assist. to Non-Profit Org. or Group (Incl. Incorp./Diss.)"
+  "Indian/Tribal Law": "92 Indian/Tribal Law"
+  "Licenses (Drivers, Occupational, and Others)": "93 Licenses (Drivers, Occupational, and Others)"
+  "Torts": "94 Torts"
+  "Wills and Estates": "95 Wills and Estates"
+  "Advanced Directives/Powers of Attorney": "96 Advanced Directives/Powers of Attorney"
+  "Municipal Legal Needs": "97 Municipal Legal Needs"
+  "Tribal Court - Criminal": "98 Tribal Court - Criminal"
+  "Other Miscellaneous": "99 Other Miscellaneous"

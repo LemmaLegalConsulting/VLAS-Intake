@@ -13,6 +13,7 @@ from intake_bot.models.classifier import (
     ClassificationResponse,
     FollowUpQuestion,
 )
+from intake_bot.services.reference_data import ReferenceDataLoader
 from intake_bot.utils.ev import require_ev
 from intake_bot.utils.globals import DATA_DIR, DEBUG
 from loguru import logger
@@ -40,41 +41,17 @@ class Classifier:
         return prompts_data
 
     @staticmethod
-    def _load_taxonomy() -> Optional[Dict[str, str]]:
-        """Load taxonomy from LSC problem codes text file.
+    def _load_taxonomy() -> Dict[str, str]:
+        """Load taxonomy from reference data.
 
         Parses entries like "63 Private Landlord/Tenant" into a dictionary where:
         - key: normalized label without code (e.g., "Private Landlord/Tenant")
         - value: full original entry (e.g., "63 Private Landlord/Tenant")
 
         Returns:
-          A dict mapping normalized labels to full original entries, or None if loading fails.
+          A dict mapping normalized labels to full original entries.
         """
-        taxonomy_file = Path(DATA_DIR) / "legal_problem_codes.txt"
-        try:
-            if not taxonomy_file.exists():
-                logger.warning(f"""Taxonomy file not found: {taxonomy_file}""")
-                return None
-            content = taxonomy_file.read_text()
-            lines = [line.strip() for line in content.splitlines() if line.strip()]
-            if not lines:
-                logger.warning(f"""Taxonomy file {taxonomy_file} contains no valid entries""")
-                return None
-            # Parse each line: split numeric code from label
-            taxonomy_dict = {}
-            for line in lines:
-                parts = line.split(None, 1)
-                if len(parts) == 2 and parts[0].isdigit():
-                    # Line has format "CODE Label" - use label as key
-                    label = parts[1]
-                    taxonomy_dict[label] = line  # Store original full entry
-                else:
-                    # Line has no code prefix - use as-is
-                    taxonomy_dict[line] = line
-            return taxonomy_dict
-        except Exception as e:
-            logger.error(f"""Error loading taxonomy file {taxonomy_file}: {e}""")
-            return None
+        return ReferenceDataLoader().legal_problem_codes
 
     def __init__(self):
         # Load data from files
@@ -409,7 +386,7 @@ class Classifier:
             logger.debug("=" * 60)
 
         taxonomy = self.taxonomy
-        if taxonomy is None:
+        if not taxonomy:
             return ClassificationResponse(
                 follow_up_questions=[FollowUpQuestion(question="Taxonomy could not be loaded.")],
             )
@@ -953,7 +930,7 @@ if __name__ == "__main__":
 
     problem_description = sys.argv[1]
 
-    print(f"Classifying: {problem_description}\n")
+    print(f"""Classifying: {problem_description}\n""")
 
     classifier = Classifier()
     result = asyncio.run(classifier.classify(problem_description))

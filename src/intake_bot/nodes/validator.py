@@ -1,7 +1,5 @@
 from datetime import datetime
-from pathlib import Path
 
-import yaml
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.validator import (
     Assets,
@@ -11,7 +9,7 @@ from intake_bot.models.validator import (
 from intake_bot.services.classifier import Classifier
 from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.services.poverty import poverty_scale_income_qualifies
-from intake_bot.utils.globals import DATA_DIR
+from intake_bot.services.reference_data import ReferenceDataLoader
 from rapidfuzz import fuzz, process, utils
 
 
@@ -21,15 +19,8 @@ class IntakeValidator:
     """
 
     def __init__(self):
-        self.service_areas = self._load_flat_yaml("service_areas.yaml")
-        self.income_categories = self._load_flat_yaml("income_categories.yaml")
+        self.service_areas = ReferenceDataLoader().service_areas
         self.classifier = Classifier()
-
-    @staticmethod
-    def _load_flat_yaml(filename: str) -> dict[str, int]:
-        filepath = Path(DATA_DIR) / filename
-        with open(filepath) as f:
-            return yaml.safe_load(f)
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         """
@@ -151,7 +142,7 @@ class IntakeValidator:
                 elif period == IncomePeriod.QUARTERLY:
                     total_monthly += (amt * 4) / 12
                 else:
-                    raise ValueError(f"Unknown period: {period}")
+                    raise ValueError(f"""Unknown period: {period}""")
         total_monthly = int(total_monthly)
         total_members = len(income.root.keys())
         is_eligible = poverty_scale_income_qualifies(
