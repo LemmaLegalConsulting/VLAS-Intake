@@ -232,6 +232,66 @@ class TestBuildMatterPayload:
 
         assert "date_of_birth" not in payload
 
+    def test_payload_with_address_full(self):
+        """Test that full address is included in payload."""
+        state = {
+            "names": {"names": [{"first": "Robert", "last": "Taylor"}]},
+            "address": {
+                "address": {
+                    "street": "123 Main Street",
+                    "street_2": "Apt 4B",
+                    "city": "Richmond",
+                    "state": "VA",
+                    "zip": "23219",
+                }
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["home_street"] == "123 Main Street"
+        assert payload["home_apt_num"] == "Apt 4B"
+        assert payload["home_city"] == "Richmond"
+        assert payload["home_state"] == "VA"
+        assert payload["home_zip"] == "23219"
+
+    def test_payload_with_address_without_apartment(self):
+        """Test that address without apartment number is included."""
+        state = {
+            "names": {"names": [{"first": "Patricia", "last": "Garcia"}]},
+            "address": {
+                "address": {
+                    "street": "456 Oak Avenue",
+                    "street_2": None,
+                    "city": "Arlington",
+                    "state": "VA",
+                    "zip": "22201",
+                }
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["home_street"] == "456 Oak Avenue"
+        assert "home_apt_num" not in payload  # None values excluded
+        assert payload["home_city"] == "Arlington"
+        assert payload["home_state"] == "VA"
+        assert payload["home_zip"] == "22201"
+
+    def test_payload_excludes_missing_address_section(self):
+        """Test that missing address section is handled gracefully."""
+        state = {
+            "names": {"names": [{"first": "Nancy", "last": "White"}]},
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert "home_street" not in payload
+        assert "home_apt_num" not in payload
+        assert "home_city" not in payload
+        assert "home_state" not in payload
+        assert "home_zip" not in payload
+
     def test_complete_payload_with_date_of_birth_and_all_fields(self):
         """Test building complete payload with date of birth and all other fields."""
         state = {
@@ -248,6 +308,15 @@ class TestBuildMatterPayload:
                 ]
             },
             "date_of_birth": {"date_of_birth": "1975-03-20"},
+            "address": {
+                "address": {
+                    "street": "789 Elm Road",
+                    "street_2": "Suite 100",
+                    "city": "Alexandria",
+                    "state": "VA",
+                    "zip": "22314",
+                }
+            },
             "service_area": {
                 "location": "Arlington County, VA",
                 "is_eligible": True,
@@ -274,6 +343,11 @@ class TestBuildMatterPayload:
         assert payload["suffix"] == "Jr."
 
         assert payload["date_of_birth"] == "1975-03-20"
+        assert payload["home_street"] == "789 Elm Road"
+        assert payload["home_apt_num"] == "Suite 100"
+        assert payload["home_city"] == "Alexandria"
+        assert payload["home_state"] == "VA"
+        assert payload["home_zip"] == "22314"
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
         assert payload["county_of_residence"]["county_FIPS"] == "51013"

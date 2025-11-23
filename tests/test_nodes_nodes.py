@@ -9,6 +9,7 @@ from intake_bot.nodes.nodes import (
     end_conversation,
     node_caller_ended_conversation,
     node_end_conversation,
+    record_address,
     record_adverse_parties,
     record_assets_list,
     record_assets_receives_benefits,
@@ -110,6 +111,62 @@ async def test_record_name_invalid(flow_manager):
     result, next_node = await record_name(flow_manager, "", "", "")
     assert result["status"] == Status.ERROR
     assert "validating the `name`" in result["error"]
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_address_valid(flow_manager):
+    result, next_node = await record_address(
+        flow_manager,
+        street="123 Main St",
+        street_2="Apt 4B",
+        city="Richmond",
+        state="VA",
+        zip="23219",
+    )
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["address"]["street"] == "123 Main St"
+    assert result["address"]["street_2"] == "Apt 4B"
+    assert result["address"]["city"] == "Richmond"
+    assert result["address"]["state"] == "VA"
+    assert result["address"]["zip"] == "23219"
+    assert flow_manager.state["address"] is not None
+    assert "record_names_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_address_valid_no_street_2(flow_manager):
+    result, next_node = await record_address(
+        flow_manager, street="456 Oak Ave", city="Arlington", state="VA", zip="22201"
+    )
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["address"]["street"] == "456 Oak Ave"
+    assert result["address"]["street_2"] is None
+    assert result["address"]["city"] == "Arlington"
+    assert result["address"]["state"] == "VA"
+    assert result["address"]["zip"] == "22201"
+    assert "record_names_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_address_invalid_missing_street(flow_manager):
+    result, next_node = await record_address(
+        flow_manager, street="", city="Richmond", state="VA", zip="23219"
+    )
+    assert result["status"] == Status.ERROR
+    assert "validating the `address`" in result["error"]
+    assert next_node is None
+
+
+@pytest.mark.asyncio
+async def test_record_address_invalid_missing_city(flow_manager):
+    result, next_node = await record_address(
+        flow_manager, street="123 Main St", city="", state="VA", zip="23219"
+    )
+    assert result["status"] == Status.ERROR
+    assert "validating the `address`" in result["error"]
     assert next_node is None
 
 
@@ -428,7 +485,7 @@ async def test_record_date_of_birth_valid(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert result["date_of_birth"] == "1980-01-15"
     assert flow_manager.state["date_of_birth"]["date_of_birth"] == "1980-01-15"
-    assert "record_names_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio

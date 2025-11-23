@@ -1,6 +1,7 @@
 import sys
 
 from intake_bot.models.intake_flow_result import (
+    AddressResult,
     AdversePartiesResult,
     AssetsResult,
     CallerNamesResult,
@@ -18,6 +19,7 @@ from intake_bot.models.intake_flow_result import (
     Status,
 )
 from intake_bot.models.validator import (
+    Address,
     AdverseParties,
     Assets,
     CallerName,
@@ -667,8 +669,8 @@ async def record_date_of_birth(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_names"),
-                "functions": [record_names],
+                **prompts.get("record_address"),
+                "functions": [record_address],
             }
         )
     else:
@@ -676,6 +678,50 @@ async def record_date_of_birth(
             "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
         )
         next_node = None
+    return result, next_node
+
+
+@convert_and_log_result("address")
+async def record_address(
+    flow_manager: FlowManager, street: str, city: str, state: str, zip: str, street_2: str = None
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Record the caller's residential address.
+
+    Args:
+        street (str): The primary street address (required).
+        street_2 (str): The apartment, suite, or unit number (optional).
+        city (str): The city (required).
+        state (str): The state abbreviation, e.g., "VA" (required).
+        zip (str): The 5-digit ZIP code (required).
+    """
+    try:
+        address_validated = Address.model_validate(
+            {
+                "street": street,
+                "street_2": street_2,
+                "city": city,
+                "state": state,
+                "zip": zip,
+            }
+        )
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"""There was an error validating the `address`: {cleaned_error}.""",
+        )
+        return result, None
+
+    result = AddressResult(status=Status.SUCCESS, address=address_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_names"),
+            "functions": [record_names],
+        }
+    )
     return result, next_node
 
 

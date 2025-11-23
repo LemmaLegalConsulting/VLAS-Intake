@@ -192,3 +192,31 @@ class AdverseParties(RootModel[List[AdverseParty]]):
     """A list of AdverseParty objects. At least one adverse party is required."""
 
     root: List[AdverseParty] = Field(..., min_length=1)
+
+
+######################################################################
+# Address
+######################################################################
+
+
+class Address(BaseModel):
+    street: str
+    street_2: Optional[str] = None
+    city: str
+    state: str
+    zip: str
+
+    @field_validator("street", "city", "state", "zip", mode="after")
+    @classmethod
+    def validate_required_fields(cls, v):
+        if not v or not v.strip():
+            raise ValueError("This field is required and cannot be empty")
+        return v.strip()
+
+    @field_validator("street_2", mode="before")
+    def falsy_to_none(cls, v):
+        if not v:
+            return None
+        return v
+
+    model_config = ConfigDict(use_enum_values=True)

@@ -1,6 +1,6 @@
 from enum import Enum
 
-from intake_bot.models.validator import AdverseParties, CallerNames, PhoneType
+from intake_bot.models.validator import Address, AdverseParties, CallerNames, PhoneType
 from pydantic import BaseModel, ConfigDict
 
 
@@ -18,6 +18,10 @@ class IntakeFlowResult(BaseModel):
 
 class AdversePartiesResult(IntakeFlowResult):
     adverse_parties: AdverseParties
+
+
+class AddressResult(IntakeFlowResult):
+    address: Address
 
 
 class AssetsResult(IntakeFlowResult):
