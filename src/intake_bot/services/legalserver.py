@@ -430,30 +430,59 @@ async def get_common_lookup_types() -> list[str] | None:
 
 async def get_custom_lookups() -> Dict[str, Any] | None:
     """
-    Query LegalServer API for all custom lookup tables.
+    Query LegalServer API for all custom lookup tables with pagination support.
 
     Custom lookups are user-defined lookup tables specific to each LegalServer instance.
-    System lookups are accessed via /api/v2/lookups/{table_name}.
+    Fetches all pages and combines results into a single list.
 
     Returns:
-        Dictionary with custom lookups data, or None if query fails
+        Dictionary with custom lookups data including all pages, or None if query fails
     """
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            # Query custom lookups endpoint
-            response = await client.get(
-                f"{LEGALSERVER_API_BASE_URL}/custom_lookups",
-                headers=LEGALSERVER_HEADERS,
-            )
+            all_lookups = []
+            page_number = 1
+            total_pages = None
 
-            if response.status_code not in (200, 201):
-                logger.error(f"Failed to query custom lookups: {response.status_code}")
-                logger.error(f"Response: {response.text}")
-                return None
+            while total_pages is None or page_number <= total_pages:
+                # Query custom lookups endpoint with pagination
+                response = await client.get(
+                    f"{LEGALSERVER_API_BASE_URL}/custom_lookups?page_number={page_number}",
+                    headers=LEGALSERVER_HEADERS,
+                )
 
-            data = response.json()
-            logger.debug(f"Custom lookups response keys: {data.keys()}")
-            return data
+                if response.status_code not in (200, 201):
+                    logger.error(
+                        f"Failed to query custom lookups page {page_number}: {response.status_code}"
+                    )
+                    logger.error(f"Response: {response.text}")
+                    return None
+
+                data = response.json()
+                logger.debug(f"Custom lookups page {page_number} response keys: {data.keys()}")
+
+                # Extract pagination info
+                if total_pages is None:
+                    total_pages = data.get("total_number_of_pages", 1)
+                    logger.debug(
+                        f"Total pages: {total_pages}, Total records: {data.get('total_records', 0)}"
+                    )
+
+                # Combine data from all pages
+                page_data = data.get("data", [])
+                all_lookups.extend(page_data)
+                logger.debug(
+                    f"Page {page_number}: retrieved {len(page_data)} lookups (total so far: {len(all_lookups)})"
+                )
+
+                page_number += 1
+
+            # Return combined result with all lookups
+            return {
+                "total_records": data.get("total_records", len(all_lookups)),
+                "total_pages": total_pages,
+                "data": all_lookups,
+            }
 
     except httpx.RequestError as e:
         logger.error(f"HTTP Request failed: {e}")
