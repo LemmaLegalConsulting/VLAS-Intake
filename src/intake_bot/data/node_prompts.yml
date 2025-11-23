@@ -149,20 +149,26 @@ record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
-        1. Reference the adverse parties that were previously collected (they will be available in the conversation context).
-        2. Ask the caller if any of these adverse parties have perpetrated domestic violence against them.
-        3. If the caller indicates that one or more of the adverse parties have perpetrated domestic violence, ask them to confirm which ones.
-        4. If the caller has adverse parties but states that none of them have perpetrated domestic violence, proceed with an empty list.
-        5. If there were no adverse parties collected, ask the caller if they are experiencing or have experienced domestic violence from anyone else in their household or relationships. Domestic violence includes physical violence, threatening behavior, yelling, throwing things, controlling behavior, emotional abuse, or any other form of abuse or intimidation.
-        6. Once confirmed, ALWAYS call the `record_domestic_violence` function with the list of perpetrators (which may be empty).
+        1. Reference the adverse parties that were previously collected: {adverse_parties}
+        2. Ask the caller if any of these specific individuals have perpetrated domestic violence against them.
+        3. For each person who has perpetrated domestic violence, use their FULL NAME exactly as listed above.
+        4. If the caller uses a relationship descriptor (like "my husband" or "my ex"), identify which adverse party they're referring to and record that person's full name.
+        5. If the caller indicates that one or more of the adverse parties have perpetrated domestic violence, confirm which ones by their full names.
+        6. If the caller has adverse parties but states that none of them have perpetrated domestic violence, proceed with an empty list.
+        7. If there were no adverse parties collected, ask the caller if they are experiencing or have experienced domestic violence from anyone else in their household or relationships.
+        8. Once confirmed, ALWAYS call the `record_domestic_violence` function with the list of perpetrator names (which may be empty).
 
         [User Prompt]
-        Of the individuals you mentioned as adverse parties, has anyone perpetrated domestic violence against you? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation. Please provide the names of any adverse parties who have done this, or let me know if none of them have.
+        The individuals you mentioned as adverse parties are: {adverse_parties}
+
+        Has any of these individuals perpetrated domestic violence against you? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation. Please identify them by their full names as listed above.
 
         [Additional Notes]
         - Domestic violence includes but is not limited to: hitting, pushing, yelling, throwing objects, threats, controlling behavior, and emotional abuse.
-        - ONLY include names of individuals who were previously listed as adverse parties (unless there were no adverse parties, in which case ask about domestic violence from anyone in their household or relationships).
-        - The `perpetrators` argument should contain a list of names (as strings) of individuals who have perpetrated domestic violence.
+        - CRITICAL: Use the FULL NAMES of the adverse parties exactly as listed above.
+        - If the caller says "my husband" or similar relationship terms, identify which adverse party they mean and use that person's full name.
+        - ONLY include full names of individuals who were previously listed as adverse parties (unless there were no adverse parties, in which case ask about domestic violence from anyone in their household or relationships).
+        - The `perpetrators` argument should contain a list of full names (as strings) matching the adverse parties listed above.
         - If no one has perpetrated domestic violence, pass an empty list: perpetrators = []
         - ALWAYS call the `record_domestic_violence` function after confirming the caller's response.
 

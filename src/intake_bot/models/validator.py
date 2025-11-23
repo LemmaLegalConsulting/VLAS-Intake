@@ -189,6 +189,6 @@ class AdverseParty(BaseModel):
 
 
 class AdverseParties(RootModel[List[AdverseParty]]):
-    """A list of AdverseParty objects."""
+    """A list of AdverseParty objects. At least one adverse party is required."""
 
-    pass
+    root: List[AdverseParty] = Field(..., min_length=1)

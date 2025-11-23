@@ -228,7 +228,7 @@ async def record_service_area(
         )
     else:
         if match:
-            result.error = f"No exact match found. Maybe you meant {match}?"
+            result.error = f"""No exact match found. Maybe you meant {match}?"""
             next_node = None
         else:
             result.error = f"""Not in our service area.
@@ -339,6 +339,13 @@ async def record_adverse_parties(
         )
         return result, None
 
+    adverse_parties_text = ", ".join(
+        [
+            f"""{p.get("first", "")} {p.get("middle", "")} {p.get("last", "")}""".strip()
+            for p in adverse_parties
+        ]
+    )
+
     result = AdversePartiesResult(
         status=Status.SUCCESS,
         adverse_parties=adverse_parties_validated,
@@ -346,7 +353,7 @@ async def record_adverse_parties(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
-            **prompts.get("record_domestic_violence"),
+            **prompts.get("record_domestic_violence", adverse_parties=adverse_parties_text),
             "functions": [record_domestic_violence],
         }
     )
@@ -371,6 +378,7 @@ async def record_domestic_violence(
         is_experiencing=is_experiencing,
         perpetrators=perpetrators,
     )
+
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {

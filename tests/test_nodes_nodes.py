@@ -45,7 +45,7 @@ def patch_validator(monkeypatch):
 @pytest.fixture(autouse=True)
 def patch_prompts(monkeypatch):
     prompts_mock = MagicMock()
-    prompts_mock.get.side_effect = lambda k: {f"{k}_prompt": True}
+    prompts_mock.get.side_effect = lambda k, **kwargs: {f"{k}_prompt": True}
     monkeypatch.setattr("intake_bot.nodes.nodes.prompts", prompts_mock)
     return prompts_mock
 
