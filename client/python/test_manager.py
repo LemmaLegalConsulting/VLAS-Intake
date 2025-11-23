@@ -213,7 +213,21 @@ class StateValidator:
         else:
             # For string comparisons, normalize to lowercase
             if isinstance(actual, str) and isinstance(expected, str):
-                if actual.lower() != expected.lower():
+                # Use fuzzy matching for address fields (character-level matching)
+                if "address" in path:
+                    match_ratio = fuzz.ratio(actual.lower(), expected.lower())
+                    # 90% threshold catches real differences (wrong streets) but allows minor spacing/punctuation variations
+                    if match_ratio < 90:
+                        self.mismatches.append(
+                            {
+                                "path": path,
+                                "issue": "value_mismatch",
+                                "expected": expected,
+                                "actual": actual,
+                                "match_ratio": match_ratio,
+                            }
+                        )
+                elif actual.lower() != expected.lower():
                     self.mismatches.append(
                         {
                             "path": path,
