@@ -42,7 +42,8 @@ class IntakeValidator:
         Validate a date of birth and return its validity status and ISO format (YYYY-MM-DD).
 
         Args:
-            dob_string (str): The date of birth string to validate (accepts various formats).
+            dob_string (str): The date of birth string to validate. Ideally in ISO format (YYYY-MM-DD),
+                            but the validator attempts to parse various common formats.
 
         Returns:
             tuple[bool, str]: A tuple containing:
@@ -58,6 +59,8 @@ class IntakeValidator:
             "%b %d, %Y",
             "%m/%d/%y",
             "%m-%d-%y",
+            "%d %B %Y",
+            "%d %b %Y",
         ]
         for fmt in formats:
             try:

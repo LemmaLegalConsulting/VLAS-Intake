@@ -652,8 +652,7 @@ async def record_date_of_birth(
     Collect the caller's date of birth.
 
     Args:
-        date_of_birth (str): The caller's date of birth in various formats
-                           (MM/DD/YYYY, MM-DD-YYYY, YYYY-MM-DD, Month DD, YYYY, etc.)
+        date_of_birth (str): The caller's date of birth in ISO format (YYYY-MM-DD)
     """
     is_valid, formatted_dob = await validator.check_date_of_birth(dob_string=date_of_birth)
 
