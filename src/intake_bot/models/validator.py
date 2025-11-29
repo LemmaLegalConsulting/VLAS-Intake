@@ -1,9 +1,20 @@
+import unicodedata
 from datetime import date
 from enum import Enum
 from typing import List, Optional
 
 from intake_bot.services.phonenumber import phone_number_is_valid
 from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
+
+
+def normalize_to_ascii(v: str | None) -> str | None:
+    """Normalize unicode characters to their closest ASCII representation."""
+    if v is None:
+        return None
+    if isinstance(v, str):
+        return unicodedata.normalize("NFKD", v).encode("ascii", "ignore").decode("ascii")
+    return v
+
 
 ######################################################################
 # Address
@@ -16,6 +27,11 @@ class Address(BaseModel):
     city: str
     state: str
     zip: str
+
+    @field_validator("street", "street_2", "city", "state", "zip", mode="before")
+    @classmethod
+    def normalize_address_fields(cls, v):
+        return normalize_to_ascii(v)
 
     @field_validator("street", "city", "state", "zip", mode="after")
     @classmethod
@@ -51,6 +67,11 @@ class PhoneAdverseParty(BaseModel):
     number: str
     type: PhoneTypeAdverseParty
 
+    @field_validator("number", mode="before")
+    @classmethod
+    def normalize_phone(cls, v):
+        return normalize_to_ascii(v)
+
     @field_validator("number", mode="after")
     @classmethod
     def validate_phone_number(cls, v):
@@ -69,7 +90,10 @@ class AdverseParty(BaseModel):
     dob: Optional[date] = None
     phones: Optional[List[PhoneAdverseParty]] = None
 
-    model_config = ConfigDict(exclude_none=True)
+    @field_validator("first", "middle", "last", mode="before")
+    @classmethod
+    def normalize_names(cls, v):
+        return normalize_to_ascii(v)
 
     @field_validator("middle", "dob", "phones", mode="before")
     def falsy_to_none(cls, v):
@@ -95,7 +119,12 @@ class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value 
     Example: {"car": 5000}
     """
 
-    pass
+    @field_validator("root", mode="before")
+    @classmethod
+    def normalize_keys(cls, v):
+        if isinstance(v, dict):
+            return {normalize_to_ascii(k): val for k, val in v.items()}
+        return v
 
 
 class Assets(RootModel[list[AssetEntry]]):
@@ -148,6 +177,11 @@ class CallerName(BaseModel):
     type: NameTypeValue = NameTypeValue.FORMER_NAME
 
     model_config = ConfigDict(use_enum_values=True)
+
+    @field_validator("first", "middle", "last", mode="before")
+    @classmethod
+    def normalize_names(cls, v):
+        return normalize_to_ascii(v)
 
     @field_validator("first", "last", mode="before")
     @classmethod
@@ -220,4 +254,9 @@ class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_category_name 
 
 
 class HouseholdIncome(RootModel[dict[str, MemberIncome]]):  # person_name -> MemberIncome
-    pass
+    @field_validator("root", mode="before")
+    @classmethod
+    def normalize_keys(cls, v):
+        if isinstance(v, dict):
+            return {normalize_to_ascii(k): val for k, val in v.items()}
+        return v
