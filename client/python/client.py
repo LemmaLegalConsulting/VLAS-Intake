@@ -9,9 +9,11 @@ from uuid import uuid4
 import yaml
 from dotenv import load_dotenv
 from loguru import logger
+from openai import AsyncOpenAI
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
+    LLMMessagesUpdateFrame,
     LLMRunFrame,
     OutputTransportMessageUrgentFrame,
 )
@@ -97,11 +99,14 @@ async def run_client(
 
     stt = OpenAISTTService(
         api_key=os.getenv("OPENAI_API_KEY"),
-        model="gpt-4o-transcribe",
+        model="gpt-4o-mini-transcribe",
         prompt="Expect words related law, legal situations, and information about people.",
     )
 
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
+    llm = OpenAILLMService(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="gpt-4o-mini",
+    )
 
     tts = GoogleTTSService(
         credentials=os.getenv("GOOGLE_ACCESS_CREDENTIALS"),
@@ -171,7 +176,7 @@ async def run_client(
         messages.append(
             {
                 "role": "system",
-                "content": "You may begin with 'Thank you for taking my call', but otherwise please wait to be asked a question before responding.",
+                "content": "Please wait to be asked a question before responding.",
             }
         )
         await task.queue_frames([LLMRunFrame()])
@@ -181,7 +186,49 @@ async def run_client(
         logger.info(f"Client {client_name} disconnected from server")
         await task.cancel()
 
+    async def periodic_summarizer():
+        summ_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        while True:
+            await asyncio.sleep(120)
+            try:
+                current_messages = context.messages
+                if len(current_messages) < 10:
+                    continue
+
+                logger.debug(f"Client {client_name} summarizing conversation...")
+                conversation = [m for m in current_messages if m["role"] != "system"]
+
+                if not conversation:
+                    continue
+
+                response = await summ_client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "Summarize the conversation so far, capturing all key information provided and the current state of the intake process.",
+                        },
+                        *conversation,
+                    ],
+                )
+                summary = response.choices[0].message.content
+
+                new_messages = [
+                    {"role": "system", "content": scripts[script]["system_prompt"]},
+                    {
+                        "role": "system",
+                        "content": f"Previous conversation summary: {summary}",
+                    },
+                ]
+
+                await task.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
+                logger.info(f"Client {client_name} context updated with summary.")
+            except Exception as e:
+                logger.error(f"Client {client_name} summarization failed: {e}")
+
     runner = PipelineRunner(handle_sigint=True)
+
+    summarizer_task = asyncio.create_task(periodic_summarizer())
 
     try:
         # Run the pipeline and wait for it to complete
@@ -190,8 +237,12 @@ async def run_client(
     except asyncio.CancelledError:
         logger.debug(f"Client {client_name} task was cancelled")
     except Exception as e:
-        logger.error(f"Client {client_name} pipeline error: {type(e).__name__}: {e}", exc_info=True)
+        logger.error(
+            f"Client {client_name} pipeline error: {type(e).__name__}: {e}",
+            exc_info=True,
+        )
     finally:
+        summarizer_task.cancel()
         # Ensure task is cancelled
         if not task._cancelled:
             await task.cancel()
