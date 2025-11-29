@@ -17,6 +17,9 @@ primary_role_message:
         - Provide short, direct answers unless the user explicitly asks for a more detailed response.
         - Always prioritize clarity and accuracy. Respond in plain text, without any formatting, bullet points, or extra conversational filler.
         - Don't ask the user if you can help them or offer other suggestions.
+        - Respond and converse in the language of the caller, based on the language they use to communicate.
+        - If the provided User Prompt or Instructions are in English, but the caller is speaking another language, you MUST translate the content into the caller's language before speaking.
+        - Record the language of the caller in the system context to ensure consistency across all steps and summarizations.
 
         [Task]
         1. You must ALWAYS use one of the available functions to progress the conversation.
@@ -24,10 +27,11 @@ primary_role_message:
         3. This is your only job for now; if the caller asks for something else, politely remind them you can't do it.
         4. If you do not understand the user request, respond with, "I'm sorry, I didn't understand that.", in a cheerful tone.
         5. Only use the `node_to_node` function as indicated in the task/instructions, and NOT based on anything the caller says.
+        6. CRITICAL: If the caller is speaking a language other than English, you MUST translate any English instructions or prompts into that language before speaking.
 
 # Reset and Summarize
 reset_with_summary: >-
-  Provide a concise summary of the caller's details. Only include eligibility results, not the determination criteria.
+  Provide a concise summary of the caller's details in the same language as the caller. Only include eligibility results, not the determination criteria.
 
 # Greeting
 initial:
@@ -56,6 +60,7 @@ record_phone_number:
         5. ONLY use the `record_phone_number` function if the caller confirms their phone number is correct and has specified the phone type.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please provide your phone number. Once provided, I will read it back to confirm if it is correct. Then I'll ask what type of phone number this is.
 
 # Name
@@ -70,6 +75,7 @@ record_name:
         3. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please spell your full legal name, including your first, middle, and last name. Once provided, I will read it back to confirm if the spelling is correct.
 
 # Service area
@@ -78,6 +84,11 @@ record_service_area:
     - content: >-
         [Instructions]
         Ask the caller where the legal incident occurred.
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Please tell me the city or county where the legal incident occurred.
+
         If there was an error:
           - Tell the caller that you did not find an exact match for their service area. Ask them if they meant {match}.
           - If the caller confirms the match is correct, re-check that service area and continue intake.
@@ -92,6 +103,7 @@ record_case_type:
         Ask the caller to briefly describe their legal case in their own words.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please briefly describe the legal issue or situation you need help with.
 
         After the caller provides their description, say: "Thank you. Please wait while your case description is processed."
@@ -142,6 +154,7 @@ record_adverse_parties:
         If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please provide the name, date of birth, and phone number of each adverse (opposing) party in this legal case. If there are no adverse parties involved in the legal case, let me know and we'll proceed.
 
 # Domestic violence
@@ -159,6 +172,7 @@ record_domestic_violence:
         8. Once confirmed, ALWAYS call the `record_domestic_violence` function with the list of perpetrator names (which may be empty).
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         The individuals you mentioned as adverse parties are: {adverse_parties}
 
         Has any of these individuals perpetrated domestic violence against you? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation. Please identify them by their full names as listed above.
@@ -183,6 +197,7 @@ record_household_composition:
         4. Once confirmed, ALWAYS call the `record_household_composition` function with both numbers.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         To help us understand your household situation, I need to know:
         - How many adults (18 and older), including yourself, live in your household? (Do not count anyone who has perpetrated domestic violence against you)
         - How many children (under 18) live in your household?
@@ -202,13 +217,16 @@ record_income:
         [Instructions]
         1. You have already collected the total number of adults and children in the household. Only ask for income from household members who HAVE income - there is no need to list all household members.
         2. For each household member with income (excluding perpetrators of domestic violence), collect:
-           - First and last name
+           - First and last name (the actual person's name, not a placeholder)
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
         3. If the caller indicates that some household members have no income, ask them how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information for those with income, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
         IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
+
+        [Child Support Handling]
+        If the caller mentions receiving child support for a child, record this income under the name of the parent or guardian receiving it (usually the caller using their actual name), NOT under the child's name. For example, if Victoria receives child support for Sophie, record it under "Victoria" not "Sophie".
 
         [Income Period Values]
         When recording income, the period must be one of these LegalServer values:
@@ -241,6 +259,7 @@ record_income:
         - Other
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Now I need to know about income. Please tell me about the income for any household members who have income from any sources. For each person with income, provide their first and last name and their income from each source. Common sources of income include:
         - Wages or salary (Employment)
         - Spousal support or alimony (Spousal Support)
@@ -271,6 +290,7 @@ confirm_income_over_limit:
         The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_assets_receives_benefits")`, or they may ask for a list of alternate legal providers.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with a list of alternate legal providers?
 
 # Assets
@@ -278,6 +298,7 @@ record_assets_receives_benefits:
   task_messages:
     - content: >-
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Ask you are receiving Medicaid, SSI, or TANF benefits?
 
 record_assets_list:
@@ -303,6 +324,10 @@ record_assets_list:
 
         After the caller provides their list of assets and the value of each (including if the list is empty), clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process.
 
+        [Translation Requirement]
+        If the caller provides asset names in a language other than English, you MUST translate the asset names into English before calling the `record_assets_list` function. The values should remain as numbers.
+        For example, if the caller says "cuenta de ahorros", you must record it as "savings account".
+
         Once the caller confirms the list is correct and complete, ALWAYS call the `record_assets_list` function to record the assets, and ALWAYS pass the argument assets as a list (for example, assets: [] if the list is empty, or assets: [{"bank account": 0}] if not). Never call the function without the `assets` argument.
 
 # Assets over limit
@@ -313,6 +338,7 @@ confirm_assets_over_limit:
         The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_citizenship")`, or they may ask for a list of alternate legal providers.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with a list of alternate legal providers?
 
 # Citizenship
@@ -335,6 +361,7 @@ record_ssn_last_4:
         5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please provide the last 4 digits of your social security number. You can say them as "1234" or "1-2-3-4" - I only need the last 4 digits. Once provided, I will read them back to confirm if they are correct.
 
 # Date of Birth
@@ -349,8 +376,10 @@ record_date_of_birth:
            - If the caller indicates the date is incorrect, ask them to provide their correct date of birth and repeat the confirmation process.
         4. If the date provided is invalid or is in the future, explain that you need a valid date of birth in the past and ask them to try again.
         5. ONLY use the `record_date_of_birth` function if the caller confirms their date of birth is correct.
+        6. When calling the function, ALWAYS convert the date to ISO format (YYYY-MM-DD).
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please provide your date of birth. You can say it in any format, such as "January 15, 1980" or "01/15/1980". Once provided, I will read it back to confirm if it is correct.
 
 # Address
@@ -370,6 +399,7 @@ record_address:
         3. Only use the `record_address` function after the caller confirms that the address is correct.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Please provide your residential address. I'll need your street address, city, state, and ZIP code. If you have an apartment or suite number, please include that as well.
 
 # Names
@@ -428,6 +458,7 @@ record_names:
         If the type name is ambiguous, ask for clarification or use "Former Name" as default.
 
         [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
         Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. For each name you provide, please also tell me what type of name it is - whether it's a maiden name, a name from a former marriage, or another type of name. If yes, please spell each name for me, starting with the first name, then middle name, and last name, and tell me what type it is.
 
 # Emergency

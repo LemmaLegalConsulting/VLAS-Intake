@@ -185,7 +185,7 @@ victoria:
       - You live in Henry County.
       - You are currently separated from your current partner, whose name is Jason Michael Chen.
       - Jason Michael Chen is the opposing party.
-      - You have three children: Michael (age 16), Sophie (age 8), and Emma (age 4). Sophie is from your first marriage to Marcus, and Michael and Emma are with Jason.
+      - You have three children: Michael, Sophie, and Emma. Sophie is from your first marriage to Marcus, and Michael and Emma are with Jason.
       - You work part-time as a receptionist earning $1,200 per month.
       - Michael has a part-time job delivering groceries and makes $400 per month.
       - You receive child support of $350 per month from Marcus for Sophie.
@@ -197,6 +197,105 @@ victoria:
       - Your date of birth is July 8, 1980.
       - The last 4 digits of your social security number are 3456.
       - This is not an emergency, but you need legal help establishing custody and support for your two youngest children.
+  expected_state:
+    phone:
+      is_valid: true
+      phone_number: "(804) 555-0147"
+      phone_type: "mobile"
+    names:
+      names:
+        - first: "Victoria"
+          middle: "Lynn"
+          last: "Rodriguez"
+          type: "Legal Name"
+        - first: "Victoria"
+          middle: "Lynn"
+          last: "Patterson"
+          type: "Maiden Name"
+    service_area:
+      location: "Henry County"
+      is_eligible: true
+      fips_code: 51089
+    case_type:
+      is_eligible: true
+      legal_problem_code: "31 Custody/Visitation"
+    adverse_parties:
+      adverse_parties:
+        - first: "Jason"
+          middle: "Michael"
+          last: "Chen"
+    domestic_violence:
+      is_experiencing: false
+      perpetrators: []
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 3
+    income:
+      is_eligible: true
+      monthly_amount: 1950
+      listing:
+        "Victoria":
+          "Employment":
+            amount: 1200
+            period: "Monthly"
+          "Child Support":
+            amount: 350
+            period: "Monthly"
+        "Michael":
+          "Employment":
+            amount: 400
+            period: "Monthly"
+      household_size: 4
+    assets:
+      is_eligible: true
+      listing:
+        - "Savings account": 2100
+        - "Jewelry": 1500
+      total_value: 3600
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    date_of_birth:
+      date_of_birth: "1980-07-08"
+    address:
+      address:
+        street: "1820 Pine Grove Drive"
+        street_2: "Suite 120"
+        city: "Martinsville"
+        state: "VA"
+        zip: "24112"
+    ssn_last_4:
+      ssn_last_4: "3456"
+    emergency:
+      is_emergency: false
+
+victoria_spanish:
+  system_prompt: >-
+    Habla en español.
+    Esta conversación se está convirtiendo en voz.
+    Eres una mujer adulta que busca ayuda con la custodia y el apoyo infantil después de separarte de tu pareja y estás llamando a un servicio de asistencia legal.
+    Necesitarás responder preguntas para completar tu ingreso de asistencia legal.
+    Cuando te hagan una pregunta, por favor responde con la información adecuada.
+    La siguiente es información sobre ti:
+      - Tu número de teléfono es (804) 555-0147.
+      - Tu nombre actual es Victoria Lynn Rodriguez.
+      - Estuviste casada anteriormente y tu apellido de soltera era Victoria Lynn Patterson.
+      - Tuviste un matrimonio anterior con Marcus James Rodriguez y tomaste su apellido.
+      - Vives en el condado de Henry.
+      - Actualmente estás separada de tu pareja actual, cuyo nombre es Jason Michael Chen.
+      - Jason Michael Chen es la parte contraria.
+      - Tienes tres hijos: Michael, Sophie y Emma. Sophie es de tu primer matrimonio con Marcus, y Michael y Emma son con Jason.
+      - Trabajas medio tiempo como recepcionista ganando $1,200 al mes.
+      - Michael tiene un trabajo de medio tiempo entregando comestibles y gana $400 al mes.
+      - Recibes $350 al mes de manutención infantil de Marcus para Sophie.
+      - Posees un auto usado valorado en $8,500 con un préstamo pendiente.
+      - Tienes $2,100 en una cuenta de ahorros.
+      - Posees algunas joyas con valor sentimental valoradas en aproximadamente $1,500.
+      - Eres ciudadana de los Estados Unidos.
+      - Tu dirección es 1820 Pine Grove Drive, Suite 120, Martinsville, VA 24112.
+      - Tu fecha de nacimiento es el 8 de julio de 1980.
+      - Los últimos 4 dígitos de tu número de seguro social son 3456.
+      - Esto no es una emergencia, pero necesitas ayuda legal para establecer la custodia y el apoyo para tus dos hijos más pequeños.
   expected_state:
     phone:
       is_valid: true
