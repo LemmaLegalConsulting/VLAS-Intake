@@ -37,10 +37,12 @@ def convert_and_log_result(state_key: str):
         async def wrapper(flow_manager, *args, **kwargs):
             result, next_node = await func(flow_manager, *args, **kwargs)
             if isinstance(result, BaseModel):
-                flow_manager.state[state_key] = result.model_dump(exclude={"status", "error"})
+                flow_manager.state[state_key] = result.model_dump(
+                    exclude={"status", "error"}, exclude_none=True, mode="json"
+                )
                 if DEBUG:
                     log_flow_manager_state(flow_manager)
-                result = result.model_dump()
+                result = result.model_dump(exclude_none=True, mode="json")
             return result, next_node
 
         return wrapper

@@ -472,7 +472,7 @@ async def record_income(
         status=status,
         is_eligible=is_eligible,
         monthly_amount=income_monthly,
-        listing=income_validated.model_dump(),
+        listing=income_validated,
         household_size=household_size,
     )
     if status == Status.SUCCESS:
@@ -566,7 +566,7 @@ async def record_assets_list(
     result = AssetsResult(
         status=status,
         is_eligible=is_eligible,
-        listing=assets_validated.model_dump(),
+        listing=assets_validated,
         total_value=assets_value,
         receives_benefits=False,
     )

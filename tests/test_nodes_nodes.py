@@ -143,7 +143,7 @@ async def test_record_address_valid_no_street_2(flow_manager):
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert result["address"]["street"] == "456 Oak Ave"
-    assert result["address"]["street_2"] is None
+    assert result["address"].get("street_2") is None
     assert result["address"]["city"] == "Arlington"
     assert result["address"]["state"] == "VA"
     assert result["address"]["zip"] == "22201"
@@ -720,7 +720,7 @@ async def test_record_names_with_optional_middle_names(flow_manager):
     assert result["status"] == Status.SUCCESS
     assert len(result["names"]) == 3
     # Check middle names are handled correctly
-    assert result["names"][1]["middle"] is None  # Alice has no middle name
+    assert result["names"][1].get("middle") is None  # Alice has no middle name
     assert result["names"][2]["middle"] == "Robert"  # Bob has middle name
     assert "record_emergency_prompt" in next_node
 
