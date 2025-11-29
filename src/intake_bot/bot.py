@@ -9,6 +9,8 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     EndFrame,
+    TranscriptionMessage,
+    TranscriptionUpdateFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -24,6 +26,7 @@ from pipecat.processors.filters.stt_mute_filter import (
     STTMuteFilter,
     STTMuteStrategy,
 )
+from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -44,6 +47,65 @@ from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
 from intake_bot.utils.local_smart_turn import turn_analyzer
 from intake_bot.utils.security import verify_websocket_auth_code
+
+
+class TranscriptHandler:
+    """Handles real-time transcript processing and output.
+
+    Maintains a list of conversation messages and outputs them either to a log
+    or to a file as they are received. Each message includes its timestamp and role.
+
+    Attributes:
+        messages: List of all processed transcript messages
+        output_file: Optional path to file where transcript is saved. If None, outputs to log only.
+    """
+
+    def __init__(self, output_file: str | None = None):
+        """Initialize handler with optional file output.
+
+        Args:
+            output_file: Path to output file. If None, outputs to log only.
+        """
+        self.messages: list[TranscriptionMessage] = []
+        self.output_file: str | None = output_file
+        logger.debug(
+            f"TranscriptHandler initialized {'with output_file=' + output_file if output_file else 'with log output only'}"
+        )
+
+    async def save_transcript_message(self, message: TranscriptionMessage):
+        """Save a single transcript message.
+
+        Outputs the message to the log and optionally to a file.
+
+        Args:
+            message: The message to save
+        """
+        timestamp = f"[{message.timestamp}] " if message.timestamp else ""
+        line = f"{timestamp}{message.role}: {message.content}"
+
+        # Always log the message
+        logger.debug(f"Transcript: {line}")
+
+        # Optionally write to file
+        if self.output_file:
+            try:
+                async with aiofiles.open(self.output_file, "a", encoding="utf-8") as f:
+                    await f.write(line + "\n")
+            except Exception as e:
+                logger.error(f"Error saving transcript message to file: {e}")
+
+    async def on_transcript_update(
+        self, processor: TranscriptProcessor, frame: TranscriptionUpdateFrame
+    ):
+        """Handle new transcript messages.
+
+        Args:
+            processor: The TranscriptProcessor that emitted the update
+            frame: TranscriptionUpdateFrame containing new messages
+        """
+        for msg in frame.messages:
+            self.messages.append(msg)
+            await self.save_transcript_message(msg)
 
 
 async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
@@ -130,6 +192,14 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(context)
 
+    # Create transcript processor and handler
+    transcript = TranscriptProcessor()
+    transcript_file = None
+    if ev_is_true("LOG_TO_FILE"):
+        os.makedirs("logs", exist_ok=True)
+        transcript_file = f"logs/transcript_{call_data['call_id']}.txt"
+    transcript_handler = TranscriptHandler(output_file=transcript_file)
+
     # NOTE: Watch out! This will save all the conversation in memory. You can
     # pass `buffer_size` to get periodic callbacks.
     audiobuffer = AudioBufferProcessor()
@@ -139,11 +209,13 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
             transport.input(),  # Websocket input from client
             stt,  # Speech-To-Text
             stt_mute_processor,  # STTMuteStrategy
+            transcript.user(),  # User transcripts
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
             transport.output(),  # Websocket output to client
             audiobuffer,  # Used to buffer the audio in the pipeline
+            transcript.assistant(),  # Assistant transcripts
             context_aggregator.assistant(),
         ]
     )
@@ -218,6 +290,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
         if ev_is_true("SAVE_AUDIO_RECORDINGS"):
             await save_audio(audio, sample_rate, num_channels)
+
+    @transcript.event_handler("on_transcript_update")
+    async def on_transcript_update(processor, frame):
+        await transcript_handler.on_transcript_update(processor, frame)
 
     # We use `handle_sigint=False` because `uvicorn` (not sure if this
     # applies since we're using `granian` now) is controlling keyboard
