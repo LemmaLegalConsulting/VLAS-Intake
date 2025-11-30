@@ -7,35 +7,48 @@ This project is a Pipecat-AI/FastAPI-based intake-bot that integrates with Twili
 ```mermaid
 flowchart TD
     start[Start Intake Screening]
-    get_phone_name[Get Phone, Name]
-    location{Location for caller, problem}
+    get_phone[Get Phone Number]
+    get_name[Get Name]
+    location{Service Area Eligible?}
     exit[(Redirect or referral)]
-    case_type{Case type}
-    check_conflict{Conflict check}
-    check_income{Income check}
-    check_assets{Assets check}
-    check_citizenship{Citizenship eligible}
-    check_emergency{Qualifying Emergency}
-    conduct_interview{Conduct Interview}
+    case_type{Case Type Eligible?}
+    adverse_parties[Get Adverse Parties]
+    domestic_violence[Check Domestic Violence]
+    household[Get Household Composition]
+    check_income{Income Eligible?}
+    check_benefits{Receives Benefits?}
+    check_assets{Assets Eligible?}
+    get_citizenship[Get Citizenship Status]
+    get_ssn[Get SSN Last 4]
+    get_dob[Get Date of Birth]
+    get_address[Get Address]
+    get_addl_names[Get Additional Names]
+    check_emergency{Qualifying Emergency?}
+    conduct_interview[Conduct Interview]
 
-
-    start --> get_phone_name
-    get_phone_name --> location
-    location -- Neither --> exit
-    location -- Either --> case_type
-    case_type -- Handled --> check_conflict
-    case_type -- Not handled --> exit
-    check_conflict -- Conflict --> exit
-    check_conflict -- No conflict --> check_income
-    check_income -- Under limit --> check_assets
-    check_income -- Over limit --> exit
-    check_assets -- Eligible --> check_citizenship
-    check_assets -- Ineligible --> exit
-    check_citizenship -- Eligible --> check_emergency
-    check_citizenship -- Ineligible --> exit
-    check_emergency -- Emergency [expedited] --> conduct_interview
-    check_emergency -- Non-emergency --> conduct_interview
-
+    start --> get_phone
+    get_phone --> get_name
+    get_name --> location
+    location -- Yes --> case_type
+    location -- No --> exit
+    case_type -- Yes --> adverse_parties
+    case_type -- No --> exit
+    adverse_parties --> domestic_violence
+    domestic_violence --> household
+    household --> check_income
+    check_income -- Yes --> check_benefits
+    check_income -- No --> exit
+    check_benefits -- Yes --> get_citizenship
+    check_benefits -- No --> check_assets
+    check_assets -- Yes --> get_citizenship
+    check_assets -- No --> exit
+    get_citizenship --> get_ssn
+    get_ssn --> get_dob
+    get_dob --> get_address
+    get_address --> get_addl_names
+    get_addl_names --> check_emergency
+    check_emergency -- Yes [Expedited] --> conduct_interview
+    check_emergency -- No --> conduct_interview
 ```
 
 ## Secret Key
