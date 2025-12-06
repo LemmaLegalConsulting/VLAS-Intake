@@ -77,6 +77,10 @@ class IncomeResult(IntakeFlowResult):
     household_size: int
 
 
+class LanguageResult(IntakeFlowResult):
+    language: str
+
+
 class PhoneNumberResult(IntakeFlowResult):
     is_valid: bool
     phone_number: str

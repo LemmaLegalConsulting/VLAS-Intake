@@ -13,6 +13,7 @@ from intake_bot.models.intake_flow_result import (
     HouseholdCompositionResult,
     IncomeResult,
     IntakeFlowResult,
+    LanguageResult,
     PhoneNumberResult,
     ServiceAreaResult,
     SSNLast4Result,
@@ -107,7 +108,30 @@ async def system_phone_number(
     result = dict(status=status.value, phone_number=caller_id_phone_number)
     next_node = NodeConfig(
         {
-            **prompts.get("record_phone_number"),
+            **prompts.get("record_language"),
+            "functions": [record_language],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("language")
+async def record_language(
+    flow_manager: FlowManager, language: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Record the caller's preferred language.
+
+    Args:
+        language (str): The caller's preferred language (English or Spanish).
+    """
+    result = LanguageResult(status=Status.SUCCESS, language=language)
+    next_node = NodeConfig(
+        {
+            **prompts.get(
+                "record_phone_number",
+                phone_number=flow_manager.state.get("phone"),
+            ),
             "functions": [record_phone_number],
         }
     )

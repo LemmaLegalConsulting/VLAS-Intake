@@ -20,6 +20,7 @@ from intake_bot.nodes.nodes import (
     record_emergency,
     record_household_composition,
     record_income,
+    record_language,
     record_name,
     record_names,
     record_phone_number,
@@ -57,7 +58,7 @@ async def test_system_phone_number_with_phone(flow_manager):
     result, next_node = await system_phone_number(flow_manager)
     assert isinstance(result, dict)
     assert result["phone_number"] == "+18665345243"
-    assert "record_phone_number_prompt" in next_node
+    assert "record_language_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -65,6 +66,15 @@ async def test_system_phone_number_without_phone(flow_manager):
     result, next_node = await system_phone_number(flow_manager)
     assert isinstance(result, dict)
     assert result["status"] == "error"
+    assert "record_language_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_language(flow_manager):
+    result, next_node = await record_language(flow_manager, "English")
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert flow_manager.state["language"]["language"] == "English"
     assert "record_phone_number_prompt" in next_node
 
 
