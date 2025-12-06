@@ -148,7 +148,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
             add_wav_header=False,
             serializer=serializer,
             vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(stop_secs=float(get_ev("VAD_STOP_SECS", 0.2)))
+                params=VADParams(stop_secs=float(get_ev("VAD_STOP_SECS", 0.5)))
             ),
             turn_analyzer=turn_analyzer,
         ),
