@@ -278,8 +278,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
-        if not task.has_finished:
-            await task.stop_when_done()
+        await task.stop_when_done()
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
