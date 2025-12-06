@@ -7,7 +7,7 @@ export default defineConfig({
     server: {
         proxy: {
             '/ws': {
-                target: 'ws://0.0.0.0:8765', // Replace with your backend URL
+                target: 'ws://localhost:8765', // Replace with your backend URL
                 changeOrigin: true,
             },
         },
