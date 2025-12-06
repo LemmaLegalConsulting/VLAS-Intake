@@ -197,8 +197,9 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     transcript = TranscriptProcessor()
     transcript_file = None
     if ev_is_true("LOG_TO_FILE"):
-        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        transcript_file = f"logs/transcript_{timestamp}_{call_data['call_id']}.txt"
+        os.makedirs("logs", exist_ok=True)
+        transcript_file = f"logs/transcript_{call_data['call_id']}.txt"
+        logger.info(f"Logging transcript to file: {transcript_file}")
     transcript_handler = TranscriptHandler(output_file=transcript_file)
 
     # NOTE: Watch out! This will save all the conversation in memory. You can
