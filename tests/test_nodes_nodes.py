@@ -218,6 +218,7 @@ async def test_record_case_type_eligible(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert result["legal_problem_code"] == "01 Bankruptcy/Debtor Relief"
     assert result["is_eligible"] is True
+    assert result["case_description"] == "bankruptcy"
     assert "record_adverse_parties_prompt" in next_node
 
 

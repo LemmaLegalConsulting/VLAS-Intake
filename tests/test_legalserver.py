@@ -8,6 +8,7 @@ from intake_bot.services.legalserver import (
     _save_additional_names,
     _save_adverse_parties,
     _save_assets_note,
+    _save_case_description_note,
     _save_income_records,
 )
 
@@ -1251,6 +1252,37 @@ class TestSaveAssetsNote:
 
 
 @pytest.mark.asyncio
+class TestSaveCaseDescriptionNote:
+    """Tests for _save_case_description_note helper function."""
+
+    async def test_save_case_description(self):
+        """Test saving case description as a note."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+
+        case_type_data = {"case_description": "I need help with a divorce."}
+
+        await _save_case_description_note(mock_client, "test-uuid-123", case_type_data)
+
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert "test-uuid-123" in call_args[0][0]
+        assert call_args[1]["json"]["subject"] == "Case Description"
+        assert call_args[1]["json"]["body"] == "I need help with a divorce."
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
+
+    async def test_skip_empty_case_description(self):
+        """Test that no note is created when case description is missing."""
+        mock_client = AsyncMock()
+
+        case_type_data = {}
+
+        await _save_case_description_note(mock_client, "test-uuid", case_type_data)
+
+        mock_client.post.assert_not_called()
+
+
+@pytest.mark.asyncio
 class TestSaveIntakeLegalserver:
     """Tests for the main save_intake_legalserver function."""
 
@@ -1558,6 +1590,48 @@ class TestSaveIntakeLegalserver:
                 first_call = mock_client.post.call_args_list[0]
                 matter_payload = first_call[1]["json"]
                 assert matter_payload["ssn"] == "5678"
+
+    async def test_matter_creation_with_case_description(self):
+        """Test successful creation of matter with case description note."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "case_type": {
+                "is_eligible": True,
+                "legal_problem_code": "01 Bankruptcy",
+                "case_description": "I am filing for bankruptcy.",
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-case-desc", "case_id": 419652}
+        }
+
+        with patch("httpx.AsyncClient") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger"):
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                # Verify case description note creation
+                # First call is matter creation, second should be note creation
+                assert mock_client.post.call_count >= 2
+
+                # Find the note creation call
+                note_calls = [
+                    call for call in mock_client.post.call_args_list if "notes" in call[0][0]
+                ]
+                assert len(note_calls) > 0
+
+                note_payload = note_calls[0][1]["json"]
+                assert note_payload["subject"] == "Case Description"
+                assert note_payload["body"] == "I am filing for bankruptcy."
 
     async def test_matter_creation_with_ssn_and_date_of_birth(self):
         """Test matter creation with both SSN last 4 and date of birth."""

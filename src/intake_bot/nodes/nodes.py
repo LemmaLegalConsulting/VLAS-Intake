@@ -276,6 +276,7 @@ async def record_case_type(
         status=status,
         is_eligible=case_response.is_eligible,
         legal_problem_code=case_response.legal_problem_code,
+        case_description=case_description,
     )
     if status == Status.SUCCESS:
         next_node = NodeConfig(

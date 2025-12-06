@@ -45,6 +45,7 @@ class CallerNamesResult(IntakeFlowResult):
 class CaseTypeResult(IntakeFlowResult):
     is_eligible: bool
     legal_problem_code: str
+    case_description: str
 
 
 class CitizenshipResult(IntakeFlowResult):

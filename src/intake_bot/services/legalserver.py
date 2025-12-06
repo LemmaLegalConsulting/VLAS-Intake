@@ -79,6 +79,9 @@ async def save_intake_legalserver(state: dict):
             if "adverse_parties" in state:
                 await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
 
+            if "case_type" in state:
+                await _save_case_description_note(client, matter_uuid, state["case_type"])
+
             if "assets" in state:
                 await _save_assets_note(client, matter_uuid, state["assets"])
 
@@ -327,6 +330,54 @@ async def _save_adverse_parties(
 
     except Exception as e:
         logger.error(f"""Error saving adverse parties: {e}""")
+
+
+async def _save_case_description_note(
+    client: httpx.AsyncClient, matter_uuid: str, case_type_data: Dict[str, Any]
+) -> None:
+    """
+    Save case description as a matter note.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        case_type_data: Dictionary with "case_description"
+    """
+    if not isinstance(case_type_data, dict):
+        logger.debug("Case type data not in expected format")
+        return
+
+    case_description = case_type_data.get("case_description")
+    if not case_description:
+        logger.debug("No case description to save")
+        return
+
+    try:
+        try:
+            payload = NotePayload(
+                subject="Case Description",
+                body=case_description,
+                note_type={"lookup_value_name": "General Notes"},
+            )
+        except Exception as e:
+            logger.warning(f"""Failed to validate case description note: {e}""")
+            return
+
+        response = await client.post(
+            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
+            headers=LEGALSERVER_HEADERS,
+            json=payload.model_dump(exclude_none=True),
+        )
+
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"""Failed to save case description note: {response.status_code} - {response.text}"""
+            )
+        else:
+            logger.debug("Case description note created")
+
+    except Exception as e:
+        logger.error(f"""Error saving case description note: {e}""")
 
 
 async def _save_assets_note(

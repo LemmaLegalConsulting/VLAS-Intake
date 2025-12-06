@@ -40,7 +40,7 @@ class StateValidator:
     """Validates actual state against expected state and generates test results."""
 
     # Keys that are automatically added by the system and should be ignored during validation
-    SYSTEM_KEYS = {"_state_saved", "call_id", "status", "error"}
+    SYSTEM_KEYS = {"_state_saved", "call_id", "status", "error", "case_description"}
 
     def __init__(self):
         self.mismatches: List[Dict[str, Any]] = []
@@ -116,7 +116,9 @@ class StateValidator:
                 if ("income.listing" in path or "assets.listing" in path) and isinstance(key, str):
                     # Use threshold of 50 for generous matching (e.g., "savings account" vs "account")
                     threshold = 50 if "assets.listing" in path else 75
-                    fuzzy_match = self._fuzzy_match_key(key, list(actual.keys()), threshold=threshold)
+                    fuzzy_match = self._fuzzy_match_key(
+                        key, list(actual.keys()), threshold=threshold
+                    )
                     if fuzzy_match:
                         matching_key = fuzzy_match
                         matched_actual_keys.add(fuzzy_match)
@@ -133,7 +135,9 @@ class StateValidator:
                             }
                         )
                 # Also try numeric key matching (e.g., 100198 vs "100198")
-                elif ("income.listing" in path or "assets.listing" in path) and isinstance(key, int):
+                elif ("income.listing" in path or "assets.listing" in path) and isinstance(
+                    key, int
+                ):
                     str_key = str(key)
                     if str_key in actual:
                         matching_key = str_key
