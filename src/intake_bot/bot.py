@@ -166,7 +166,8 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     stt = OpenAISTTService(
         api_key=require_ev("OPENAI_API_KEY"),
         model="gpt-4o-transcribe",
-        prompt="Expect words related law, legal situations, and information about people.",
+        prompt="Expect words related to law, legal situations, and information about people. The language may be English or Spanish.",
+        language=None,
     )
 
     stt_mute_processor = STTMuteFilter(
