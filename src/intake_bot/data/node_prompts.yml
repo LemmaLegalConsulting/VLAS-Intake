@@ -38,9 +38,25 @@ primary_role_message:
 
 # Reset and Summarize
 reset_with_summary: >-
-  Provide a concise summary of the caller's details in English.
+  Provide a comprehensive summary of ALL collected information in English.
   ALWAYS start the summary with a line stating the caller's language, e.g., "Language: English" or "Language: Spanish".
-  Only include eligibility results, not the determination criteria.
+
+  You MUST include the following details if they have been collected:
+  - Caller's Name (and any other names)
+  - Phone Number
+  - Service Area / Location
+  - Legal Problem / Case Description
+  - Adverse Parties (names and details)
+  - Domestic Violence status and perpetrators
+  - Household Composition (number of adults/children)
+  - Income details (sources and amounts for each person)
+  - Asset details
+  - Citizenship status
+  - SSN (last 4)
+  - Date of Birth
+  - Address
+
+  Format this as a clear, structured summary so the next step has full context.
 
 # Greeting
 initial:
