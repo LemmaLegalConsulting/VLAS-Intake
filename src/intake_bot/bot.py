@@ -9,6 +9,7 @@ from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     EndFrame,
+    LLMMessagesAppendFrame,
     TranscriptionMessage,
     TranscriptionUpdateFrame,
     TTSSpeakFrame,
@@ -27,6 +28,7 @@ from pipecat.processors.filters.stt_mute_filter import (
     STTMuteStrategy,
 )
 from pipecat.processors.transcript_processor import TranscriptProcessor
+from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.runner.types import RunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
@@ -186,6 +188,35 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(context)
 
+    async def handle_user_idle(user_idle: UserIdleProcessor, retry_count: int) -> bool:
+        if retry_count == 1:
+            # First attempt: Add a gentle prompt to the conversation
+            message = {
+                "role": "system",
+                "content": "The user has been quiet. Politely and briefly ask if they're still there.",
+            }
+            await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
+            return True
+        elif retry_count == 2:
+            # Second attempt: More direct prompt
+            message = {
+                "role": "system",
+                "content": "The user is still inactive. Ask if they'd like to continue our conversation.",
+            }
+            await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
+            return True
+        else:
+            # Third attempt: End the conversation
+            await user_idle.push_frame(
+                TTSSpeakFrame(
+                    "It seems like you're busy right now. Feel free to call back. Have a nice day!"
+                )
+            )
+            await task.queue_frame(EndFrame())
+            return False
+
+    user_idle = UserIdleProcessor(callback=handle_user_idle, timeout=10.0)
+
     # Create transcript processor and handler
     transcript = TranscriptProcessor()
     transcript_file = None
@@ -205,6 +236,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
             stt,  # Speech-To-Text
             stt_mute_processor,  # STTMuteStrategy
             transcript.user(),  # User transcripts
+            user_idle,  # Idle user check-in
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
