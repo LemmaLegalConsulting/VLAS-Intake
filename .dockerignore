@@ -1,11 +1,13 @@
 # Docker
 compose.yml
 Dockerfile
-
+.dockerignore
 
 # Fly.io
 fly.toml
 
+# Git
+.gitignore
 
 # Python
 __pycache__
@@ -19,6 +21,8 @@ __pycache__
 .mypy_cache
 .pytest_cache
 .Python
+.python-version
+.ruff_cache
 .tox
 .venv
 *.cover
