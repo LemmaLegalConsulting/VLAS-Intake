@@ -39,6 +39,9 @@ COPY . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+# Pre-download NLTK data
+RUN ./.venv/bin/python -m nltk.downloader -d /app/nltk_data punkt_tab
+
 # Stage 3: Final Image
 FROM busybox:1.37-glibc
 
@@ -71,6 +74,7 @@ WORKDIR /app
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV NLTK_DATA=/app/nltk_data
 
 EXPOSE 8765
 ENTRYPOINT []
