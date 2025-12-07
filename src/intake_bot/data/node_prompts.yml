@@ -381,7 +381,7 @@ record_ssn_last_4:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please provide the last 4 digits of your social security number. You can say them as "1234" or "1-2-3-4" - I only need the last 4 digits. Once provided, I will read them back to confirm if they are correct.
+        Please provide the last 4 digits of your social security number.
 
 # Date of Birth
 record_date_of_birth:
@@ -399,7 +399,7 @@ record_date_of_birth:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please provide your date of birth. You can say it in any format, such as "January 15, 1980" or "01/15/1980". Once provided, I will read it back to confirm if it is correct.
+        Please provide your date of birth.
 
 # Address
 record_address:
