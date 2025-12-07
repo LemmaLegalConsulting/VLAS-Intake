@@ -70,8 +70,9 @@ async def run_client(
     script: str,
     validate_state: bool = False,
 ):
-    stream_sid = str(uuid4())
-    call_sid = str(uuid4())
+    sid = str(uuid4())
+    stream_sid = sid
+    call_sid = sid
 
     # Track this call for later validation
     call_id_map[client_name] = {"stream_sid": stream_sid, "call_sid": call_sid, "script": script}
