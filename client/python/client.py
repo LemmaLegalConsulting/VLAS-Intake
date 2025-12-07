@@ -75,6 +75,7 @@ async def run_client(
 
     # Track this call for later validation
     call_id_map[client_name] = {"stream_sid": stream_sid, "call_sid": call_sid, "script": script}
+    logger.info(call_id_map[client_name])
 
     serializer = TwilioFrameSerializer(
         stream_sid=stream_sid,
