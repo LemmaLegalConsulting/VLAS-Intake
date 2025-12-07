@@ -116,21 +116,14 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
     logger.info(f"Auto-detected transport: {transport_type}")
 
     call_id = call_data["call_id"]
-
-    if ev_is_true("TEST_CLIENT_ALLOWED"):
-        call_data["body"]["caller_phone_number"] = "8665345243"
-        call_is_valid = True
-    else:
-        websocket_auth_code = call_data["body"].get("websocket_auth_code")
-        call_is_valid = verify_websocket_auth_code(
-            call_id=call_id,
-            received_code=websocket_auth_code,
-        )
-
+    websocket_auth_code = call_data["body"].get("websocket_auth_code")
+    call_is_valid = verify_websocket_auth_code(
+        call_id=call_id,
+        received_code=websocket_auth_code,
+    )
     if not call_is_valid:
         logger.debug(f"""WebSocket connection denied for call_id: {call_id}""")
         return {"code": 1008}
-
     logger.debug(f"""WebSocket connection accepted for call_id: {call_id}""")
 
     serializer = TwilioFrameSerializer(
