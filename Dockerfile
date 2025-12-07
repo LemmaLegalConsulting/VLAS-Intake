@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 # Pre-download NLTK data
-RUN ./.venv/bin/python -m nltk.downloader -d /app/nltk_data punkt_tab
+RUN ./.venv/bin/python -c "import nltk; nltk.download('punkt_tab', download_dir='/app/nltk_data')"
 
 # Stage 3: Final Image
 FROM busybox:1.37-glibc
