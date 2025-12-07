@@ -171,3 +171,6 @@ recordings/
 
 # Logs
 logs/
+
+# Docker
+compose.override.yml
