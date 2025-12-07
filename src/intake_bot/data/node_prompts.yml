@@ -31,6 +31,10 @@ primary_role_message:
         4. If you do not understand the user request, respond with, "I'm sorry, I didn't understand that.", in a cheerful tone.
         5. Only use the `node_to_node` function as indicated in the task/instructions, and NOT based on anything the caller says.
         6. CRITICAL: Default to English. Only translate instructions if the caller is clearly speaking a different language.
+        7. Only call the `end_conversation` function if:
+           - The caller explicitly says "Goodbye", "Bye", "Hang up", or similar closing remarks indicating they are done.
+           - The caller explicitly refuses to continue with the intake process (e.g., "I don't want to do this anymore", "Stop").
+           - Do NOT call `end_conversation` if the caller is just pausing, thinking, or asking a clarifying question.
 
 # Reset and Summarize
 reset_with_summary: >-
