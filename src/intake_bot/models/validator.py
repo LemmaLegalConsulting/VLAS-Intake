@@ -103,9 +103,9 @@ class AdverseParty(BaseModel):
 
 
 class AdverseParties(RootModel[List[AdverseParty]]):
-    """A list of AdverseParty objects. At least one adverse party is required."""
+    """A list of AdverseParty objects. Can be empty if there are no adverse parties."""
 
-    root: List[AdverseParty] = Field(..., min_length=1)
+    root: List[AdverseParty] = Field(default_factory=list)
 
 
 ######################################################################
