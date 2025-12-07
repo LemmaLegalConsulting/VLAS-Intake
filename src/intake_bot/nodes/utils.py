@@ -5,6 +5,7 @@ from functools import wraps
 
 import aiofiles
 from intake_bot.models.intake_flow_result import Status
+from intake_bot.utils.ev import ev_is_true
 from intake_bot.utils.globals import DEBUG
 from loguru import logger
 from pipecat_flows import FlowManager
@@ -87,6 +88,9 @@ async def save_state_to_json(state: dict) -> None:
     Creates or appends to a logs/flow_manager_state.json file where each entry is keyed by call_id.
     This enables tracking and programmatic evaluation of call results.
     """
+    if not ev_is_true("LOG_TO_FILE"):
+        return
+
     try:
         call_id = state.get("call_id")
         if not call_id:
