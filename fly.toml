@@ -25,7 +25,6 @@ LEGAL_SERVER_SUBDOMAIN = 'vlas-demo'
 TRANSFORMERS_NO_ADVISORY_WARNINGS = '1'
 
 [[vm]]
-memory = '1gb'
+memory = '512mb'
 cpu_kind = 'shared'
 cpus = 1
-memory_mb = 1024
