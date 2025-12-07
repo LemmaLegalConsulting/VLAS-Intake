@@ -33,6 +33,10 @@ from pipecat.transports.websocket.client import (
 )
 from test_manager import TestRunner
 
+# Add src to path so we can import from intake_bot
+sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
+from intake_bot.utils.security import generate_websocket_auth_code
+
 load_dotenv(override=True)
 
 # Global variable to track call IDs for testing
@@ -68,11 +72,14 @@ async def run_client(
     client_name: str,
     websocket_url: str,
     script: str,
+    phone_number: str,
     validate_state: bool = False,
 ):
     sid = str(uuid4())
     stream_sid = sid
     call_sid = sid
+
+    auth_code = generate_websocket_auth_code(call_sid)
 
     # Track this call for later validation
     call_id_map[client_name] = {"stream_sid": stream_sid, "call_sid": call_sid, "script": script}
@@ -169,7 +176,14 @@ async def run_client(
                 "event": "start",
                 "streamSid": stream_sid,
                 "callSid": call_sid,
-                "start": {"streamSid": stream_sid, "callSid": call_sid},
+                "start": {
+                    "streamSid": stream_sid,
+                    "callSid": call_sid,
+                    "customParameters": {
+                        "websocket_auth_code": auth_code,
+                        "caller_phone_number": phone_number,
+                    },
+                },
             }
         )
         await transport.output().send_message(message)
@@ -310,6 +324,13 @@ async def main():
         action="store_true",
         help="validate state after each call completes",
     )
+    parser.add_argument(
+        "-p",
+        "--phone",
+        type=str,
+        default="8665345243",
+        help="caller phone number (default: 8665345243)",
+    )
     args, _ = parser.parse_known_args()
 
     # Validate script argument if provided
@@ -331,6 +352,7 @@ async def main():
                     client_name=f"client_{i}",
                     websocket_url=args.url,
                     script=args.script,
+                    phone_number=args.phone,
                     validate_state=args.validate,
                 )
             )
