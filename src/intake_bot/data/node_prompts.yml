@@ -87,15 +87,15 @@ record_name:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller to spell their full legal name, including their first, middle, and last name. Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
-        2. After the caller spells their name, read back each letter of the full name, exactly as spelled, specifying each part: the first, middle, and last name; and confirm with the caller if the spelling is correct.
-           - If the caller confirms the spelling is correct, proceed to the next step.
-           - If the caller indicates that any part of the name is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
-        3. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
+        1. Ask the caller for their full legal name, including their first, middle, and last name.
+        2. After the caller provides their name, spell it back to them letter-by-letter to confirm it is correct.
+           - For example: "I heard [First Name] [Middle Name] [Last Name]. Is the first name spelled [F-I-R-S-T], middle name [M-I-D-D-L-E], and last name [L-A-S-T]?"
+        3. If the caller says the spelling is wrong, ask them to spell the correct name for you.
+        4. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please spell your full legal name, including your first, middle, and last name. Once provided, I will read it back to confirm if the spelling is correct.
+        Please provide your full legal name, including your first, middle, and last name.
 
 # Service area
 record_service_area:
@@ -475,10 +475,11 @@ record_names:
         Omit any fields that you don't have a value for (except names should always be provided).
         If the caller doesn't specify a type, you will automatically apply the default type of "Former Name".
         If the type name is ambiguous, ask for clarification or use "Former Name" as default.
+        If the caller provides a single name (e.g., "Jack") as a nickname or alias, assume the last name is the same as their legal last name unless they specify otherwise. Confirm this assumption with the caller.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records. For each name you provide, please also tell me what type of name it is - whether it's a maiden name, a name from a former marriage, or another type of name. If yes, please spell each name for me, starting with the first name, then middle name, and last name, and tell me what type it is.
+        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records.
 
 # Emergency
 record_emergency:

@@ -785,11 +785,11 @@ async def record_names(
                 ]
     """
     try:
-        try:
-            names.insert(0, flow_manager.state["names"]["names"][0])
-        except (KeyError, IndexError):
-            pass
-        names_validated = CallerNames.model_validate(names)
+        existing_names = []
+        if "names" in flow_manager.state and "names" in flow_manager.state["names"]:
+            existing_names = flow_manager.state["names"]["names"]
+        all_names = existing_names + names
+        names_validated = CallerNames.model_validate(all_names)
     except ValidationError as e:
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
