@@ -19,8 +19,9 @@ import {
 } from '@pipecat-ai/websocket-transport';
 
 class WebsocketClientApp {
-    private static STREAM_SID = 'ws_mock_stream_sid';
-    private static CALL_SID = 'ws_mock_call_sid';
+    private static readonly UUID = crypto.randomUUID();
+    private static STREAM_SID = WebsocketClientApp.UUID;
+    private static CALL_SID = WebsocketClientApp.UUID;
 
     private rtviClient: PipecatClient | null = null;
     private connectBtn: HTMLButtonElement | null = null;
@@ -96,14 +97,49 @@ class WebsocketClientApp {
         const websocketTransport = this.rtviClient?.transport as WebSocketTransport;
         void websocketTransport?.sendRawMessage(connectedMessage);
 
+        const secretKey = import.meta.env.VITE_WEBSOCKET_SECURITY_TOKEN || '';
+        const phoneNumber = import.meta.env.VITE_CALLER_PHONE_NUMBER || '';
+
+        let authCode = '';
+        if (secretKey) {
+            authCode = await this.generateAuthToken(WebsocketClientApp.CALL_SID, secretKey);
+        } else {
+            console.warn("VITE_WEBSOCKET_SECURITY_TOKEN not set");
+        }
+
         const startMessage = {
             event: 'start',
             start: {
                 streamSid: WebsocketClientApp.STREAM_SID,
                 callSid: WebsocketClientApp.CALL_SID,
+                customParameters: {
+                    websocket_auth_code: authCode,
+                    caller_phone_number: phoneNumber
+                }
             },
         };
         void websocketTransport?.sendRawMessage(startMessage);
+    }
+
+    private async generateAuthToken(callId: string, secretKeyHex: string): Promise<string> {
+        const encoder = new TextEncoder();
+        const keyBytes = new Uint8Array(
+            secretKeyHex.match(/.{1,2}/g)!.map((byte) => parseInt(byte, 16))
+        );
+        const key = await crypto.subtle.importKey(
+            "raw",
+            keyBytes,
+            { name: "HMAC", hash: "SHA-256" },
+            false,
+            ["sign"]
+        );
+        const signature = await crypto.subtle.sign(
+            "HMAC",
+            key,
+            encoder.encode(callId)
+        );
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+        return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     }
 
     /**
