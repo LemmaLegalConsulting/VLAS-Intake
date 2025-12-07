@@ -835,3 +835,46 @@ def test_node_caller_ended_conversation():
     node = node_caller_ended_conversation()
     assert "caller_ended_conversation_prompt" in node
     assert "post_actions" in node
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_empty(flow_manager, patch_validator):
+    result, next_node = await record_ssn_last_4(flow_manager, ssn_last_4="")
+
+    assert result["status"] == Status.SUCCESS
+    assert result["ssn_last_4"] == ""
+    assert next_node is not None
+    # Validator should NOT be called
+    patch_validator.check_ssn_last_4.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_date_of_birth_empty(flow_manager, patch_validator):
+    result, next_node = await record_date_of_birth(flow_manager, date_of_birth="")
+
+    assert result["status"] == Status.SUCCESS
+    assert result["date_of_birth"] == ""
+    assert next_node is not None
+    # Validator should NOT be called
+    patch_validator.check_date_of_birth.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_address_empty(flow_manager):
+    result, next_node = await record_address(
+        flow_manager, street="", city="", state="", zip="", street_2=""
+    )
+
+    assert result["status"] == Status.SUCCESS
+    assert result.get("address") is None
+    assert next_node is not None
+
+
+@pytest.mark.asyncio
+async def test_record_emergency_default(flow_manager):
+    # Test with default value (no argument provided for is_emergency)
+    result, next_node = await record_emergency(flow_manager)
+
+    assert result["status"] == Status.SUCCESS
+    assert result["is_emergency"] is False
+    assert next_node is not None

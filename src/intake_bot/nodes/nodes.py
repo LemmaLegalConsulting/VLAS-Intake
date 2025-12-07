@@ -639,17 +639,22 @@ async def record_citizenship(
 
 @convert_and_log_result("ssn_last_4")
 async def record_ssn_last_4(
-    flow_manager: FlowManager, ssn_last_4: str
+    flow_manager: FlowManager, ssn_last_4: str = ""
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect the last 4 digits of the caller's social security number.
 
     Args:
         ssn_last_4 (str): The last 4 digits of the caller's SSN (accepts various formats like XXXX, XXX-X, etc.)
+                          Can be empty if the caller refuses or does not know.
     """
-    is_valid, formatted_ssn = await validator.check_ssn_last_4(ssn_last_4=ssn_last_4)
+    if not ssn_last_4:
+        status = Status.SUCCESS
+        formatted_ssn = ""
+    else:
+        is_valid, formatted_ssn = await validator.check_ssn_last_4(ssn_last_4=ssn_last_4)
+        status = status_helper(is_valid)
 
-    status = status_helper(is_valid)
     result = SSNLast4Result(
         status=status,
         ssn_last_4=formatted_ssn,
@@ -671,17 +676,22 @@ async def record_ssn_last_4(
 
 @convert_and_log_result("date_of_birth")
 async def record_date_of_birth(
-    flow_manager: FlowManager, date_of_birth: str
+    flow_manager: FlowManager, date_of_birth: str = ""
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect the caller's date of birth.
 
     Args:
-        date_of_birth (str): The caller's date of birth in ISO format (YYYY-MM-DD)
+        date_of_birth (str): The caller's date of birth in ISO format (YYYY-MM-DD).
+                             Can be empty if the caller refuses or does not know.
     """
-    is_valid, formatted_dob = await validator.check_date_of_birth(dob_string=date_of_birth)
+    if not date_of_birth:
+        status = Status.SUCCESS
+        formatted_dob = ""
+    else:
+        is_valid, formatted_dob = await validator.check_date_of_birth(dob_string=date_of_birth)
+        status = status_helper(is_valid)
 
-    status = status_helper(is_valid)
     result = DateOfBirthResult(
         status=status,
         date_of_birth=formatted_dob,
@@ -705,7 +715,12 @@ async def record_date_of_birth(
 
 @convert_and_log_result("address")
 async def record_address(
-    flow_manager: FlowManager, street: str, city: str, state: str, zip: str, street_2: str = None
+    flow_manager: FlowManager,
+    street: str = "",
+    city: str = "",
+    state: str = "",
+    zip: str = "",
+    street_2: str = None,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record the caller's residential address.
@@ -716,7 +731,21 @@ async def record_address(
         city (str): The city (required).
         state (str): The state abbreviation, e.g., "VA" (required).
         zip (str): The 5-digit ZIP code (required).
+
+        Note: All fields can be empty if the caller refuses or does not have an address.
     """
+    # Check if all required fields are empty
+    if not any([street, city, state, zip]):
+        result = AddressResult(status=Status.SUCCESS, address=None)
+        next_node = NodeConfig(
+            node_partial_reset_with_summary()
+            | {
+                **prompts.get("record_names"),
+                "functions": [record_names],
+            }
+        )
+        return result, next_node
+
     try:
         address_validated = Address.model_validate(
             {
@@ -812,13 +841,13 @@ async def record_names(
 
 @convert_and_log_result("emergency")
 async def record_emergency(
-    flow_manager: FlowManager, is_emergency: bool
+    flow_manager: FlowManager, is_emergency: bool = False
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller's case is an emergency.
 
     Args:
-        is_emergency (bool): The caller's case is or is not an emergency.
+        is_emergency (bool): The caller's case is or is not an emergency. Defaults to False.
     """
     result = EmergencyResult(status=Status.SUCCESS, is_emergency=is_emergency)
     if is_emergency:

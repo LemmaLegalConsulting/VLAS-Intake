@@ -24,7 +24,7 @@ class IntakeFlowResult(BaseModel):
 
 
 class AddressResult(IntakeFlowResult):
-    address: Address
+    address: Address | None = None
 
 
 class AdversePartiesResult(IntakeFlowResult):

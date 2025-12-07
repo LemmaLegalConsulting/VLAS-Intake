@@ -377,7 +377,8 @@ record_ssn_last_4:
            - If the caller confirms the digits are correct, proceed to the next step.
            - If the caller indicates the digits are incorrect, ask them to provide the correct last 4 digits and repeat the confirmation process.
         4. If the caller refuses to provide this information or provides a value that is not exactly 4 digits, explain that you need exactly 4 digits and ask them to try again.
-        5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct.
+           - Exception: If the caller explicitly refuses to provide their SSN or does not know it, you may proceed by calling the function with an empty string: ssn_last_4=""
+        5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct (or if you are skipping as per the exception).
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -394,7 +395,8 @@ record_date_of_birth:
            - If the caller confirms the date is correct, proceed to the next step.
            - If the caller indicates the date is incorrect, ask them to provide their correct date of birth and repeat the confirmation process.
         4. If the date provided is invalid or is in the future, explain that you need a valid date of birth in the past and ask them to try again.
-        5. ONLY use the `record_date_of_birth` function if the caller confirms their date of birth is correct.
+           - Exception: If the caller explicitly refuses to provide their date of birth or does not know it, you may proceed by calling the function with an empty string: date_of_birth=""
+        5. ONLY use the `record_date_of_birth` function if the caller confirms their date of birth is correct (or if you are skipping as per the exception).
         6. When calling the function, ALWAYS convert the date to ISO format (YYYY-MM-DD).
 
         [User Prompt]
@@ -415,7 +417,8 @@ record_address:
         2. After collecting the address, read back the complete address to the caller and confirm it is accurate.
            - If the caller confirms the address is correct, proceed to the next step.
            - If the caller indicates any part is incorrect, ask them to provide the correct information and repeat the confirmation process.
-        3. Only use the `record_address` function after the caller confirms that the address is correct.
+           - Exception: If the caller explicitly refuses to provide their address or does not have one, you may proceed by calling the function with empty strings for all address fields.
+        3. Only use the `record_address` function after the caller confirms that the address is correct (or if you are skipping as per the exception).
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -487,11 +490,16 @@ record_emergency:
     - content: >-
         [Instructions]
         Determine if the caller's case is an emergency or not.
+        If the caller does not answer or it is unclear, assume it is NOT an emergency and call the function with `is_emergency=False`.
 
         [Emegency Explanation]
         An emergency is a client situation which requires immediate response because:
         -	the client, her family, or major assets is/are in imminent danger of physical harm; or
         -	important legal rights of the client's are about to be lost because of an approaching deadline (anything with a deadline or court hearing less than a week away is considered an emergency)
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Please tell me if your situation is an emergency. An emergency means you or your family are in immediate danger of physical harm, or you have an important legal deadline or court hearing less than a week away. Is your case an emergency?
 
 # Intake complete
 complete_intake:
