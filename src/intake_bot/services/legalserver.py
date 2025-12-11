@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -43,6 +44,11 @@ async def save_intake_legalserver(state: dict):
             if payload is None:
                 logger.warning("Skipping LegalServer save: required fields missing")
                 return
+
+            rejection_reason_name = None
+            if payload.get("rejected") and payload.get("rejection_reason"):
+                rejection_reason_name = payload["rejection_reason"].get("lookup_value_name")
+
             logger.debug(f"""Matter payload: {payload}""")
 
             matter_response = await client.post(
@@ -88,6 +94,9 @@ async def save_intake_legalserver(state: dict):
             if "names" in state and "names" in state["names"]:
                 if len(state["names"]["names"]) > 1:
                     await _save_additional_names(client, matter_uuid, state["names"]["names"])
+
+            if rejection_reason_name:
+                await _save_rejection_note(client, matter_uuid, rejection_reason_name)
 
     except httpx.RequestError as e:
         logger.error(f"""HTTP Request failed: {e}""")
@@ -153,6 +162,35 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     if isinstance(state.get("domestic_violence"), dict):
         payload["victim_of_domestic_violence"] = state["domestic_violence"].get("is_experiencing")
+
+    # Determine rejection status
+    rejection_reason_name = None
+
+    if isinstance(state.get("service_area"), dict):
+        if not state["service_area"].get("is_eligible", True):
+            rejection_reason_name = "Out of Service Area"
+
+    if not rejection_reason_name and isinstance(state.get("case_type"), dict):
+        if not state["case_type"].get("is_eligible", True):
+            rejection_reason_name = "Not LSC-Permissible"
+
+    if not rejection_reason_name and isinstance(state.get("income"), dict):
+        if not state["income"].get("is_eligible", True):
+            rejection_reason_name = "Over Income"
+
+    if not rejection_reason_name and isinstance(state.get("assets"), dict):
+        if not state["assets"].get("is_eligible", True):
+            rejection_reason_name = "Over Asset"
+
+    # If no specific ineligibility found, but the intake didn't reach the end (emergency node)
+    if not rejection_reason_name and "emergency" not in state:
+        rejection_reason_name = "Other"
+
+    if rejection_reason_name:
+        payload["case_disposition"] = "Rejected"
+        payload["rejected"] = True
+        payload["date_rejected"] = date.today().isoformat()
+        payload["rejection_reason"] = {"lookup_value_name": rejection_reason_name}
 
     try:
         validated = LegalServerCreateMatterPayload(**payload)
@@ -443,6 +481,39 @@ async def _save_assets_note(
 
     except Exception as e:
         logger.error(f"""Error saving assets note: {e}""")
+
+
+async def _save_rejection_note(
+    client: httpx.AsyncClient, matter_uuid: str, rejection_reason_name: str
+) -> None:
+    """
+    Save a note explaining the automatic rejection.
+
+    Args:
+        client: AsyncClient for making HTTP requests
+        matter_uuid: The matter UUID from the matter creation response
+        rejection_reason_name: The human-readable rejection reason
+    """
+    try:
+        payload = NotePayload(
+            subject=f"Automatic Rejection: {rejection_reason_name}",
+            body=f"This matter was automatically rejected by the intake bot.\nReason: {rejection_reason_name}",
+            note_type={"lookup_value_name": "General Notes"},
+        )
+
+        response = await client.post(
+            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
+            headers=LEGALSERVER_HEADERS,
+            json=payload.model_dump(exclude_none=True),
+        )
+
+        if response.status_code not in (200, 201):
+            logger.error(f"""Failed to save rejection note: {response.status_code} - {response.text}""")
+        else:
+            logger.debug("Rejection note saved successfully")
+
+    except Exception as e:
+        logger.error(f"""Error saving rejection note: {e}""")
 
 
 async def get_common_lookup_types() -> list[str] | None:

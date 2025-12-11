@@ -36,7 +36,8 @@ class TestBuildMatterPayload:
         assert payload["first"] == "John"
         assert payload["last"] == "Doe"
         assert payload["middle"] == "Michael"
-        assert payload["case_disposition"] == "Incomplete Intake"
+        assert payload["case_disposition"] == "Rejected"
+        assert payload["rejection_reason"]["lookup_value_name"] == "Other"
         assert "suffix" not in payload  # None values excluded
 
     def test_payload_with_phone_number(self):
@@ -334,6 +335,7 @@ class TestBuildMatterPayload:
                 "is_experiencing": False,
                 "perpetrators": [],
             },
+            "emergency": {"is_emergency": False},
         }
 
         payload = _build_matter_payload(state)
@@ -417,6 +419,7 @@ class TestBuildMatterPayload:
                 "is_experiencing": False,
                 "perpetrators": [],
             },
+            "emergency": {"is_emergency": False},
         }
 
         payload = _build_matter_payload(state)
