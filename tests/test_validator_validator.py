@@ -267,15 +267,6 @@ async def test_check_assets(assets_data, expected_eligible, expected_value):
 
 
 @pytest.mark.asyncio
-async def test_get_alternative_providers():
-    validator = IntakeValidator()
-    alternatives = await validator.get_alternative_providers()
-    assert isinstance(alternatives, list)
-    assert "Center for Legal Help" in alternatives
-    assert "Local Legal Help" in alternatives
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "dob_input,expected_valid,expected_output",
     [

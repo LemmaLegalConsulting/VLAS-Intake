@@ -199,13 +199,3 @@ class IntakeValidator:
             return False, 0
 
         return True, total_size
-
-    async def get_alternative_providers(self) -> list[str]:
-        """
-        Alternative legal providers for the caller.
-        """
-        alternatives = [
-            "Center for Legal Help",
-            "Local Legal Help",
-        ]
-        return alternatives

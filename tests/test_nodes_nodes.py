@@ -205,7 +205,7 @@ async def test_record_service_area_ineligible_no_match(flow_manager, patch_valid
     patch_validator.check_service_area = AsyncMock(return_value=("", 0))
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     result, next_node = await record_service_area(flow_manager, "Nowhere")
-    assert "Alternate providers" in result["error"]
+    assert "Not in our service area." in result["error"]
     assert "ineligible_prompt" in next_node
 
 
@@ -249,7 +249,7 @@ async def test_record_case_type_ineligible(flow_manager, patch_validator):
     result, next_node = await record_case_type(flow_manager, "criminal")
 
     assert result["status"] == Status.ERROR
-    assert "Alternate providers" in result["error"]
+    assert "Ineligible case type." in result["error"]
     assert result["is_eligible"] is False
     assert "ineligible_prompt" in next_node
 
@@ -395,7 +395,7 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
     result, next_node = await record_income(flow_manager, income)
     assert isinstance(result, dict)
     assert result["status"] == Status.ERROR
-    assert "Alternate providers" in result["error"]
+    assert "Over the household income limit" in result["error"]
     assert flow_manager.state["income"]["is_eligible"] is False
     assert flow_manager.state["income"]["monthly_amount"] == 6000
     assert flow_manager.state["income"]["household_size"] == 1
@@ -466,7 +466,7 @@ async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator
     assert flow_manager.state["assets"]["listing"] == assets
     assert flow_manager.state["assets"]["total_value"] == 12000
     assert flow_manager.state["assets"]["receives_benefits"] is False
-    assert "Alternate providers" in result["error"]
+    assert "Over the household assets' value limit." in result["error"]
     assert "confirm_assets_over_limit_prompt" in next_node
 
 

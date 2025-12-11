@@ -255,8 +255,7 @@ async def record_service_area(
             result.error = f"""No exact match found. Maybe you meant {match}?"""
             next_node = None
         else:
-            result.error = f"""Not in our service area.
-            Alternate providers: {await validator.get_alternative_providers()}"""
+            result.error = "Not in our service area."
             next_node = NodeConfig(
                 node_partial_reset_with_summary()
                 | {
@@ -311,7 +310,7 @@ async def record_case_type(
             }
         )
     else:
-        result.error = f"""Ineligible case type. Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = "Ineligible case type."
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -509,8 +508,7 @@ async def record_income(
             }
         )
     else:
-        result.error = f"""Over the household income limit.
-        Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = """Over the household income limit"""
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -604,8 +602,7 @@ async def record_assets_list(
             }
         )
     else:
-        result.error = f"""Over the household assets' value limit.
-        Alternate providers: {await validator.get_alternative_providers()}"""
+        result.error = "Over the household assets' value limit."
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
