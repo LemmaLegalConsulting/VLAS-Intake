@@ -101,17 +101,19 @@ async def test_record_phone_number_invalid(flow_manager, patch_validator):
 
 @pytest.mark.asyncio
 async def test_record_name_valid(flow_manager):
-    result, next_node = await record_name(flow_manager, "John", "Q", "Public")
+    result, next_node = await record_name(flow_manager, "John", "Q", "Public", "Jr.")
     assert isinstance(result, dict)
     # CallerNameResult now has a 'names' field containing CallerNames (a RootModel with a list)
     assert len(result["names"]) == 1
     assert result["names"][0]["first"] == "John"
     assert result["names"][0]["middle"] == "Q"
     assert result["names"][0]["last"] == "Public"
+    assert result["names"][0]["suffix"] == "Jr."
     assert result["names"][0]["type"] == "Legal Name"  # Primary name should be Legal Name
     assert flow_manager.state["names"]["names"][0]["first"] == "John"
     assert flow_manager.state["names"]["names"][0]["middle"] == "Q"
     assert flow_manager.state["names"]["names"][0]["last"] == "Public"
+    assert flow_manager.state["names"]["names"][0]["suffix"] == "Jr."
     assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"  # Verify type in state
     assert "record_service_area_prompt" in next_node
 
@@ -610,6 +612,7 @@ async def test_record_names_with_prior_name(flow_manager):
                 "first": "John",
                 "middle": "Q",
                 "last": "Public",
+                "suffix": "Jr.",
                 "type": "Legal Name",  # Primary name should have Legal Name type
             }
         ]
@@ -618,7 +621,7 @@ async def test_record_names_with_prior_name(flow_manager):
     # Now user provides additional names
     additional_names = [
         {"first": "Jon", "last": "Doe", "type": "Former Name"},
-        {"first": "Jack", "middle": "Q", "last": "Public", "type": "Maiden Name"},
+        {"first": "Jack", "middle": "Q", "last": "Public", "suffix": "III", "type": "Maiden Name"},
     ]
 
     result, next_node = await record_names(flow_manager, additional_names)
@@ -631,12 +634,14 @@ async def test_record_names_with_prior_name(flow_manager):
     assert result["names"][0]["first"] == "John"
     assert result["names"][0]["middle"] == "Q"
     assert result["names"][0]["last"] == "Public"
+    assert result["names"][0]["suffix"] == "Jr."
     assert result["names"][0]["type"] == "Legal Name"  # Verify type is preserved
     # Additional names follow with their types
     assert result["names"][1]["first"] == "Jon"
     assert result["names"][1]["type"] == "Former Name"
     assert result["names"][2]["first"] == "Jack"
     assert result["names"][2]["type"] == "Maiden Name"
+    assert result["names"][2]["suffix"] == "III"
     # State should be overwritten with combined names
     assert len(flow_manager.state["names"]["names"]) == 3
     assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
@@ -770,6 +775,7 @@ async def test_record_adverse_parties_valid(flow_manager):
         {
             "first": "Bob",
             "last": "Smith",
+            "suffix": "Sr.",
         }
     ]
 
@@ -779,6 +785,7 @@ async def test_record_adverse_parties_valid(flow_manager):
     assert len(result["adverse_parties"]) == 1
     assert result["adverse_parties"][0]["first"] == "Bob"
     assert result["adverse_parties"][0]["last"] == "Smith"
+    assert result["adverse_parties"][0]["suffix"] == "Sr."
     assert "record_domestic_violence_prompt" in next_node
 
 

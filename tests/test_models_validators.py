@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.models.validator import PhoneAdverseParty, PhoneTypeCaller
+from intake_bot.models.validator import AdverseParty, CallerName, PhoneAdverseParty, PhoneTypeCaller
 
 
 @pytest.mark.parametrize(
@@ -40,3 +40,23 @@ def test_phone_number_validation_rejects_invalid(invalid_number):
     """Test that Phone model rejects invalid phone numbers."""
     with pytest.raises(ValueError, match="Invalid US phone number"):
         PhoneAdverseParty(number=invalid_number, type=PhoneTypeCaller.MOBILE)
+
+
+def test_caller_name_suffix_strips_and_keeps_value():
+    name = CallerName(
+        first=" John ", middle=" Q ", last=" Public ", suffix=" Jr. ", type="Legal Name"
+    )
+    assert name.first == "John"
+    assert name.middle == "Q"
+    assert name.last == "Public"
+    assert name.suffix == "Jr."
+
+
+def test_caller_name_suffix_empty_becomes_none():
+    name = CallerName(first="John", last="Public", suffix="   ", type="Legal Name")
+    assert name.suffix is None
+
+
+def test_adverse_party_suffix_optional():
+    party = AdverseParty(first="Bob", last="Smith", suffix="Sr.")
+    assert party.suffix == "Sr."

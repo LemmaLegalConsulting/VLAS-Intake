@@ -42,7 +42,7 @@ reset_with_summary: >-
   ALWAYS start the summary with a line stating the caller's language, e.g., "Language: English" or "Language: Spanish".
 
   You MUST include the following details if they have been collected:
-  - Caller's Name (and any other names)
+  - Caller's Name (including any suffix, and any other names)
   - Phone Number
   - Service Area / Location
   - Legal Problem / Case Description
@@ -107,7 +107,7 @@ record_name:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller for their full legal name, including their first, middle, and last name.
+        1. Ask the caller for their full legal name, including their first, middle, and last name. If they have a suffix (for example Jr., Sr., II, III), collect that too.
         2. After the caller provides their name, spell it back to them letter-by-letter to confirm it is correct.
            - For example: "I heard [First Name] [Middle Name] [Last Name]. Is the first name spelled [F-I-R-S-T], middle name [M-I-D-D-L-E], and last name [L-A-S-T]?"
         3. If the caller says the spelling is wrong, ask them to spell the correct name for you.
@@ -115,7 +115,7 @@ record_name:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please provide your full legal name, including your first, middle, and last name.
+        Please provide your full legal name, including your first, middle, and last name. If you have a suffix like Jr., Sr., II, or III, please include that.
 
 # Service area
 record_service_area:
@@ -163,7 +163,7 @@ record_adverse_parties:
         [Instructions]
         1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
         2. Ask the caller to provide the full names of all individuals who may be an adverse (opposing) party in their legal case.
-        3. For each person, request their `first`, `middle`, and `last` name. If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, business, or fax).
+        3. For each person, request their `first`, `middle`, and `last` name, and any suffix (for example Jr., Sr., II, III). If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, business, or fax).
         4. After collecting information for each adverse party, read back the complete list to the caller and confirm it is accurate. If corrections are needed, update the details and repeat the confirmation process.
         5. If there are no adverse (opposing) parties involved in the legal case, call the function with an empty list: adverse_parties = []
         6. Once all adverse parties are confirmed (or if there are none), ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
@@ -174,13 +174,14 @@ record_adverse_parties:
         - "first" (required, not first_name, firstname, or firstName)
         - "middle" (optional, not middle_name, middlename, or middleName)
         - "last" (required, not last_name, lastname, or lastName)
+        - "suffix" (optional, e.g., "Jr.", "Sr.", "II", "III")
         - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
         - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
           - Each phone object must have: "number" (str) and "type" (str: mobile, home, business, or fax)
 
         [Examples - ALWAYS pass the adverse_parties argument]
         Example 1 - One adverse party with complete information:
-        adverse_parties = [{"first": "John", "middle": "Michael", "last": "Doe", "dob": "1980-05-15", "phones": [{"number": "5555551234", "type": "mobile"}]}]
+        adverse_parties = [{"first": "John", "middle": "Michael", "last": "Doe", "suffix": "Jr.", "dob": "1980-05-15", "phones": [{"number": "5555551234", "type": "mobile"}]}]
 
         Example 2 - One adverse party with minimal information:
         adverse_parties = [{"first": "Jane", "last": "Smith"}]
@@ -188,7 +189,7 @@ record_adverse_parties:
         Example 3 - Multiple adverse parties:
         adverse_parties = [
             {"first": "Robert", "last": "Johnson", "dob": "1975-03-20"},
-            {"first": "Patricia", "middle": "Ann", "last": "Williams", "phones": [{"number": "5555555678", "type": "home"}]}
+          {"first": "Patricia", "middle": "Ann", "last": "Williams", "suffix": "III", "phones": [{"number": "5555555678", "type": "home"}]}
         ]
 
         Example 4 - No adverse parties (empty list):
@@ -470,7 +471,7 @@ record_names:
            - Names from previous marriages
            - Legally changed names
            - Any other names they have been known by that might appear in court documents or legal records
-        2. If the caller provides other names, ask them to spell each name completely, including first, middle, and last name. Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
+        2. If the caller provides other names, ask them to spell each name completely, including first, middle, last, and any suffix (for example Jr., Sr., II, III). Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
         3. For each additional name, ask the caller what type of name it is:
            - Maiden Name: A name from before marriage or a previous marriage
            - Former Name: A name previously used that is no longer current
@@ -489,12 +490,13 @@ record_names:
         - "first" (required, not first_name, firstname, or firstName)
         - "middle" (optional, not middle_name, middlename, or middleName)
         - "last" (required, not last_name, lastname, or lastName)
+        - "suffix" (optional, e.g., "Jr.", "Sr.", "II", "III")
         - "type" (optional but recommended: "Former Name", "Maiden Name", "Nickname", "Legal Name", "Other")
           If omitted or not specified by caller, defaults to "Former Name"
 
         [Examples - ALWAYS pass the names argument]
         Example 1 - Caller provides one additional name (maiden name):
-        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith", "type": "Maiden Name"}]
+        names = [{"first": "Sarah", "middle": "Jane", "last": "Smith", "suffix": "Jr.", "type": "Maiden Name"}]
 
         Example 2 - Caller provides no additional names (empty list):
         names = []
@@ -502,7 +504,7 @@ record_names:
         Example 3 - Caller provides two additional names with different types:
         names = [
           {"first": "Mary", "last": "Johnson", "type": "Maiden Name"},
-          {"first": "Robert", "middle": "Lee", "last": "Davis", "type": "Former Name"}
+          {"first": "Robert", "middle": "Lee", "last": "Davis", "suffix": "III", "type": "Former Name"}
         ]
 
         Example 4 - Caller provides name but doesn't specify type (will default to "Former Name"):

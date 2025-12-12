@@ -185,7 +185,7 @@ async def record_phone_number(
 
 @convert_and_log_result("names")
 async def record_name(
-    flow_manager: FlowManager, first: str, middle: str, last: str
+    flow_manager: FlowManager, first: str, middle: str, last: str, suffix: str = ""
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record the caller's primary name and set it as the main contact name.
@@ -194,6 +194,7 @@ async def record_name(
         first (str): The caller's first name.
         middle (str): The caller's middle name.
         last (str): The caller's last name.
+        suffix (str): The caller's name suffix (e.g., Jr., Sr., III).
     """
     try:
         name_validated = CallerName.model_validate(
@@ -201,6 +202,7 @@ async def record_name(
                 "first": first,
                 "middle": middle,
                 "last": last,
+                "suffix": suffix,
                 "type": "Legal Name",  # Primary/official name
             }
         )
@@ -365,7 +367,7 @@ async def record_adverse_parties(
 
     adverse_parties_text = ", ".join(
         [
-            f"""{p.get("first", "")} {p.get("middle", "")} {p.get("last", "")}""".strip()
+            f"""{p.get("first", "")} {p.get("middle", "")} {p.get("last", "")} {p.get("suffix", "")}""".strip()
             for p in adverse_parties
         ]
     )

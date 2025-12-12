@@ -87,15 +87,16 @@ class AdverseParty(BaseModel):
     first: str
     middle: Optional[str] = None
     last: str
+    suffix: Optional[str] = None
     dob: Optional[date] = None
     phones: Optional[List[PhoneAdverseParty]] = None
 
-    @field_validator("first", "middle", "last", mode="before")
+    @field_validator("first", "middle", "last", "suffix", mode="before")
     @classmethod
     def normalize_names(cls, v):
         return normalize_to_ascii(v)
 
-    @field_validator("middle", "dob", "phones", mode="before")
+    @field_validator("middle", "suffix", "dob", "phones", mode="before")
     def falsy_to_none(cls, v):
         if not v:
             return None
@@ -174,11 +175,12 @@ class CallerName(BaseModel):
     first: str
     middle: Optional[str] = None
     last: str
+    suffix: Optional[str] = None
     type: NameTypeValue = NameTypeValue.FORMER_NAME
 
     model_config = ConfigDict(use_enum_values=True)
 
-    @field_validator("first", "middle", "last", mode="before")
+    @field_validator("first", "middle", "last", "suffix", mode="before")
     @classmethod
     def normalize_names(cls, v):
         return normalize_to_ascii(v)
@@ -198,6 +200,14 @@ class CallerName(BaseModel):
             v = v.strip() or None
         return v
 
+    @field_validator("suffix", mode="before")
+    def strip_and_normalize_suffix(cls, v):
+        if isinstance(v, str):
+            v = v.strip() or None
+        if not v:
+            return None
+        return v
+
 
 class CallerNames(RootModel[List[CallerName]]):
     """A list of CallerName objects."""
@@ -210,7 +220,7 @@ class CallerNames(RootModel[List[CallerName]]):
         deduplicated = []
         for name in names:
             # Create a tuple of all fields for comparison
-            name_tuple = (name.first, name.middle, name.last)
+            name_tuple = (name.first, name.middle, name.last, name.suffix)
             if name_tuple not in seen:
                 seen.add(name_tuple)
                 deduplicated.append(name)
