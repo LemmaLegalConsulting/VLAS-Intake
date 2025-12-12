@@ -120,6 +120,16 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     payload = {**primary_name}
 
+    # Custom Matter Fields (custom.custom_matter)
+    # UI column: is_this_the_client_s_legal_name__1065 (bool)
+    # We collect the primary name as the caller's legal name in the flow.
+    if primary_name.get("type") == "Legal Name":
+        custom_fields = payload.get("custom_fields")
+        if not isinstance(custom_fields, dict):
+            custom_fields = {}
+        custom_fields.setdefault("is_this_the_client_s_legal_name__1065", True)
+        payload["custom_fields"] = custom_fields
+
     if isinstance(state.get("phone"), dict):
         phone_number = state["phone"].get("phone_number")
         phone_type = state["phone"].get("phone_type", "mobile")
@@ -508,7 +518,9 @@ async def _save_rejection_note(
         )
 
         if response.status_code not in (200, 201):
-            logger.error(f"""Failed to save rejection note: {response.status_code} - {response.text}""")
+            logger.error(
+                f"""Failed to save rejection note: {response.status_code} - {response.text}"""
+            )
         else:
             logger.debug("Rejection note saved successfully")
 

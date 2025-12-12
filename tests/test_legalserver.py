@@ -51,6 +51,24 @@ class TestBuildMatterPayload:
 
         assert payload["mobile_phone"] == "(866) 534-5243"
 
+    def test_payload_sets_client_legal_name_custom_field(self):
+        """Test that the custom matter field for legal name is set when primary name type is Legal Name."""
+        state = {
+            "names": {
+                "names": [
+                    {
+                        "first": "Jane",
+                        "last": "Smith",
+                        "type": "Legal Name",
+                    }
+                ]
+            }
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["custom_fields"]["is_this_the_client_s_legal_name__1065"] is True
+
     def test_payload_with_legal_problem_code(self):
         """Test that legal problem code is included."""
         state = {
