@@ -86,9 +86,12 @@ record_phone_number:
     - content: >-
         [Instructions]
         1. Check if the caller's phone number is already available in the system.
-           - If the phone number is available, read it back to the caller and confirm if it is correct.
+           - If the phone number is available, read it back to the caller and confirm if it is correct (use digit-by-digit pronunciation as described below).
            - If the phone number is not available, ask the caller to provide their phone number.
         2. After receiving the phone number, ALWAYS read it back to the caller to confirm its accuracy.
+           - IMPORTANT: Read the phone number digit-by-digit (one digit at a time), not as a whole number.
+           - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
+           - Example: For 8665345243, say "eight, six, six, five, three, four, five, two, four, three".
            - If the caller confirms the number is correct, proceed to ask for the phone type.
            - If the caller indicates the number is incorrect, ask them to provide the correct number again and repeat the confirmation process.
         3. If the phone number provided is invalid, explain that you need a valid 10-digit US phone number and ask them to try again.
@@ -410,8 +413,8 @@ record_ssn_last_4:
         [Instructions]
         1. Ask the caller for the last 4 digits of their social security number. Explain that you only need the last 4 digits.
         2. The caller may provide the digits in various formats (for example: "1234", "123-4", "1-23-4", etc.). Accept any reasonable format with 4 digits.
-      3. After receiving the digits, read them back to the caller digit-by-digit (one digit at a time) and ask them to confirm they are correct.
-        - IMPORTANT: Do NOT read the digits as a whole number (for example, say "one, two, three, four" NOT "one thousand two hundred thirty four").
+        3. After receiving the digits, read them back to the caller digit-by-digit (one digit at a time) and ask them to confirm they are correct.
+           - IMPORTANT: Do NOT read the digits as a whole number (for example, say "one, two, three, four" NOT "one thousand two hundred thirty four").
            - If the caller confirms the digits are correct, proceed to the next step.
            - If the caller indicates the digits are incorrect, ask them to provide the correct last 4 digits and repeat the confirmation process.
         4. If the caller refuses to provide this information or provides a value that is not exactly 4 digits, explain that you need exactly 4 digits and ask them to try again.
@@ -453,6 +456,8 @@ record_address:
            - State abbreviation, e.g., "VA" (required)
            - 5-digit ZIP code (required)
         2. After collecting the address, read back the complete address to the caller and confirm it is accurate.
+           - IMPORTANT: When reading back the street address, unit number, and ZIP code, say it digit-by-digit (for example "two, three, two, one, nine").
+           - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
            - If the caller confirms the address is correct, proceed to the next step.
            - If the caller indicates any part is incorrect, ask them to provide the correct information and repeat the confirmation process.
            - Exception: If the caller explicitly refuses to provide their address or does not have one, you may proceed by calling the function with empty strings for all address fields.
