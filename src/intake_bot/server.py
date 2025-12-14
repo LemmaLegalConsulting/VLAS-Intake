@@ -27,6 +27,11 @@ app.add_middleware(
 )
 
 
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 @app.post("/")
 async def start_call(request: Request):
     """
