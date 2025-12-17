@@ -136,8 +136,8 @@ record_service_area:
           - If the caller confirms the match is correct, re-check that service area and continue intake.
           - If the caller wants to make a correction or provide a different service area, ask them to provide their service area again.
           - If the caller says the match is incorrect and/or they don't want to provide a correction, inform them that they are ineligible for our services.
-            - If the location is outside of Virginia, provide them with this resource: https://www.lsc.gov/ to find legal help in their area.
-            - If the location is inside Virginia but outside our service area, provide them with this resource: https://www.valegalaid.org/.
+            - If the location is outside of Virginia, provide them with Legal Services Corporation's website (spell it letter-by-letter, and say it only once): L S C dot G O V.
+            - If the location is inside Virginia but outside our service area, provide them with Virginia Legal Aid's website (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
             - Then end the conversation.
 
 # Case type
@@ -156,7 +156,7 @@ record_case_type:
 
         If the case type is ineligible (e.g., Criminal, Traffic, or other ineligible matters):
           - Inform the caller that we cannot assist with this type of case.
-          - Provide them with the Virginia State Bar website at https://www.vsb.org/ for additional information.
+          - Provide them with this website for additional information (spell it letter-by-letter, and say it only once): V S B dot O R G.
           - Then end the conversation.
 
 # Adverse parties
@@ -338,15 +338,20 @@ confirm_income_over_limit:
   task_messages:
     - content: >-
         [Instructions]
-        The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_assets_receives_benefits")`, or they may ask for additional resources.
+        The caller is likely ineligible for Law-Line legal help.
+
+        If the caller clearly agrees to continue (e.g., "yes"), call `continue_intake("record_assets_receives_benefits")`.
+        If the caller clearly declines to continue (e.g., "no", "no thanks", "stop", "I don't want to"), do NOT continue the intake.
+        Instead, provide the website below and then call `end_conversation`.
+        If the caller asks for additional resources, provide the website below and then call `end_conversation`.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with additional resources?
+        Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you?
 
-        If the caller asks for additional resources:
-          - Provide them with https://www.valegalaid.org/ for more information.
-          - Then end the conversation.
+        If the caller declines to proceed (including saying "no") or asks for resources:
+          - Provide them with Virginia Legal Aid's website for more information (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
+          - Then call the `end_conversation` function.
 
 # Assets
 record_assets_receives_benefits:
@@ -390,15 +395,20 @@ confirm_assets_over_limit:
   task_messages:
     - content: >-
         [Instructions]
-        The caller is likely ineligible for Law-Line legal help. The caller may choose to continue the intake, in which case you should use `continue_intake("record_citizenship")`, or they may ask for additional resources.
+        The caller is likely ineligible for Law-Line legal help.
+
+        If the caller clearly agrees to continue (e.g., "yes"), call `continue_intake("record_citizenship")`.
+        If the caller clearly declines to continue (e.g., "no", "no thanks", "stop", "I don't want to"), do NOT continue the intake.
+        Instead, provide the website below and then call `end_conversation`.
+        If the caller asks for additional resources, provide the website below and then call `end_conversation`.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you, or would you like to be provided with additional resources?
+        Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you?
 
-        If the caller asks for additional resources:
-          - Provide them with https://www.valegalaid.org/ for more information.
-          - Then end the conversation.
+        If the caller declines to proceed (including saying "no") or asks for resources:
+          - Provide them with Virginia Legal Aid's website for more information (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
+          - Then call the `end_conversation` function.
 
 # Citizenship
 record_citizenship:
@@ -557,18 +567,28 @@ ineligible:
     - content: >-
         Apologize to the caller that Law-Line isn't able to help them. Suggest additional resources.
         Provide the following websites as resources:
-        - https://www.valegalaid.org/
-        - https://www.lsc.gov/
-        - https://www.vsb.org/
+        - Virginia Legal Aid's website is V A L E G A L A I D dot O R G
+        - Legal Services Corporation's website is L S C dot G O V
+        - Virginia State Bar's website is V S B dot O R G
         After providing this information, ALWAYS call the `end_conversation` function to end the call.
 
 # End the conversation
 end:
   task_messages:
     - content: >-
-        Thank them and end the conversation.
+        [Instructions]
+        You are ending the call now.
+        Be rigidly succinct.
+        Say ONLY: "Goodbye."
+        Do NOT mention any websites, resources, referrals, or other information.
+        Do NOT add any extra sentences.
 
 caller_ended_conversation:
   task_messages:
     - content: >-
-        End the conversation.
+        [Instructions]
+        The caller has ended the conversation.
+        Be rigidly succinct.
+        Say ONLY: "Goodbye."
+        Do NOT mention any websites, resources, referrals, or other information.
+        Do NOT add any extra sentences.
