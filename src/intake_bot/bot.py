@@ -43,7 +43,7 @@ from pipecat.transports.websocket.fastapi import (
 )
 from pipecat_flows import FlowManager
 
-from intake_bot.nodes.nodes import node_initial
+from intake_bot.nodes.nodes import caller_ended_conversation, end_conversation, node_initial
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
@@ -279,6 +279,10 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         task=task,
         llm=llm,
         context_aggregator=context_aggregator,
+        global_functions=[
+            caller_ended_conversation,
+            end_conversation,
+        ],
     )
 
     # Add flow manager state from Twilio's call_data

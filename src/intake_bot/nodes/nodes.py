@@ -71,11 +71,7 @@ def node_initial() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
         **prompts.get(initial_prompt),
-        "functions": [
-            initial_function,
-            end_conversation,
-            caller_ended_conversation,
-        ],
+        "functions": [initial_function],
     }
 
 
@@ -515,7 +511,7 @@ async def record_income(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_income_over_limit"),
-                "functions": [continue_intake, caller_ended_conversation, end_conversation],
+                "functions": [continue_intake],
             }
         )
     return result, next_node
@@ -609,7 +605,7 @@ async def record_assets_list(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_assets_over_limit"),
-                "functions": [continue_intake, caller_ended_conversation, end_conversation],
+                "functions": [continue_intake],
             }
         )
     return result, next_node
