@@ -1,5 +1,12 @@
 import pytest
-from intake_bot.models.validator import AdverseParty, CallerName, PhoneAdverseParty, PhoneTypeCaller
+from intake_bot.models.validator import (
+    AdverseParty,
+    CallerName,
+    HouseholdIncome,
+    IncomePeriod,
+    PhoneAdverseParty,
+    PhoneTypeCaller,
+)
 
 
 @pytest.mark.parametrize(
@@ -60,3 +67,29 @@ def test_caller_name_suffix_empty_becomes_none():
 def test_adverse_party_suffix_optional():
     party = AdverseParty(first="Bob", last="Smith", suffix="Sr.")
     assert party.suffix == "Sr."
+
+
+@pytest.mark.parametrize(
+    "raw_period,expected",
+    [
+        ("month", IncomePeriod.MONTHLY),
+        ("Monthly", IncomePeriod.MONTHLY),
+        ("bi-weekly", IncomePeriod.BIWEEKLY),
+        ("semi monthly", IncomePeriod.SEMI_MONTHLY),
+        ("year", IncomePeriod.ANNUALLY),
+        (12, IncomePeriod.MONTHLY),
+        (52, IncomePeriod.WEEKLY),
+    ],
+)
+def test_income_period_aliases_normalize(raw_period, expected):
+    income = HouseholdIncome.model_validate(
+        {
+            "Jack Adamson": {
+                "Employment": {
+                    "amount": 100000,
+                    "period": raw_period,
+                }
+            }
+        }
+    )
+    assert income.root["Jack Adamson"].root["Employment"].period == expected

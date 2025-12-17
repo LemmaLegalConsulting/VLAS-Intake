@@ -250,6 +250,68 @@ class IncomeDetail(BaseModel):
         description="The period for the income: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.",
     )
 
+    @field_validator("period", mode="before")
+    @classmethod
+    def normalize_period_aliases(cls, v):
+        """Normalize common period aliases to LegalServer enum values.
+
+        The LLM (or STT) sometimes produces values like "month" instead of "Monthly".
+        This keeps the function-call path resilient and avoids user-facing correction chatter.
+        """
+        if v is None or isinstance(v, IncomePeriod):
+            return v
+
+        if isinstance(v, (int, float)):
+            v_int = int(v)
+            numeric_map = {
+                1: IncomePeriod.ANNUALLY,
+                4: IncomePeriod.QUARTERLY,
+                12: IncomePeriod.MONTHLY,
+                24: IncomePeriod.SEMI_MONTHLY,
+                26: IncomePeriod.BIWEEKLY,
+                52: IncomePeriod.WEEKLY,
+            }
+            return numeric_map.get(v_int, v)
+
+        if not isinstance(v, str):
+            return v
+
+        raw = v.strip()
+        if raw.isdigit():
+            return cls.normalize_period_aliases(int(raw))
+
+        normalized = (
+            raw.lower()
+            .replace("_", " ")
+            .replace("-", " ")
+            .replace("/", " ")
+            .replace("per ", "")
+            .strip()
+        )
+
+        # Common canonicalizations
+        if normalized in {"annual", "annually", "year", "yearly", "a year", "yr", "yrs"}:
+            return IncomePeriod.ANNUALLY
+        if normalized in {"month", "monthly", "a month", "mo", "mos"}:
+            return IncomePeriod.MONTHLY
+        if normalized in {"week", "weekly", "a week", "wk", "wks"}:
+            return IncomePeriod.WEEKLY
+        if normalized in {
+            "biweekly",
+            "bi weekly",
+            "every two weeks",
+            "two weeks",
+            "fortnight",
+            "fortnightly",
+        }:
+            return IncomePeriod.BIWEEKLY
+        if normalized in {"semi monthly", "semimonthly", "twice a month"}:
+            return IncomePeriod.SEMI_MONTHLY
+        if normalized in {"quarter", "quarterly", "a quarter"}:
+            return IncomePeriod.QUARTERLY
+
+        return raw
+
     @field_validator("period", mode="after")
     @classmethod
     def normalize_zero_income_period(cls, v, info):
