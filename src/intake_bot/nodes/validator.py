@@ -123,35 +123,38 @@ class IntakeValidator:
         """
         return await self.classifier.classify(problem_description=case_description)
 
-    async def check_income(self, income: HouseholdIncome) -> tuple[bool, int]:
+    async def check_income(
+        self, income: HouseholdIncome, household_size: int | None = None
+    ) -> tuple[bool, int, int]:
         """
         Check the caller's income eligibility.
         """
-        total_monthly = 0.0
+        total_monthly_income = 0.0
         for member_income in income.root.values():
             for income_detail in member_income.root.values():
                 amt = income_detail.amount
                 period = income_detail.period
                 if period == IncomePeriod.ANNUALLY:
-                    total_monthly += amt / 12
+                    total_monthly_income += amt / 12
                 elif period == IncomePeriod.MONTHLY:
-                    total_monthly += amt
+                    total_monthly_income += amt
                 elif period == IncomePeriod.WEEKLY:
-                    total_monthly += (amt * 52) / 12
+                    total_monthly_income += (amt * 52) / 12
                 elif period == IncomePeriod.BIWEEKLY:
-                    total_monthly += (amt * 26) / 12
+                    total_monthly_income += (amt * 26) / 12
                 elif period == IncomePeriod.SEMI_MONTHLY:
-                    total_monthly += amt * 2
+                    total_monthly_income += amt * 2
                 elif period == IncomePeriod.QUARTERLY:
-                    total_monthly += (amt * 4) / 12
+                    total_monthly_income += (amt * 4) / 12
                 else:
                     raise ValueError(f"""Unknown period: {period}""")
-        total_monthly = int(total_monthly)
-        total_members = len(income.root.keys())
+        total_monthly_income = int(total_monthly_income)
+        if household_size is None or household_size < 1:
+            household_size = max(len(income.root.keys()), 1)
         is_eligible = poverty_scale_income_qualifies(
-            total_monthly_income=total_monthly, household_size=total_members, multiplier=3.0
+            total_monthly_income=total_monthly_income, household_size=household_size, multiplier=3.0
         )
-        return is_eligible, total_monthly
+        return is_eligible, total_monthly_income, household_size
 
     async def check_assets(self, assets: Assets) -> tuple[bool, int]:
         """

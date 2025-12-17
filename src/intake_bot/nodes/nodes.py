@@ -473,13 +473,13 @@ async def record_income(
     """
     try:
         income_validated = HouseholdIncome.model_validate(income)
-        # Get household size from state instead of counting income entries
-        household_composition = flow_manager.state.get("household_composition", {})
+        household_composition = flow_manager.state.get("household_composition") or {}
         adults = household_composition.get("number_of_adults", 0)
         children = household_composition.get("number_of_children", 0)
         household_size = adults + children
-
-        is_eligible, income_monthly = await validator.check_income(income=income_validated)
+        is_eligible, income_monthly, household_size = await validator.check_income(
+            income=income_validated, household_size=household_size
+        )
     except ValidationError as e:
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)

@@ -336,7 +336,7 @@ async def test_record_household_composition_invalid_negative_children(
 
 @pytest.mark.asyncio
 async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch_validator):
-    patch_validator.check_income = AsyncMock(return_value=(True, 1000))
+    patch_validator.check_income = AsyncMock(return_value=(True, 1000, 3))
     # Set household composition in state
     flow_manager.state["household_composition"] = {
         "number_of_adults": 2,
@@ -363,7 +363,7 @@ async def test_record_income_multiple_members(flow_manager, patch_validator):
         "number_of_adults": 2,
         "number_of_children": 1,
     }
-    patch_validator.check_income = AsyncMock(return_value=(True, 3200))
+    patch_validator.check_income = AsyncMock(return_value=(True, 3200, 3))
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
@@ -387,7 +387,7 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
         "number_of_children": 0,
     }
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
-    patch_validator.check_income = AsyncMock(return_value=(False, 6000))
+    patch_validator.check_income = AsyncMock(return_value=(False, 6000, 1))
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {
             "John Doe": {
