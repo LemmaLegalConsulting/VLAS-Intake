@@ -1,8 +1,10 @@
 import argparse
 import asyncio
+import io
 import os
 import random
 import sys
+import wave
 from pathlib import Path
 from uuid import uuid4
 
@@ -36,6 +38,80 @@ from test_manager import TestRunner
 # Add src to path so we can import from intake_bot
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
 from intake_bot.utils.security import generate_websocket_auth_code
+
+
+def _patch_pipecat_websocket_client_double_connect() -> None:
+    """Avoid a race that can create two WS connections.
+
+    In pipecat, both WebsocketClientInputTransport.start() and
+    WebsocketClientOutputTransport.start() call WebsocketClientSession.connect().
+    Those starts can run concurrently, and connect() isn't guarded against
+    concurrent entry (it checks self._websocket before awaiting connect).
+
+    Result: two near-simultaneous websocket_connect() calls, creating two
+    separate server connections for a single logical call.
+    """
+
+    try:
+        from pipecat.transports.websocket.client import WebsocketClientSession
+    except Exception:
+        return
+
+    if getattr(WebsocketClientSession, "_vlas_connect_patch", False):
+        return
+
+    original_connect = WebsocketClientSession.connect
+
+    async def connect_with_lock(self):
+        lock = getattr(self, "_vlas_connect_lock", None)
+        if lock is None:
+            lock = asyncio.Lock()
+            setattr(self, "_vlas_connect_lock", lock)
+        async with lock:
+            return await original_connect(self)
+
+    WebsocketClientSession.connect = connect_with_lock  # type: ignore[method-assign]
+    WebsocketClientSession._vlas_connect_patch = True  # type: ignore[attr-defined]
+
+
+_patch_pipecat_websocket_client_double_connect()
+
+
+def _wav_duration_seconds(wav_bytes: bytes) -> float:
+    if not wav_bytes:
+        return 0.0
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as wf:
+            frames = wf.getnframes()
+            rate = wf.getframerate() or 0
+        return (frames / rate) if rate else 0.0
+    except Exception:
+        return 0.0
+
+
+class OpenAISTTServiceMinDuration(OpenAISTTService):
+    """Prevents OpenAI STT calls for too-short segments.
+
+    OpenAI's transcription endpoint rejects very short audio (e.g. <0.1s).
+    Segmented STT can occasionally emit an empty/near-empty segment when VAD
+    triggers start/stop without enough audio buffered.
+    """
+
+    def __init__(self, *args, min_duration_seconds: float = 0.1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._min_duration_seconds = float(min_duration_seconds)
+
+    async def run_stt(self, audio: bytes):
+        duration = _wav_duration_seconds(audio)
+        if duration < self._min_duration_seconds:
+            logger.debug(
+                f"Skipping STT: segment duration {duration:.3f}s < {self._min_duration_seconds:.3f}s"
+            )
+            return
+
+        async for frame in super().run_stt(audio):
+            yield frame
+
 
 load_dotenv(override=True)
 
@@ -106,10 +182,11 @@ async def run_client(
         ),
     )
 
-    stt = OpenAISTTService(
+    stt = OpenAISTTServiceMinDuration(
         api_key=os.getenv("OPENAI_API_KEY"),
         model="gpt-4o-mini-transcribe",
         prompt="Expect words related law, legal situations, and information about people.",
+        min_duration_seconds=0.1,
     )
 
     llm = OpenAILLMService(
