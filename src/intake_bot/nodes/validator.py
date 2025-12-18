@@ -181,7 +181,7 @@ class IntakeValidator:
         Validate household composition numbers.
 
         Args:
-            adults (int): Number of adults in the household (excluding perpetrators of domestic violence)
+            adults (int): Number of adults in the household (excluding anyone who has perpetrated domestic violence against you)
             children (int): Number of children in the household (under 18)
 
         Returns:

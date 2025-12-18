@@ -178,7 +178,7 @@ class TestBuildMatterPayload:
         """Test that domestic violence flag is included."""
         state = {
             "names": {"names": [{"first": "Grace", "last": "Lee"}]},
-            "domestic_violence": {"is_experiencing": True, "perpetrators": ["John Doe"]},
+            "domestic_violence": {"is_experiencing": True},
         }
 
         payload = _build_matter_payload(state)
@@ -189,7 +189,7 @@ class TestBuildMatterPayload:
         """Test that domestic violence flag is false when not experiencing."""
         state = {
             "names": {"names": [{"first": "Henry", "last": "Zhang"}]},
-            "domestic_violence": {"is_experiencing": False, "perpetrators": []},
+            "domestic_violence": {"is_experiencing": False},
         }
 
         payload = _build_matter_payload(state)
@@ -351,7 +351,6 @@ class TestBuildMatterPayload:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": False,
-                "perpetrators": [],
             },
             "emergency": {"is_emergency": False},
         }
@@ -435,7 +434,6 @@ class TestBuildMatterPayload:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": False,
-                "perpetrators": [],
             },
             "emergency": {"is_emergency": False},
         }
@@ -533,7 +531,6 @@ class TestBuildMatterPayload:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": False,
-                "perpetrators": [],
             },
         }
 
@@ -1547,7 +1544,6 @@ class TestSaveIntakeLegalserver:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": True,
-                "perpetrators": ["John Smith"],
             },
         }
 
@@ -1706,7 +1702,6 @@ class TestSaveIntakeLegalserver:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": False,
-                "perpetrators": [],
             },
         }
 
@@ -1766,7 +1761,6 @@ class TestSaveIntakeLegalserver:
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
                 "is_experiencing": False,
-                "perpetrators": [],
             },
         }
 

@@ -278,19 +278,17 @@ async def test_record_case_type_follow_up_needed(flow_manager, patch_validator):
 
 @pytest.mark.asyncio
 async def test_record_domestic_violence_true(flow_manager):
-    result, next_node = await record_domestic_violence(flow_manager, ["Jack the Ripper"])
+    result, next_node = await record_domestic_violence(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is True
-    assert "Jack the Ripper" in flow_manager.state["domestic_violence"]["perpetrators"]
     assert "record_household_composition_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_domestic_violence_false(flow_manager):
-    result, next_node = await record_domestic_violence(flow_manager, [])
+    result, next_node = await record_domestic_violence(flow_manager, False)
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is False
-    assert flow_manager.state["domestic_violence"]["perpetrators"] == []
     assert "record_household_composition_prompt" in next_node
 
 

@@ -58,7 +58,6 @@ class DateOfBirthResult(IntakeFlowResult):
 
 class DomesticViolenceResult(IntakeFlowResult):
     is_experiencing: bool
-    perpetrators: list[str]
 
 
 class EmergencyResult(IntakeFlowResult):

@@ -47,7 +47,7 @@ reset_with_summary: >-
   - Service Area / Location
   - Legal Problem / Case Description
   - Adverse Parties (names and details)
-  - Domestic Violence status and perpetrators
+  - Domestic Violence status
   - Household Composition (number of adults/children)
   - Income details (sources and amounts for each person)
   - Asset details
@@ -213,28 +213,17 @@ record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
-        1. Reference the adverse parties that were previously collected: {adverse_parties}
-        2. Ask the caller if any of these specific individuals have perpetrated domestic violence against them.
-        3. For each person who has perpetrated domestic violence, use their FULL NAME exactly as listed above.
-        4. If the caller uses a relationship descriptor (like "my husband" or "my ex"), identify which adverse party they're referring to and record that person's full name.
-        5. If the caller indicates that one or more of the adverse parties have perpetrated domestic violence, confirm which ones by their full names.
-        6. If the caller has adverse parties but states that none of them have perpetrated domestic violence, proceed with an empty list.
-        7. If there were no adverse parties collected, ask the caller if they are experiencing or have experienced domestic violence from anyone else in their household or relationships.
-        8. Once confirmed, ALWAYS call the `record_domestic_violence` function with the list of perpetrator names (which may be empty).
+        1. Ask the caller if they are experiencing or have experienced domestic violence.
+        2. Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation.
+        3. Once the caller confirms whether they are experiencing or have experienced domestic violence, call the `record_domestic_violence` function with the boolean value.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        The individuals you mentioned as adverse parties are: {adverse_parties}
-
-        Has any of these individuals perpetrated domestic violence against you? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation. Please identify them by their full names as listed above.
+        Are you experiencing or have you experienced domestic violence? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation.
 
         [Additional Notes]
         - Domestic violence includes but is not limited to: hitting, pushing, yelling, throwing objects, threats, controlling behavior, and emotional abuse.
-        - CRITICAL: Use the FULL NAMES of the adverse parties exactly as listed above.
-        - If the caller says "my husband" or similar relationship terms, identify which adverse party they mean and use that person's full name.
-        - ONLY include full names of individuals who were previously listed as adverse parties (unless there were no adverse parties, in which case ask about domestic violence from anyone in their household or relationships).
-        - The `perpetrators` argument should contain a list of full names (as strings) matching the adverse parties listed above.
-        - If no one has perpetrated domestic violence, pass an empty list: perpetrators = []
+        - The `is_experiencing` argument should be a boolean (True or False).
         - ALWAYS call the `record_domestic_violence` function after confirming the caller's response.
 
 # Household Composition
@@ -242,7 +231,7 @@ record_household_composition:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller how many adults (age 18 and older) live in their household, INCLUDING themselves, EXCLUDING any perpetrators of domestic violence.
+        1. Ask the caller how many adults (age 18 and older) live in their household, INCLUDING themselves, EXCLUDING anyone who has perpetrated domestic violence against them.
         2. Ask the caller how many children (under age 18) live in their household.
         3. Confirm the total number of people in the household by adding the adults and children.
         4. Once confirmed, ALWAYS call the `record_household_composition` function with both numbers.
@@ -256,7 +245,7 @@ record_household_composition:
         [Additional Notes]
         - Adults must be at least 18 years old.
         - INCLUDE YOURSELF in the adult count.
-        - Do NOT count perpetrators of domestic violence in the adult count.
+        - Do NOT count anyone who has perpetrated domestic violence against you in the adult count.
         - Children are anyone under 18 years old.
         - Include all children who live in the household.
         - ALWAYS call the `record_household_composition` function after confirming both numbers.
@@ -267,14 +256,14 @@ record_income:
     - content: >-
         [Instructions]
         1. You have already collected the total number of adults and children in the household. Only ask for income from household members who HAVE income - there is no need to list all household members.
-        2. For each household member with income (excluding perpetrators of domestic violence), collect:
+        2. For each household member with income (excluding anyone who has perpetrated domestic violence against you), collect:
            - First and last name (the actual person's name, not a placeholder)
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
         3. If the caller indicates that some household members have no income, ask them how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information for those with income, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
-        IMPORTANT: Do NOT collect income information for any individuals identified as perpetrators of domestic violence. If a perpetrator is mentioned, exclude them from the household income discussion and do not ask for their income.
+        IMPORTANT: Do NOT collect income information for anyone who has perpetrated domestic violence against you.
 
         [Child Support Handling]
         If the caller mentions receiving child support for a child, record this income under the name of the parent or guardian receiving it (usually the caller using their actual name), NOT under the child's name. For example, if Victoria receives child support for Sophie, record it under "Victoria" not "Sophie".
@@ -323,13 +312,12 @@ record_income:
         - Pension or retirement income (Pension/Retirement)
 
         [Additional Notes]
-        - DO NOT collect income or asset information for any individual who perpetrated domestic violence against the caller. These individuals should be completely excluded from the income calculation.
+        - DO NOT collect income or asset information for any individual who has perpetrated domestic violence against you. These individuals should be completely excluded from the income calculation.
         - Income periods must be one of: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.
         - If the caller or any household member (except children) reports no income, this is a valid response. After confirming how they manage essential expenses, proceed as usual.
         - When recording income, use the income category names as keys to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
-        - If perpetrators were accidentally included in the income data, the system will automatically remove them before processing.
 
         Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the income category names in the function call.
 

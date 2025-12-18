@@ -361,13 +361,6 @@ async def record_adverse_parties(
         )
         return result, None
 
-    adverse_parties_text = ", ".join(
-        [
-            f"""{p.get("first", "")} {p.get("middle", "")} {p.get("last", "")} {p.get("suffix", "")}""".strip()
-            for p in adverse_parties
-        ]
-    )
-
     result = AdversePartiesResult(
         status=Status.SUCCESS,
         adverse_parties=adverse_parties_validated,
@@ -375,7 +368,7 @@ async def record_adverse_parties(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
-            **prompts.get("record_domestic_violence", adverse_parties=adverse_parties_text),
+            **prompts.get("record_domestic_violence"),
             "functions": [record_domestic_violence],
         }
     )
@@ -384,21 +377,17 @@ async def record_adverse_parties(
 
 @convert_and_log_result("domestic_violence")
 async def record_domestic_violence(
-    flow_manager: FlowManager, perpetrators: list[str]
+    flow_manager: FlowManager, is_experiencing: bool
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record which, if any, of the adverse parties have perpetrated domestic violence against the caller.
+    Record whether the caller is experiencing or has experienced domestic violence.
 
     Args:
-        perpetrators (list[str]): A list of names of adverse parties who have perpetrated domestic violence
-                                  against the caller. Should be names of individuals previously listed as adverse parties.
-                                  Pass an empty list [] if none of the adverse parties have perpetrated domestic violence.
+        is_experiencing (bool): Whether the caller is experiencing or has experienced domestic violence.
     """
-    is_experiencing = bool(perpetrators)
     result = DomesticViolenceResult(
         status=Status.SUCCESS,
         is_experiencing=is_experiencing,
-        perpetrators=perpetrators,
     )
 
     next_node = NodeConfig(
@@ -416,10 +405,10 @@ async def record_household_composition(
     flow_manager: FlowManager, number_of_adults: int, number_of_children: int
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record the number of people in the household, excluding perpetrators of domestic violence.
+    Record the number of people in the household, excluding anyone who has perpetrated domestic violence against the caller.
 
     Args:
-        number_of_adults (int): Number of adults in the household (18 and older), including yourself, excluding perpetrators of domestic violence.
+        number_of_adults (int): Number of adults in the household (18 and older), including yourself, excluding anyone who has perpetrated domestic violence against you.
         number_of_children (int): Number of children in the household (under 18).
     """
     is_valid, _ = await validator.check_household_composition(

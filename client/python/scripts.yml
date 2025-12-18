@@ -55,8 +55,6 @@ celeste:
               type: "mobile"
     domestic_violence:
       is_experiencing: true
-      perpetrators:
-        - "Dexter Robert Campbell"
     household_composition:
       number_of_adults: 1
       number_of_children: 2
@@ -88,7 +86,6 @@ celeste:
       ssn_last_4: "5234"
     emergency:
       is_emergency: false
-
 sarah:
   system_prompt: >-
     This conversation is being converted to voice.
@@ -137,8 +134,6 @@ sarah:
       legal_problem_code: "32 Divorce/Sep./Annul."
     domestic_violence:
       is_experiencing: true
-      perpetrators:
-        - "Aldous Snow"
     household_composition:
       number_of_adults: 1
       number_of_children: 0
@@ -175,7 +170,6 @@ sarah:
           last: "Snow"
     emergency:
       is_emergency: false
-
 victoria:
   system_prompt: >-
     This conversation is being converted to voice.
@@ -233,7 +227,6 @@ victoria:
           last: "Chen"
     domestic_violence:
       is_experiencing: false
-      perpetrators: []
     household_composition:
       number_of_adults: 1
       number_of_children: 3
@@ -275,7 +268,6 @@ victoria:
       ssn_last_4: "3456"
     emergency:
       is_emergency: false
-
 victoria_spanish:
   system_prompt: >-
     Habla en español.
@@ -334,7 +326,6 @@ victoria_spanish:
           last: "Chen"
     domestic_violence:
       is_experiencing: false
-      perpetrators: []
     household_composition:
       number_of_adults: 1
       number_of_children: 3
@@ -376,7 +367,6 @@ victoria_spanish:
       ssn_last_4: "3456"
     emergency:
       is_emergency: false
-
 emergency:
   system_prompt: >-
     This conversation is being converted to voice.
