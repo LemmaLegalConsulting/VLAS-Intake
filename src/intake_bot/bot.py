@@ -29,7 +29,7 @@ from pipecat.processors.filters.stt_mute_filter import (
 )
 from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.processors.user_idle_processor import UserIdleProcessor
-from pipecat.runner.types import RunnerArguments
+from pipecat.runner.types import WebSocketRunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.google.tts import GoogleTTSService
@@ -46,7 +46,7 @@ from pipecat_flows import FlowManager
 from intake_bot.nodes.nodes import caller_ended_conversation, end_conversation, node_initial
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
-from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.ev import ev_is_true, require_ev
 from intake_bot.utils.local_smart_turn import turn_analyzer
 from intake_bot.utils.security import verify_websocket_auth_code
 
@@ -110,7 +110,7 @@ class TranscriptHandler:
             await self.save_transcript_message(msg)
 
 
-async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
+async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
     """
     Main bot entry point.
     """
@@ -142,12 +142,7 @@ async def bot(runner_args: RunnerArguments) -> None | dict[str, int]:
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=serializer,
-            vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                    start_secs=float(get_ev("VAD_START_SECS", 0.1)),
-                    stop_secs=float(get_ev("VAD_STOP_SECS", 0.5)),
-                )
-            ),
+            vad_analyzer=SileroVADAnalyzer(params=VADParams(start_secs=0.1)),
             turn_analyzer=turn_analyzer,
         ),
     )
