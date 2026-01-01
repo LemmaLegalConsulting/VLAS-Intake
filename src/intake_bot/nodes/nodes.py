@@ -258,7 +258,7 @@ async def record_service_area(
                 node_partial_reset_with_summary()
                 | {
                     **prompts.get("ineligible"),
-                    "functions": [end_conversation],
+                    "post_actions": [{"type": "end_conversation"}],
                 }
             )
     return result, next_node
@@ -313,7 +313,7 @@ async def record_case_type(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("ineligible"),
-                "functions": [end_conversation],
+                "post_actions": [{"type": "end_conversation"}],
             }
         )
     return result, next_node
