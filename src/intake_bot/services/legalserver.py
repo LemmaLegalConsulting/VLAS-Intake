@@ -141,7 +141,7 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     if isinstance(state.get("service_area"), dict):
         if fips_code := state["service_area"].get("fips_code"):
-            payload["county_of_residence"] = {"county_FIPS": str(fips_code)}
+            payload["county_of_dispute"] = {"county_FIPS": str(fips_code)}
 
     if isinstance(state.get("income"), dict):
         payload["income_eligible"] = state["income"].get("is_eligible")
@@ -164,11 +164,26 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         payload["date_of_birth"] = state["date_of_birth"].get("date_of_birth")
 
     if isinstance(state.get("address"), dict):
-        payload["home_street"] = state["address"]["address"].get("street")
-        payload["home_apt_num"] = state["address"]["address"].get("street_2")
-        payload["home_city"] = state["address"]["address"].get("city")
-        payload["home_state"] = state["address"]["address"].get("state")
-        payload["home_zip"] = state["address"]["address"].get("zip")
+        address = state["address"].get("address", {})
+
+        payload["home_street"] = address.get("street")
+        payload["home_apt_num"] = address.get("street_2")
+        payload["home_city"] = address.get("city")
+        payload["home_state"] = address.get("state")
+        payload["home_zip"] = address.get("zip")
+
+        county_name = address.get("county")
+        county_state = address.get("state")
+        if isinstance(county_name, str) and isinstance(county_state, str):
+            county_name = county_name.strip()
+            county_state = county_state.strip().upper()
+            if county_name.lower().endswith(" county"):
+                county_name = county_name[: -len(" county")].strip()
+            if county_name and county_state:
+                payload["county_of_residence"] = {
+                    "county_name": county_name,
+                    "county_state": county_state,
+                }
 
     if isinstance(state.get("domestic_violence"), dict):
         payload["victim_of_domestic_violence"] = state["domestic_violence"].get("is_experiencing")

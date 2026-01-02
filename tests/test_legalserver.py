@@ -83,8 +83,8 @@ class TestBuildMatterPayload:
 
         assert payload["legal_problem_code"] == "32 Divorce/Sep./Annul."
 
-    def test_payload_with_county_of_residence(self):
-        """Test that service area FIPS code is included."""
+    def test_payload_with_county_of_dispute(self):
+        """Test that service area FIPS code is included as county_of_dispute."""
         state = {
             "names": {"names": [{"first": "Bob", "last": "Wilson"}]},
             "service_area": {"location": "Amelia County", "is_eligible": True, "fips_code": 51007},
@@ -92,9 +92,10 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert payload["county_of_residence"] == {
+        assert payload["county_of_dispute"] == {
             "county_FIPS": "51007",
         }
+        assert "county_of_residence" not in payload
 
     def test_payload_with_income_eligibility(self):
         """Test that income eligibility flag is included."""
@@ -263,6 +264,7 @@ class TestBuildMatterPayload:
                     "city": "Richmond",
                     "state": "VA",
                     "zip": "23219",
+                    "county": "Arlington",
                 }
             },
         }
@@ -274,6 +276,7 @@ class TestBuildMatterPayload:
         assert payload["home_city"] == "Richmond"
         assert payload["home_state"] == "VA"
         assert payload["home_zip"] == "23219"
+        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
 
     def test_payload_with_address_without_apartment(self):
         """Test that address without apartment number is included."""
@@ -286,6 +289,7 @@ class TestBuildMatterPayload:
                     "city": "Arlington",
                     "state": "VA",
                     "zip": "22201",
+                    "county": "Arlington",
                 }
             },
         }
@@ -297,6 +301,7 @@ class TestBuildMatterPayload:
         assert payload["home_city"] == "Arlington"
         assert payload["home_state"] == "VA"
         assert payload["home_zip"] == "22201"
+        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
 
     def test_payload_excludes_missing_address_section(self):
         """Test that missing address section is handled gracefully."""
@@ -335,6 +340,7 @@ class TestBuildMatterPayload:
                     "city": "Alexandria",
                     "state": "VA",
                     "zip": "22314",
+                    "county": "Arlington",
                 }
             },
             "service_area": {
@@ -370,7 +376,8 @@ class TestBuildMatterPayload:
         assert payload["home_zip"] == "22314"
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_residence"]["county_FIPS"] == "51013"
+        assert payload["county_of_dispute"]["county_FIPS"] == "51013"
+        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"
@@ -446,7 +453,8 @@ class TestBuildMatterPayload:
         assert payload["suffix"] == "Jr."
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_residence"]["county_FIPS"] == "51013"
+        assert payload["county_of_dispute"]["county_FIPS"] == "51013"
+        assert "county_of_residence" not in payload
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"
@@ -544,7 +552,8 @@ class TestBuildMatterPayload:
         assert payload["date_of_birth"] == "1980-08-10"
         assert payload["mobile_phone"] == "(571) 555-9999"
         assert payload["legal_problem_code"] == "91 Consumer Transactions"
-        assert payload["county_of_residence"]["county_FIPS"] == "51059"
+        assert payload["county_of_dispute"]["county_FIPS"] == "51059"
+        assert "county_of_residence" not in payload
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"

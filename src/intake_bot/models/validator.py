@@ -27,13 +27,14 @@ class Address(BaseModel):
     city: str
     state: str
     zip: str
+    county: str
 
-    @field_validator("street", "street_2", "city", "state", "zip", mode="before")
+    @field_validator("street", "street_2", "city", "state", "zip", "county", mode="before")
     @classmethod
     def normalize_address_fields(cls, v):
         return normalize_to_ascii(v)
 
-    @field_validator("street", "city", "state", "zip", mode="after")
+    @field_validator("street", "city", "state", "zip", "county", mode="after")
     @classmethod
     def validate_required_fields(cls, v):
         if not v or not v.strip():

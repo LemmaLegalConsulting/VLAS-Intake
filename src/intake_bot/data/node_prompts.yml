@@ -462,6 +462,7 @@ record_address:
            - City (required)
            - State abbreviation, e.g., "VA" (required)
            - 5-digit ZIP code (required)
+           - County (required)
         2. After collecting the address, read back the complete address to the caller and confirm it is accurate.
            - IMPORTANT: When reading back the street address, unit number, and ZIP code, say it digit-by-digit (for example "two, three, two, one, nine").
            - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
@@ -472,7 +473,7 @@ record_address:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please provide your residential address. I'll need your street address, city, state, and ZIP code. If you have an apartment or suite number, please include that as well.
+        Please provide your residential address. I'll need your street address, city, state, ZIP code, and county. If you have an apartment or suite number, please include that as well.
 
 # Names
 record_names:

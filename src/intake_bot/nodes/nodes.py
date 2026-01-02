@@ -701,10 +701,11 @@ async def record_date_of_birth(
 async def record_address(
     flow_manager: FlowManager,
     street: str = "",
+    street_2: str = None,
     city: str = "",
     state: str = "",
     zip: str = "",
-    street_2: str = None,
+    county: str = "",
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record the caller's residential address.
@@ -715,11 +716,12 @@ async def record_address(
         city (str): The city (required).
         state (str): The state abbreviation, e.g., "VA" (required).
         zip (str): The 5-digit ZIP code (required).
+        county (str): The county of residence (required).
 
         Note: All fields can be empty if the caller refuses or does not have an address.
     """
     # Check if all required fields are empty
-    if not any([street, city, state, zip]):
+    if not any([street, city, state, zip, county]):
         result = AddressResult(status=Status.SUCCESS, address=None)
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -738,6 +740,7 @@ async def record_address(
                 "city": city,
                 "state": state,
                 "zip": zip,
+                "county": county,
             }
         )
     except ValidationError as e:

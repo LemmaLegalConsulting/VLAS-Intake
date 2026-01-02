@@ -12,6 +12,7 @@ celeste:
       - The last 4 digits of your social security number are 5234.
       - You live in Amelia County.
       - Your address is 245 Oak Ridge Road, Amelia, VA 23002.
+      - Your county is Amelia.
       - Your husband's name is Dexter Robert Campbell.
       - Your husband's mobile phone number is (866) 534-5256.
       - Your husband is the opposing party.
@@ -82,6 +83,7 @@ celeste:
         city: "Amelia"
         state: "VA"
         zip: "23002"
+        county: "Amelia"
     ssn_last_4:
       ssn_last_4: "5234"
     emergency:
@@ -107,6 +109,7 @@ sarah:
       - You don't have any of your own assets since he makes all of the money, about $80,000/year.
       - You are a US citizen.
       - Your address is 512 Maple Street, Apartment 3, Amelia, VA 23002.
+      - Your county is Amelia.
       - This isn't an emergency, but you'd like to get out of the house and start the divorce as soon as possible.
   expected_state:
     language:
@@ -162,6 +165,7 @@ sarah:
         city: "Amelia"
         state: "VA"
         zip: "23002"
+        county: "Amelia"
     ssn_last_4:
       ssn_last_4: "7891"
     adverse_parties:
@@ -193,6 +197,7 @@ victoria:
       - You own some jewelry with sentimental value worth approximately $1,500.
       - You are a US citizen.
       - Your address is 1820 Pine Grove Drive, Suite 120, Martinsville, VA 24112.
+      - Your county is Henry.
       - Your date of birth is July 8, 1980.
       - The last 4 digits of your social security number are 3456.
       - This is not an emergency, but you need legal help establishing custody and support for your two youngest children.
@@ -264,6 +269,7 @@ victoria:
         city: "Martinsville"
         state: "VA"
         zip: "24112"
+        county: "Henry"
     ssn_last_4:
       ssn_last_4: "3456"
     emergency:
@@ -292,6 +298,7 @@ victoria_spanish:
       - Posees algunas joyas con valor sentimental valoradas en aproximadamente $1,500.
       - Eres ciudadana de los Estados Unidos.
       - Tu dirección es 1820 Pine Grove Drive, Suite 120, Martinsville, VA 24112.
+      - Tu condado es Henry.
       - Tu fecha de nacimiento es el 8 de julio de 1980.
       - Los últimos 4 dígitos de tu número de seguro social son 3456.
       - Esto no es una emergencia, pero necesitas ayuda legal para establecer la custodia y el apoyo para tus dos hijos más pequeños.
@@ -363,6 +370,7 @@ victoria_spanish:
         city: "Martinsville"
         state: "VA"
         zip: "24112"
+        county: "Henry"
     ssn_last_4:
       ssn_last_4: "3456"
     emergency:

@@ -135,6 +135,7 @@ async def test_record_address_valid(flow_manager):
         city="Richmond",
         state="VA",
         zip="23219",
+        county="Richmond",
     )
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
@@ -143,6 +144,7 @@ async def test_record_address_valid(flow_manager):
     assert result["address"]["city"] == "Richmond"
     assert result["address"]["state"] == "VA"
     assert result["address"]["zip"] == "23219"
+    assert result["address"]["county"] == "Richmond"
     assert flow_manager.state["address"] is not None
     assert "record_names_prompt" in next_node
 
@@ -150,7 +152,12 @@ async def test_record_address_valid(flow_manager):
 @pytest.mark.asyncio
 async def test_record_address_valid_no_street_2(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="456 Oak Ave", city="Arlington", state="VA", zip="22201"
+        flow_manager,
+        street="456 Oak Ave",
+        city="Arlington",
+        state="VA",
+        zip="22201",
+        county="Arlington",
     )
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
@@ -159,13 +166,14 @@ async def test_record_address_valid_no_street_2(flow_manager):
     assert result["address"]["city"] == "Arlington"
     assert result["address"]["state"] == "VA"
     assert result["address"]["zip"] == "22201"
+    assert result["address"]["county"] == "Arlington"
     assert "record_names_prompt" in next_node
 
 
 @pytest.mark.asyncio
 async def test_record_address_invalid_missing_street(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="", city="Richmond", state="VA", zip="23219"
+        flow_manager, street="", city="Richmond", state="VA", zip="23219", county="Richmond"
     )
     assert result["status"] == Status.ERROR
     assert "validating the `address`" in result["error"]
@@ -175,7 +183,7 @@ async def test_record_address_invalid_missing_street(flow_manager):
 @pytest.mark.asyncio
 async def test_record_address_invalid_missing_city(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="123 Main St", city="", state="VA", zip="23219"
+        flow_manager, street="123 Main St", city="", state="VA", zip="23219", county="Richmond"
     )
     assert result["status"] == Status.ERROR
     assert "validating the `address`" in result["error"]
@@ -867,7 +875,7 @@ async def test_record_date_of_birth_empty(flow_manager, patch_validator):
 @pytest.mark.asyncio
 async def test_record_address_empty(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="", city="", state="", zip="", street_2=""
+        flow_manager, street="", city="", state="", zip="", street_2="", county=""
     )
 
     assert result["status"] == Status.SUCCESS
