@@ -166,7 +166,6 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     stt_mute_processor = STTMuteFilter(
         config=STTMuteConfig(
             strategies={
-                STTMuteStrategy.MUTE_UNTIL_FIRST_BOT_COMPLETE,
                 STTMuteStrategy.FUNCTION_CALL,
             }
         ),
