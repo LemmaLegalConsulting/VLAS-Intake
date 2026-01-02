@@ -839,7 +839,7 @@ async def record_emergency(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("complete_intake"),
-                "functions": [end_conversation],
+                "post_actions": [{"type": "end_conversation"}],
             }
         )
     else:
@@ -847,7 +847,7 @@ async def record_emergency(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("complete_intake"),
-                "functions": [end_conversation],
+                "post_actions": [{"type": "end_conversation"}],
             }
         )
     return result, next_node
