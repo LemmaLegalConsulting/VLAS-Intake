@@ -93,3 +93,14 @@ def test_income_period_aliases_normalize(raw_period, expected):
         }
     )
     assert income.root["Jack Adamson"].root["Employment"].period == expected
+
+
+def test_household_income_empty_listing_normalizes_to_no_household_income():
+    income = HouseholdIncome.model_validate({})
+
+    # Ensure we create a single explicit "no income" entry
+    assert "Household" in income.root
+    assert "No Household Income" in income.root["Household"].root
+    detail = income.root["Household"].root["No Household Income"]
+    assert detail.amount == 0
+    assert detail.period == IncomePeriod.MONTHLY

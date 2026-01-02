@@ -333,3 +333,25 @@ class HouseholdIncome(RootModel[dict[str, MemberIncome]]):  # person_name -> Mem
         if isinstance(v, dict):
             return {normalize_to_ascii(k): val for k, val in v.items()}
         return v
+
+    @field_validator("root", mode="after")
+    @classmethod
+    def ensure_nonempty_listing(cls, v: dict[str, MemberIncome]):
+        """Ensure income listing is never completely empty.
+
+        The LLM sometimes submits `{}` for income listing to represent "no income".
+        Downstream, an empty listing causes us to skip sending any income records to LegalServer.
+        To make "no income" explicit, normalize an empty listing to a single
+        "No Household Income" entry with amount=0 and period=Monthly.
+        """
+        if not v:
+            default_member_income = MemberIncome.model_validate(
+                {
+                    "No Household Income": {
+                        "amount": 0,
+                        "period": IncomePeriod.MONTHLY,
+                    }
+                }
+            )
+            return {"Household": default_member_income}
+        return v
