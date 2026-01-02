@@ -240,18 +240,16 @@ record_household_composition:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller how many adults (age 18 and older) live in their household, INCLUDING themselves.
-        2. IF the caller previously stated they are experiencing domestic violence, explicitly tell them to EXCLUDE anyone who has perpetrated domestic violence against them. Otherwise, do not mention this exclusion.
-        3. Ask the caller how many children (under age 18) live in their household.
+        1. Ask the caller a single question to determine how many adults (age 18 and older) and how many children (under age 18) live in their household.
+        2. Remind them to INCLUDE themselves in the adult count.
+        3. IF the caller previously stated they are experiencing domestic violence, explicitly tell them to EXCLUDE anyone who has perpetrated domestic violence against them. Otherwise, do not mention this exclusion.
         4. Confirm the total number of people in the household by adding the adults and children.
         5. Once confirmed, ALWAYS call the `record_household_composition` function with both numbers.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        To help us understand your household situation, I need to know:
-        - How many adults (18 and older), including yourself, live in your household?
+        To help us understand your household situation, how many adults (18 and older, including yourself) and how many children (under 18) live in your household?
         (Only if the caller reported domestic violence: "Do not count anyone who has perpetrated domestic violence against you.")
-        - How many children (under 18) live in your household?
 
         [Additional Notes]
         - Adults must be at least 18 years old.
