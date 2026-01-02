@@ -462,7 +462,29 @@ async def _save_assets_note(
     total_value = assets_data.get("total_value", 0)
 
     if not listing and total_value == 0:
-        logger.debug("No assets to save")
+        body = "No assets recorded"
+        try:
+            payload = NotePayload(
+                subject="Assets",
+                body=body,
+                note_type={"lookup_value_name": "General Notes"},
+            )
+        except Exception as e:
+            logger.warning(f"""Failed to validate assets note: {e}""")
+            return
+
+        response = await client.post(
+            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
+            headers=LEGALSERVER_HEADERS,
+            json=payload.model_dump(exclude_none=True),
+        )
+
+        if response.status_code not in (200, 201):
+            logger.warning(
+                f"""Failed to save assets note: {response.status_code} - {response.text}"""
+            )
+        else:
+            logger.debug("Assets note created: no assets recorded")
         return
 
     try:

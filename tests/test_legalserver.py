@@ -1200,15 +1200,21 @@ class TestSaveAssetsNote:
         call_args = mock_client.post.call_args
         assert "real property: $250,000.00" in call_args[1]["json"]["body"]
 
-    async def test_skip_empty_assets_listing(self):
-        """Test that no note is created when assets listing is empty and total is 0."""
+    async def test_save_empty_assets_listing_creates_no_assets_recorded_note(self):
+        """Test that a note is created when assets listing is empty and total is 0."""
         mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         assets_data = {"listing": [], "total_value": 0}
 
         await _save_assets_note(mock_client, "test-uuid", assets_data)
 
-        mock_client.post.assert_not_called()
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert "test-uuid" in call_args[0][0]
+        assert call_args[1]["json"]["subject"] == "Assets"
+        assert call_args[1]["json"]["body"] == "No assets recorded"
+        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
 
     async def test_skip_when_assets_data_not_dict(self):
         """Test handling of non-dict assets data."""
@@ -1218,15 +1224,18 @@ class TestSaveAssetsNote:
 
         mock_client.post.assert_not_called()
 
-    async def test_skip_assets_with_no_listing_and_zero_value(self):
-        """Test that no note is created when no assets and total value is 0."""
+    async def test_save_assets_with_no_listing_and_zero_value(self):
+        """Test that a note is created when no assets and total value is 0."""
         mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
 
         assets_data = {"listing": [], "total_value": 0}
 
         await _save_assets_note(mock_client, "test-uuid", assets_data)
 
-        mock_client.post.assert_not_called()
+        mock_client.post.assert_called_once()
+        call_args = mock_client.post.call_args
+        assert call_args[1]["json"]["body"] == "No assets recorded"
 
     async def test_save_assets_with_only_total_value(self):
         """Test saving assets when only total value is present."""
