@@ -317,6 +317,29 @@ class TestBuildMatterPayload:
         assert "home_state" not in payload
         assert "home_zip" not in payload
 
+    def test_payload_with_already_cleaned_county(self):
+        """Test that validation model logic (stripping County) is compatible with payload builder."""
+        # The validator ensures 'county' is just 'Amelia', not 'Amelia County'.
+        # This test confirms that if 'Amelia' is passed, it is sent as 'Amelia'.
+        # (Regression test for removing duplicate cleaning logic in service)
+        state = {
+            "names": {"names": [{"first": "Patricia", "last": "Garcia"}]},
+            "address": {
+                "address": {
+                    "street": "456 Oak Avenue",
+                    "street_2": None,
+                    "city": "Amelia",
+                    "state": "VA",
+                    "zip": "23002",
+                    "county": "Amelia",  # Value after validator cleaning
+                }
+            },
+        }
+
+        payload = _build_matter_payload(state)
+
+        assert payload["county_of_residence"] == {"county_name": "Amelia", "county_state": "VA"}
+
     def test_complete_payload_with_date_of_birth_and_all_fields(self):
         """Test building complete payload with date of birth and all other fields."""
         state = {

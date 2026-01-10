@@ -41,6 +41,13 @@ class Address(BaseModel):
             raise ValueError("This field is required and cannot be empty")
         return v.strip()
 
+    @field_validator("county", mode="after")
+    @classmethod
+    def clean_county(cls, v: str) -> str:
+        if v.lower().endswith(" county"):
+            return v[: -len(" county")].strip()
+        return v
+
     @field_validator("street_2", mode="before")
     def falsy_to_none(cls, v):
         if not v:

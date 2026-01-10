@@ -177,8 +177,6 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         if isinstance(county_name, str) and isinstance(county_state, str):
             county_name = county_name.strip()
             county_state = county_state.strip().upper()
-            if county_name.lower().endswith(" county"):
-                county_name = county_name[: -len(" county")].strip()
             if county_name and county_state:
                 payload["county_of_residence"] = {
                     "county_name": county_name,

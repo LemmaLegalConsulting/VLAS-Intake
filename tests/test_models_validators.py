@@ -1,5 +1,6 @@
 import pytest
 from intake_bot.models.validator import (
+    Address,
     AdverseParty,
     CallerName,
     HouseholdIncome,
@@ -7,6 +8,7 @@ from intake_bot.models.validator import (
     PhoneAdverseParty,
     PhoneTypeCaller,
 )
+from pydantic import ValidationError
 
 
 @pytest.mark.parametrize(
@@ -104,3 +106,65 @@ def test_household_income_empty_listing_normalizes_to_no_household_income():
     detail = income.root["Household"].root["No Household Income"]
     assert detail.amount == 0
     assert detail.period == IncomePeriod.MONTHLY
+
+
+class TestAddressModel:
+    def test_address_county_strip_county(self):
+        """Test that 'County' suffix is stripped from county field."""
+        data = {
+            "street": "123 Main St",
+            "city": "Richmond",
+            "state": "VA",
+            "zip": "23219",
+            "county": "Amelia County",
+        }
+        address = Address(**data)
+        assert address.county == "Amelia"
+
+    def test_address_county_no_suffix_change(self):
+        """Test that county without 'County' suffix is unchanged."""
+        data = {
+            "street": "123 Main St",
+            "city": "Richmond",
+            "state": "VA",
+            "zip": "23219",
+            "county": "Amelia",
+        }
+        address = Address(**data)
+        assert address.county == "Amelia"
+
+    def test_address_county_case_insensitive_strip(self):
+        """Test that 'County' suffix stripping is case insensitive."""
+        data = {
+            "street": "123 Main St",
+            "city": "Richmond",
+            "state": "VA",
+            "zip": "23219",
+            "county": "Amelia county",
+        }
+        address = Address(**data)
+        assert address.county == "Amelia"
+
+    def test_address_county_strip_whitespace(self):
+        """Test that whitespace is handled correctly when stripping."""
+        data = {
+            "street": "123 Main St",
+            "city": "Richmond",
+            "state": "VA",
+            "zip": "23219",
+            "county": " Amelia County ",
+        }
+        address = Address(**data)
+        assert address.county == "Amelia"
+
+    def test_address_validation_required_fields(self):
+        """Test that required fields are validated."""
+        data = {
+            "street": " ",  # Empty/whitespace
+            "city": "Richmond",
+            "state": "VA",
+            "zip": "23219",
+            "county": "Amelia",
+        }
+        with pytest.raises(ValidationError):
+            Address(**data)
