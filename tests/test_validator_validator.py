@@ -22,7 +22,7 @@ from intake_bot.nodes.validator import IntakeValidator
         ("Nonexistent Place", "", 0),  # no match
         ("amelia county", "Amelia County", 51007),  # case-insensitive match
         ("Amelia County City", "Amelia County", 51007),  # extra words
-        ("Bedford", "Bedford County", 51019),  # another partial match
+        ("Buckingham", "Buckingham County", 51029),  # another partial match
         ("Danville", "Danville City", 51595),  # city match
         ("South Boston", "South Boston", 51083),  # exact city
         ("Emporia", "Emporia City", 51600),  # city match
