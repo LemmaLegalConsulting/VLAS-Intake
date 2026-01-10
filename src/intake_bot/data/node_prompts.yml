@@ -264,15 +264,15 @@ record_income:
   task_messages:
     - content: >-
         [Instructions]
-        1. You have already collected the total number of adults and children in the household. Only ask for income from household members who HAVE income - there is no need to list all household members.
-        2. For each household member with income (excluding anyone who has perpetrated domestic violence against you), collect:
-           - First and last name (the actual person's name, not a placeholder)
+        1. You have already collected the total number of adults and children in the household. Only ask for income from adult household members who HAVE income - there is no need to list all household members.
+        2. For each household member with income (excluding anyone who has perpetrated domestic violence against the caller), collect:
+           - The actual person's name
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
         3. If the caller indicates that some household members have no income, ask them how they manage essential expenses like housing, utilities, and food.
         4. After collecting all income information for those with income, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
 
-        IMPORTANT: Do NOT collect income information for anyone who has perpetrated domestic violence against you.
+        IMPORTANT: Do NOT collect income information for anyone who has perpetrated domestic violence against the caller.
 
         [Child Support Handling]
         If the caller mentions receiving child support for a child, record this income under the name of the parent or guardian receiving it (usually the caller using their actual name), NOT under the child's name. For example, if Victoria receives child support for Sophie, record it under "Victoria" not "Sophie".
@@ -310,15 +310,15 @@ record_income:
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
         Now I need to know about income. Please tell me about the income for any household members who have income from any sources. For each person with income, provide their first and last name and their income from each source. Common sources of income include:
-        - Wages or salary (Employment)
-        - Spousal support or alimony (Spousal Support)
-        - Child support (Child Support)
-        - Unemployment benefits (Unemployment Compensation)
-        - Disability payments (Long-Term/Short-Term Disability or Social Security Disability)
-        - Social Security (Social Security Retirement, Social Security Disability, or SSI)
-        - TANF (TANF)
-        - Veterans benefits (Veterans Benefits)
-        - Pension or retirement income (Pension/Retirement)
+        - Wages or salary
+        - Spousal support or alimony
+        - Child support
+        - Unemployment benefits
+        - Disability payments
+        - Social Security
+        - TANF
+        - Veterans benefits
+        - Pension or retirement income
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who has perpetrated domestic violence against you. These individuals should be completely excluded from the income calculation.
@@ -354,9 +354,22 @@ confirm_income_over_limit:
 record_assets_receives_benefits:
   task_messages:
     - content: >-
+        [Instructions]
+        Check the conversation summary. If the caller has ALREADY reported receiving TANF (Temporary Assistance for Needy Families) or SSI (Supplemental Security Income) as income, do not ask the generic question.
+        Instead, acknowledge the benefit they already reported, and ask if they also receive Medicaid.
+
+        Examples:
+        - If they have TANF: "You mentioned receiving TANF. Do you also receive Medicaid?"
+        - If they have SSI: "You mentioned receiving SSI. Do you also receive Medicaid?"
+        - If unknown: "Are you receiving Medicaid, SSI, or TANF benefits?"
+
+        Call `record_assets_receives_benefits` with:
+        - receives_benefits=True (if they receive ANY of these: Medicaid, SSI, or TANF)
+        - receives_benefits=False (if they receive NONE of these)
+
         [User Prompt]
-        (Translate this to the caller's language if they are not speaking English)
-        Ask you are receiving Medicaid, SSI, or TANF benefits?
+        (Translate to the caller's language if they are not speaking English)
+        Are you receiving Medicaid, SSI, or TANF benefits?
 
 record_assets_list:
   task_messages:
