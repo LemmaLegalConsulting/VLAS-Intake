@@ -3,9 +3,10 @@ service_areas:
   "Amelia County": 51007
   "Amherst County": 51009
   "Appomattox County": 51011
-  "Bedford County": 51019
   "Brunswick County": 51025
+  "Buckingham County": 51029
   "Campbell County": 51031
+  "Cumberland County": 51049
   "Danville City": 51595
   "Emporia City": 51600
   "Franklin City": 51630
@@ -47,6 +48,7 @@ income_categories:
   - "Unemployment Compensation"
   - "Veterans Benefits"
   - "Workers Compensation"
+  - "General Assistance"
 
 # LSC Legal Problem Codes - problem area classifications for case categorization
 # Maps: normalized label (without code) -> full entry (with code)
