@@ -668,6 +668,7 @@ async def query_lookup_values(
 ) -> Dict[str, Any] | None:
     """
     Query LegalServer API for lookup values of a specific type.
+    Fetches all pages of results.
 
     Args:
         lookup_identifier: For system lookups: the lookup table name (e.g., "alias_type", "income_type")
@@ -681,39 +682,70 @@ async def query_lookup_values(
         async with httpx.AsyncClient(timeout=30) as client:
             # Construct URL based on lookup type
             if is_custom:
-                url = f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
+                base_url = f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
             else:
-                url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"""
+                base_url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"""
 
-            response = await client.get(url, headers=LEGALSERVER_HEADERS)
+            all_values = []
+            page_number = 1
+            total_pages = None
 
-            if response.status_code not in (200, 201):
-                lookup_type = "custom lookup" if is_custom else "lookup table"
-                logger.error(
-                    f"""Failed to query {lookup_type} '{lookup_identifier}': {response.status_code}"""
+            # Temporary storage for non-paginated response or last page
+            final_data = None
+
+            while total_pages is None or page_number <= total_pages:
+                response = await client.get(
+                    base_url, headers=LEGALSERVER_HEADERS, params={"page_number": page_number}
                 )
-                logger.error(f"""Response: {response.text}""")
-                return None
 
-            data = response.json()
-            logger.debug(f"""Lookup response keys: {data.keys()}""")
+                if response.status_code not in (200, 201):
+                    lookup_type = "custom lookup" if is_custom else "lookup table"
+                    logger.error(
+                        f"""Failed to query {lookup_type} '{lookup_identifier}' page {page_number}: {response.status_code}"""
+                    )
+                    logger.error(f"""Response: {response.text}""")
+                    return None
 
-            # Extract lookup values from response
-            lookup_values = data.get("data", data)
-            if isinstance(lookup_values, dict) and "data" in data:
-                # Nested response
-                values = lookup_values
-            elif isinstance(lookup_values, list):
-                # List of values
-                values = lookup_values
-            else:
-                values = lookup_values
+                data = response.json()
+                final_data = data
+
+                # Check if response is paginated
+                if "total_number_of_pages" in data and "data" in data:
+                    if total_pages is None:
+                        total_pages = data.get("total_number_of_pages", 1)
+                        logger.debug(
+                            f"""Lookup '{lookup_identifier}': {total_pages} pages, {data.get("total_records")} records"""
+                        )
+
+                    page_data = data.get("data", [])
+                    if isinstance(page_data, list):
+                        all_values.extend(page_data)
+                    else:
+                        # Fallback if structure is unusual
+                        if page_data:
+                            if isinstance(page_data, list):
+                                all_values.extend(page_data)
+                            else:
+                                all_values.append(page_data)
+
+                    page_number += 1
+                else:
+                    # Not paginated or different structure
+                    lookup_values = data.get("data", data)
+                    if isinstance(lookup_values, list):
+                        all_values = lookup_values
+                    else:
+                        # Single object or direct dict
+                        all_values = [lookup_values] if lookup_values else []
+
+                    # No pagination loop
+                    break
 
             return {
                 "lookup_type": lookup_identifier,
                 "is_custom": is_custom,
-                "values": values,
-                "raw_response": data,
+                "values": all_values,
+                "raw_response": final_data,
             }
 
     except httpx.RequestError as e:
@@ -781,6 +813,34 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
     except Exception as e:
         logger.error(f"""Error searching for lookup ID: {e}""")
         return None
+
+
+async def get_fips_code(county_name: str, state_abbrev: str = "VA") -> Optional[str]:
+    """
+    Get FIPS code for a county by name and state.
+    """
+    result = await query_lookup_values("county")
+    if not result or not result.get("values"):
+        return None
+
+    # Normalize inputs
+    if county_name.lower().endswith(" county"):
+        county_name = county_name[: -len(" county")].strip()
+
+    target_name = county_name.lower()
+    target_state = state_abbrev.upper()
+
+    for item in result["values"]:
+        if not isinstance(item, dict):
+            continue
+
+        item_name = (item.get("name") or "").lower()
+        item_state = (item.get("county_state") or "").upper()
+
+        if item_name == target_name and item_state == target_state:
+            return str(item.get("fips"))
+
+    return None
 
 
 if __name__ == "__main__":
@@ -917,6 +977,19 @@ if __name__ == "__main__":
         query_lookup(lookup_uuid, is_custom=True)
     elif command == "--query-custom-lookups":
         query_custom_lookups()
+    elif command == "--lookup-fips":
+        if len(sys.argv) < 3:
+            print("Usage: python legalserver.py --lookup-fips <county_name> [state_abbrev]")
+            sys.exit(1)
+        county_name = sys.argv[2]
+        state_abbrev = sys.argv[3] if len(sys.argv) > 3 else "VA"
+
+        fips = asyncio.run(get_fips_code(county_name, state_abbrev))
+        if fips:
+            print(f"""FIPS code for {county_name}, {state_abbrev}: {fips}""")
+        else:
+            print(f"""FIPS code not found for {county_name}, {state_abbrev}""")
+            sys.exit(1)
     else:
         print(f"""Unknown command: {command}""")
         print(
@@ -925,6 +998,7 @@ if __name__ == "__main__":
             "  --upload <call_id>              Upload intake data for a call to LegalServer\n"
             "  --query-lookup [type]           Query system lookup values by type\n"
             "  --query-custom-lookup <uuid>    Query a specific custom lookup by UUID\n"
-            "  --query-custom-lookups          List all custom lookup tables"
+            "  --query-custom-lookups          List all custom lookup tables\n"
+            "  --lookup-fips <county> [state]  Look up FIPS code for a county"
         )
         sys.exit(1)
