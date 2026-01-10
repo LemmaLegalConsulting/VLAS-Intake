@@ -9,7 +9,6 @@ from intake_bot.models.intake_flow_result import (
     CitizenshipResult,
     DateOfBirthResult,
     DomesticViolenceResult,
-    EmergencyResult,
     HouseholdCompositionResult,
     IncomeResult,
     IntakeFlowResult,
@@ -685,8 +684,8 @@ async def record_date_of_birth(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_address"),
-                "functions": [record_address],
+                **prompts.get("record_names"),
+                "functions": [record_names],
             }
         )
     else:
@@ -694,72 +693,6 @@ async def record_date_of_birth(
             "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
         )
         next_node = None
-    return result, next_node
-
-
-@convert_and_log_result("address")
-async def record_address(
-    flow_manager: FlowManager,
-    street: str = "",
-    street_2: str = None,
-    city: str = "",
-    state: str = "",
-    zip: str = "",
-    county: str = "",
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's residential address.
-
-    Args:
-        street (str): The primary street address (required).
-        street_2 (str): The apartment, suite, or unit number (optional).
-        city (str): The city (required).
-        state (str): The state abbreviation, e.g., "VA" (required).
-        zip (str): The 5-digit ZIP code (required).
-        county (str): The county of residence (required).
-
-        Note: All fields can be empty if the caller refuses or does not have an address.
-    """
-    # Check if all required fields are empty
-    if not any([street, city, state, zip, county]):
-        result = AddressResult(status=Status.SUCCESS, address=None)
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_names"),
-                "functions": [record_names],
-            }
-        )
-        return result, next_node
-
-    try:
-        address_validated = Address.model_validate(
-            {
-                "street": street,
-                "street_2": street_2,
-                "city": city,
-                "state": state,
-                "zip": zip,
-                "county": county,
-            }
-        )
-    except ValidationError as e:
-        logger.debug(e)
-        cleaned_error = clean_pydantic_error_message(e)
-        result = IntakeFlowResult(
-            status=Status.ERROR,
-            error=f"""There was an error validating the `address`: {cleaned_error}.""",
-        )
-        return result, None
-
-    result = AddressResult(status=Status.SUCCESS, address=address_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_names"),
-            "functions": [record_names],
-        }
-    )
     return result, next_node
 
 
@@ -819,25 +752,39 @@ async def record_names(
     next_node = NodeConfig(
         node_partial_reset_with_summary()
         | {
-            **prompts.get("record_emergency"),
-            "functions": [record_emergency],
+            **prompts.get("record_address"),
+            "functions": [record_address],
         }
     )
     return result, next_node
 
 
-@convert_and_log_result("emergency")
-async def record_emergency(
-    flow_manager: FlowManager, is_emergency: bool = False
+@convert_and_log_result("address")
+async def record_address(
+    flow_manager: FlowManager,
+    street: str = "",
+    street_2: str = None,
+    city: str = "",
+    state: str = "",
+    zip: str = "",
+    county: str = "",
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
-    Record if the caller's case is an emergency.
+    Record the caller's residential address.
 
     Args:
-        is_emergency (bool): The caller's case is or is not an emergency. Defaults to False.
+        street (str): The primary street address (required).
+        street_2 (str): The apartment, suite, or unit number (optional).
+        city (str): The city (required).
+        state (str): The state abbreviation, e.g., "VA" (required).
+        zip (str): The 5-digit ZIP code (required).
+        county (str): The county of residence (required).
+
+        Note: All fields can be empty if the caller refuses or does not have an address.
     """
-    result = EmergencyResult(status=Status.SUCCESS, is_emergency=is_emergency)
-    if is_emergency:
+    # Check if all required fields are empty
+    if not any([street, city, state, zip, county]):
+        result = AddressResult(status=Status.SUCCESS, address=None)
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
@@ -845,14 +792,36 @@ async def record_emergency(
                 "post_actions": [{"type": "end_conversation"}],
             }
         )
-    else:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("complete_intake"),
-                "post_actions": [{"type": "end_conversation"}],
+        return result, next_node
+
+    try:
+        address_validated = Address.model_validate(
+            {
+                "street": street,
+                "street_2": street_2,
+                "city": city,
+                "state": state,
+                "zip": zip,
+                "county": county,
             }
         )
+    except ValidationError as e:
+        logger.debug(e)
+        cleaned_error = clean_pydantic_error_message(e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"""There was an error validating the `address`: {cleaned_error}.""",
+        )
+        return result, None
+
+    result = AddressResult(status=Status.SUCCESS, address=address_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("complete_intake"),
+            "post_actions": [{"type": "end_conversation"}],
+        }
+    )
     return result, next_node
 
 

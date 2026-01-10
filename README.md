@@ -23,7 +23,6 @@ flowchart TD
     get_dob[Get Date of Birth]
     get_address[Get Address]
     get_addl_names[Get Additional Names]
-    check_emergency{Qualifying Emergency?}
     conduct_interview[Conduct Interview]
 
     start --> get_phone
@@ -44,11 +43,9 @@ flowchart TD
     check_assets -- No --> exit
     get_citizenship --> get_ssn
     get_ssn --> get_dob
-    get_dob --> get_address
-    get_address --> get_addl_names
-    get_addl_names --> check_emergency
-    check_emergency -- Yes [Expedited] --> conduct_interview
-    check_emergency -- No --> conduct_interview
+    get_dob --> get_addl_names
+    get_addl_names --> get_address
+    get_address --> conduct_interview
 ```
 
 ## Secret Key

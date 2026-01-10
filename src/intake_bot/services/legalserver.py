@@ -205,8 +205,8 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         if not state["assets"].get("is_eligible", True):
             rejection_reason_name = "Over Asset"
 
-    # If no specific ineligibility found, but the intake didn't reach the end (emergency node)
-    if not rejection_reason_name and "emergency" not in state:
+    # If no specific ineligibility found, but the intake didn't reach the end (address node)
+    if not rejection_reason_name and "address" not in state:
         rejection_reason_name = "Other"
 
     if rejection_reason_name:

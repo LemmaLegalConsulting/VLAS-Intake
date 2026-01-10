@@ -17,7 +17,6 @@ from intake_bot.nodes.nodes import (
     record_citizenship,
     record_date_of_birth,
     record_domestic_violence,
-    record_emergency,
     record_household_composition,
     record_income,
     record_language,
@@ -146,7 +145,7 @@ async def test_record_address_valid(flow_manager):
     assert result["address"]["zip"] == "23219"
     assert result["address"]["county"] == "Richmond"
     assert flow_manager.state["address"] is not None
-    assert "record_names_prompt" in next_node
+    assert "complete_intake_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -167,7 +166,7 @@ async def test_record_address_valid_no_street_2(flow_manager):
     assert result["address"]["state"] == "VA"
     assert result["address"]["zip"] == "22201"
     assert result["address"]["county"] == "Arlington"
-    assert "record_names_prompt" in next_node
+    assert "complete_intake_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -504,7 +503,7 @@ async def test_record_date_of_birth_valid(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert result["date_of_birth"] == "1980-01-15"
     assert flow_manager.state["date_of_birth"]["date_of_birth"] == "1980-01-15"
-    assert "record_address_prompt" in next_node
+    assert "record_names_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -651,7 +650,7 @@ async def test_record_names_with_prior_name(flow_manager):
     # State should be overwritten with combined names
     assert len(flow_manager.state["names"]["names"]) == 3
     assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
-    assert "record_emergency_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -673,7 +672,7 @@ async def test_record_names_without_prior_name(flow_manager):
     assert len(result["names"]) == 2
     assert result["names"][0]["first"] == "Alice"
     assert result["names"][1]["first"] == "Ali"
-    assert "record_emergency_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -691,7 +690,7 @@ async def test_record_names_empty_list(flow_manager):
     # Should have just the original name
     assert len(result["names"]) == 1
     assert result["names"][0]["first"] == "John"
-    assert "record_emergency_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -744,7 +743,7 @@ async def test_record_names_with_optional_middle_names(flow_manager):
     # Check middle names are handled correctly
     assert result["names"][1].get("middle") is None  # Alice has no middle name
     assert result["names"][2]["middle"] == "Robert"  # Bob has middle name
-    assert "record_emergency_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -764,15 +763,7 @@ async def test_record_names_strips_whitespace(flow_manager):
     assert result["names"][1]["first"] == "Alice"
     assert result["names"][1]["middle"] == "M"
     assert result["names"][1]["last"] == "Smith"
-    assert "record_emergency_prompt" in next_node
-
-
-@pytest.mark.asyncio
-async def test_record_emergency(flow_manager):
-    result, next_node = await record_emergency(flow_manager, True)
-    assert isinstance(result, dict)
-    assert flow_manager.state["emergency"]["is_emergency"] is True
-    assert "complete_intake_prompt" in next_node
+    assert "record_address_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -880,14 +871,4 @@ async def test_record_address_empty(flow_manager):
 
     assert result["status"] == Status.SUCCESS
     assert result.get("address") is None
-    assert next_node is not None
-
-
-@pytest.mark.asyncio
-async def test_record_emergency_default(flow_manager):
-    # Test with default value (no argument provided for is_emergency)
-    result, next_node = await record_emergency(flow_manager)
-
-    assert result["status"] == Status.SUCCESS
-    assert result["is_emergency"] is False
     assert next_node is not None

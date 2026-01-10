@@ -549,23 +549,6 @@ record_names:
         (Translate this to the caller's language if they are not speaking English)
         Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records.
 
-# Emergency
-record_emergency:
-  task_messages:
-    - content: >-
-        [Instructions]
-        Determine if the caller's case is an emergency or not.
-        If the caller does not answer or it is unclear, assume it is NOT an emergency and call the function with `is_emergency=False`.
-
-        [Emegency Explanation]
-        An emergency is a client situation which requires immediate response because:
-        -	the client, her family, or major assets is/are in imminent danger of physical harm; or
-        -	important legal rights of the client's are about to be lost because of an approaching deadline (anything with a deadline or court hearing less than a week away is considered an emergency)
-
-        [User Prompt]
-        (Translate this to the caller's language if they are not speaking English)
-        Please tell me if your situation is an emergency. An emergency means you or your family are in immediate danger of physical harm, or you have an important legal deadline or court hearing less than a week away. Is your case an emergency?
-
 # Intake complete
 complete_intake:
   task_messages:

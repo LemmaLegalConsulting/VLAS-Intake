@@ -381,7 +381,6 @@ class TestBuildMatterPayload:
             "domestic_violence": {
                 "is_experiencing": False,
             },
-            "emergency": {"is_emergency": False},
         }
 
         payload = _build_matter_payload(state)
@@ -465,7 +464,6 @@ class TestBuildMatterPayload:
             "domestic_violence": {
                 "is_experiencing": False,
             },
-            "emergency": {"is_emergency": False},
         }
 
         payload = _build_matter_payload(state)
@@ -482,7 +480,8 @@ class TestBuildMatterPayload:
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"
         assert payload["victim_of_domestic_violence"] is False
-        assert payload["case_disposition"] == "Incomplete Intake"
+        assert payload["case_disposition"] == "Rejected"
+        assert payload["rejection_reason"]["lookup_value_name"] == "Other"
 
     def test_payload_with_ssn_last_4(self):
         """Test that SSN last 4 is included in payload."""

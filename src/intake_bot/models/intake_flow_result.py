@@ -60,10 +60,6 @@ class DomesticViolenceResult(IntakeFlowResult):
     is_experiencing: bool
 
 
-class EmergencyResult(IntakeFlowResult):
-    is_emergency: bool
-
-
 class HouseholdCompositionResult(IntakeFlowResult):
     number_of_adults: int
     number_of_children: int
