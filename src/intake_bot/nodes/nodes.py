@@ -98,9 +98,13 @@ async def system_phone_number(
     """
     caller_id_phone_number = flow_manager.state.get("phone")
     logger.debug(f"""Caller ID phone number: {caller_id_phone_number}""")
+    is_valid, validated_caller_id_phone_number = await validator.check_phone_number(
+        phone_number=caller_id_phone_number
+    )
+    logger.debug(f"""Caller ID phone number (validated): {validated_caller_id_phone_number}""")
 
-    status = status_helper(caller_id_phone_number)
-    result = dict(status=status.value, phone_number=caller_id_phone_number)
+    status = status_helper(is_valid)
+    result = dict(status=status.value, phone_number=validated_caller_id_phone_number)
     next_node = NodeConfig(
         {
             **prompts.get("record_language"),
