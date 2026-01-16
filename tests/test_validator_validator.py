@@ -85,21 +85,21 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
         (40000, "Annually", True, 3333),  # eligible, yearly income below 300% of poverty
         (5000, "Monthly", False, 5000),  # not eligible, monthly income above 300% of poverty
         (60000, "Annually", False, 5000),  # not eligible, yearly income above 300% of poverty
-        (3911, "Monthly", True, 3911),  # eligible, just below 300% poverty for month
-        (46932, "Annually", True, 3911),  # eligible, just below 300% poverty for year
-        (3912, "Monthly", True, 3912),  # eligible, near 300% poverty for month (truncated to 299)
-        (46944, "Annually", True, 3912),  # eligible, near 300% poverty for year (truncated to 299)
+        (3989, "Monthly", True, 3989),  # eligible, just below 300% poverty for month
+        (47868, "Annually", True, 3989),  # eligible, just below 300% poverty for year
+        (3990, "Monthly", True, 3990),  # eligible, at 300% poverty for month
+        (47880, "Annually", True, 3990),  # eligible, at 300% poverty for year
         (
-            3913,
+            3991,
             "Monthly",
             False,
-            3913,
+            3991,
         ),  # not eligible, just over 300% poverty for month due to round()
         (
-            46956,
+            47892,
             "Annually",
             False,
-            3913,
+            3991,
         ),  # not eligible, just over 300% poverty for month due to round()
         (100000, "Annually", False, 8333),  # not eligible, high yearly income
         (10000, "Monthly", False, 10000),  # not eligible, high monthly income
@@ -217,7 +217,7 @@ async def test_check_income_all_periods_mixed():
     assert monthly_income == 6253
     assert (
         is_eligible is True
-    )  # 6253 is below 300% poverty limit for 3-person household (which is ~11733)
+    )  # 6253 is below 300% poverty limit for 3-person household (which is ~6830)
     assert household_size == 3
 
 
