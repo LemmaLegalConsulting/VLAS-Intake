@@ -52,19 +52,23 @@ def patch_prompts(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_system_phone_number_with_phone(flow_manager):
+async def test_system_phone_number_with_phone(flow_manager, patch_validator):
     flow_manager.state["phone"] = "+18665345243"
+    patch_validator.check_phone_number = AsyncMock(return_value=(True, "(866) 534-5243"))
     result, next_node = await system_phone_number(flow_manager)
     assert isinstance(result, dict)
-    assert result["phone_number"] == "+18665345243"
+    assert result["status"] == Status.SUCCESS
+    assert result["phone_number"] == "(866) 534-5243"
     assert "record_language_prompt" in next_node
 
 
 @pytest.mark.asyncio
-async def test_system_phone_number_without_phone(flow_manager):
+async def test_system_phone_number_without_phone(flow_manager, patch_validator):
+    patch_validator.check_phone_number = AsyncMock(return_value=(False, ""))
     result, next_node = await system_phone_number(flow_manager)
     assert isinstance(result, dict)
-    assert result["status"] == "error"
+    assert result["status"] == Status.ERROR
+    assert result["phone_number"] == ""
     assert "record_language_prompt" in next_node
 
 
