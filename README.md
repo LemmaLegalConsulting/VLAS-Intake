@@ -48,6 +48,9 @@ flowchart TD
     get_address --> conduct_interview
 ```
 
+## Federal Poverty Scale
+The Federal Poverty Scale data is static and will need to be manually updated each year. The included json file `federal_poverty_scale.json` comes from the [docassemble-PovertyScale](https://github.com/SuffolkLITLab/docassemble-PovertyScale?tab=readme-ov-file) project and the file itself is [here](https://github.com/SuffolkLITLab/docassemble-PovertyScale/blob/main/docassemble/PovertyScale/data/sources/federal_poverty_scale.json).
+
 ## Secret Key
 You will need to provide a 64 character hexadecimal secret key. You can generate one with the following methods:
 
