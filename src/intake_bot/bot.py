@@ -5,13 +5,12 @@ import wave
 
 import aiofiles
 from loguru import logger
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     EndFrame,
     LLMMessagesAppendFrame,
-    TranscriptionMessage,
-    TranscriptionUpdateFrame,
     TTSSpeakFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
@@ -19,15 +18,12 @@ from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
+    AssistantTurnStoppedMessage,
     LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+    UserTurnStoppedMessage,
 )
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
-from pipecat.processors.filters.stt_mute_filter import (
-    STTMuteConfig,
-    STTMuteFilter,
-    STTMuteStrategy,
-)
-from pipecat.processors.transcript_processor import TranscriptProcessor
 from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.runner.types import WebSocketRunnerArguments
 from pipecat.runner.utils import parse_telephony_websocket
@@ -41,13 +37,17 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
     FastAPIWebsocketTransport,
 )
+from pipecat.turns.mute import (
+    FunctionCallUserMuteStrategy,
+)
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat_flows import FlowManager
 
 from intake_bot.nodes.nodes import caller_ended_conversation, end_conversation, node_initial
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, require_ev
-from intake_bot.utils.local_smart_turn import turn_analyzer
 from intake_bot.utils.security import verify_websocket_auth_code
 
 
@@ -68,22 +68,18 @@ class TranscriptHandler:
         Args:
             output_file: Path to output file. If None, outputs to log only.
         """
-        self.messages: list[TranscriptionMessage] = []
         self.output_file: str | None = output_file
         logger.debug(
             f"TranscriptHandler initialized {'with output_file=' + output_file if output_file else 'with log output only'}"
         )
 
-    async def save_transcript_message(self, message: TranscriptionMessage):
+    async def save_transcript_message(self, role: str, content: str, timestamp: str = ""):
         """Save a single transcript message.
 
         Outputs the message to the log and optionally to a file.
-
-        Args:
-            message: The message to save
         """
-        timestamp = f"[{message.timestamp}] " if message.timestamp else ""
-        line = f"{timestamp}{message.role}: {message.content}"
+        timestamp_str = f"[{timestamp}] " if timestamp else ""
+        line = f"{timestamp_str}{role}: {content}"
 
         # Always log the message
         logger.debug(f"Transcript: {line}")
@@ -96,18 +92,13 @@ class TranscriptHandler:
             except Exception as e:
                 logger.error(f"Error saving transcript message to file: {e}")
 
-    async def on_transcript_update(
-        self, processor: TranscriptProcessor, frame: TranscriptionUpdateFrame
-    ):
-        """Handle new transcript messages.
+    async def on_user_transcript(self, aggregator, strategy, message: UserTurnStoppedMessage):
+        """Handle new user transcript message."""
+        await self.save_transcript_message("user", message.content, message.timestamp)
 
-        Args:
-            processor: The TranscriptProcessor that emitted the update
-            frame: TranscriptionUpdateFrame containing new messages
-        """
-        for msg in frame.messages:
-            self.messages.append(msg)
-            await self.save_transcript_message(msg)
+    async def on_assistant_transcript(self, aggregator, message: AssistantTurnStoppedMessage):
+        """Handle new assistant transcript message."""
+        await self.save_transcript_message("assistant", message.content, message.timestamp)
 
 
 async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
@@ -143,7 +134,6 @@ async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
             add_wav_header=False,
             serializer=serializer,
             vad_analyzer=SileroVADAnalyzer(params=VADParams(start_secs=0.1)),
-            turn_analyzer=turn_analyzer,
         ),
     )
 
@@ -163,14 +153,6 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         language=None,
     )
 
-    stt_mute_processor = STTMuteFilter(
-        config=STTMuteConfig(
-            strategies={
-                STTMuteStrategy.FUNCTION_CALL,
-            }
-        ),
-    )
-
     llm = OpenAILLMService(api_key=require_ev("OPENAI_API_KEY"), model="gpt-4o")
 
     tts = GoogleTTSService(
@@ -183,7 +165,15 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     )
 
     context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(context)
+    context_aggregator = LLMContextAggregatorPair(
+        context,
+        user_params=LLMUserAggregatorParams(
+            user_turn_strategies=UserTurnStrategies(
+                stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())],
+            ),
+            user_mute_strategies=[FunctionCallUserMuteStrategy()],
+        ),
+    )
 
     async def handle_user_idle(user_idle: UserIdleProcessor, retry_count: int) -> bool:
         if retry_count == 1:
@@ -214,8 +204,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     user_idle = UserIdleProcessor(callback=handle_user_idle, timeout=10.0)
 
-    # Create transcript processor and handler
-    transcript = TranscriptProcessor()
+    # Create transcript handler
     transcript_file = None
     if ev_is_true("LOG_TO_FILE"):
         os.makedirs("logs", exist_ok=True)
@@ -227,19 +216,23 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     # pass `buffer_size` to get periodic callbacks.
     audiobuffer = AudioBufferProcessor()
 
+    context_aggregator.user().event_handler("on_user_turn_stopped")(
+        transcript_handler.on_user_transcript
+    )
+    context_aggregator.assistant().event_handler("on_assistant_turn_stopped")(
+        transcript_handler.on_assistant_transcript
+    )
+
     pipeline = Pipeline(
         [
             transport.input(),  # Websocket input from client
             stt,  # Speech-To-Text
-            stt_mute_processor,  # STTMuteStrategy
-            transcript.user(),  # User transcripts
             user_idle,  # Idle user check-in
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
             transport.output(),  # Websocket output to client
             audiobuffer,  # Used to buffer the audio in the pipeline
-            transcript.assistant(),  # Assistant transcripts
             context_aggregator.assistant(),
         ]
     )
@@ -258,7 +251,6 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            allow_interruptions=True,
             audio_in_sample_rate=8000,
             audio_out_sample_rate=8000,
             enable_metrics=True,
@@ -317,10 +309,6 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     async def on_audio_data(buffer, audio, sample_rate, num_channels):
         if ev_is_true("SAVE_AUDIO_RECORDINGS"):
             await save_audio(audio, sample_rate, num_channels)
-
-    @transcript.event_handler("on_transcript_update")
-    async def on_transcript_update(processor, frame):
-        await transcript_handler.on_transcript_update(processor, frame)
 
     # We use `handle_sigint=False` because `uvicorn` (not sure if this
     # applies since we're using `granian` now) is controlling keyboard
