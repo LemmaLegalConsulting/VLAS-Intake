@@ -137,7 +137,11 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
             payload[f"""{phone_type}_phone"""] = phone_number
 
     if isinstance(state.get("case_type"), dict):
-        payload["legal_problem_code"] = state["case_type"].get("legal_problem_code")
+        legal_problem_code = state["case_type"].get("legal_problem_code")
+        if isinstance(legal_problem_code, str):
+            normalized_code = legal_problem_code.strip()
+            if normalized_code and not normalized_code.startswith("00"):
+                payload["legal_problem_code"] = normalized_code
 
     if isinstance(state.get("service_area"), dict):
         if fips_code := state["service_area"].get("fips_code"):
