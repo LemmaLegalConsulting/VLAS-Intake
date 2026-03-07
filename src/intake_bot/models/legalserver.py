@@ -83,7 +83,7 @@ class IncomePayload(BaseModel):
             "52",
         }
         if v not in valid_periods:
-            raise ValueError(f"period must be one of {valid_periods}, got {v}")
+            raise ValueError(f"""period must be one of {valid_periods}, got {v}""")
         return v
 
 

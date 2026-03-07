@@ -74,7 +74,7 @@ class TranscriptHandler:
         """
         self.output_file: str | None = output_file
         logger.debug(
-            f"TranscriptHandler initialized {'with output_file=' + output_file if output_file else 'with log output only'}"
+            f"""TranscriptHandler initialized {"with output_file=" + output_file if output_file else "with log output only"}"""
         )
 
     async def save_transcript_message(
@@ -84,11 +84,11 @@ class TranscriptHandler:
 
         Outputs the message to the log and optionally to a file.
         """
-        timestamp_str = f"[{timestamp}] " if timestamp else ""
-        line = f"{timestamp_str}{role}: {content}"
+        timestamp_str = f"""[{timestamp}] """ if timestamp else ""
+        line = f"""{timestamp_str}{role}: {content}"""
 
         # Always log the message
-        logger.debug(f"Transcript: {line}")
+        logger.debug(f"""Transcript: {line}""")
 
         # Optionally write to file
         if self.output_file:
@@ -96,7 +96,7 @@ class TranscriptHandler:
                 async with aiofiles.open(self.output_file, "a", encoding="utf-8") as f:
                     await f.write(line + "\n")
             except Exception as e:
-                logger.error(f"Error saving transcript message to file: {e}")
+                logger.error(f"""Error saving transcript message to file: {e}""")
 
     async def on_user_transcript(
         self, aggregator, strategy, message: UserTurnStoppedMessage
@@ -118,7 +118,7 @@ async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
     Main bot entry point.
     """
     transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
-    logger.info(f"Auto-detected transport: {transport_type}")
+    logger.info(f"""Auto-detected transport: {transport_type}""")
 
     call_id = call_data["call_id"]
     websocket_auth_code = call_data["body"].get("websocket_auth_code")
@@ -224,8 +224,8 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     transcript_file = None
     if ev_is_true("LOG_TO_FILE"):
         os.makedirs("logs", exist_ok=True)
-        transcript_file = f"logs/transcript_{call_data['call_id']}.txt"
-        logger.info(f"Logging transcript to file: {transcript_file}")
+        transcript_file = f"""logs/transcript_{call_data["call_id"]}.txt"""
+        logger.info(f"""Logging transcript to file: {transcript_file}""")
     transcript_handler = TranscriptHandler(output_file=transcript_file)
 
     # NOTE: Watch out! This will save all the conversation in memory. You can
@@ -348,7 +348,7 @@ async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
         os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
         filename = os.path.join(
             recordings_dir,
-            f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav",
+            f"""recording_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.wav""",
         )
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
@@ -358,6 +358,6 @@ async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
                 wf.writeframes(audio)
             async with aiofiles.open(filename, "wb") as file:
                 await file.write(buffer.getvalue())
-        logger.info(f"Merged audio saved to {filename}")
+        logger.info(f"""Merged audio saved to {filename}""")
     else:
         logger.info("No audio data to save")

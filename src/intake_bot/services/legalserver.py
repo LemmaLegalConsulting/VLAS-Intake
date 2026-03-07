@@ -565,8 +565,8 @@ async def _save_rejection_note(
     """
     try:
         payload = NotePayload(
-            subject=f"Automatic Rejection: {rejection_reason_name}",
-            body=f"This matter was automatically rejected by the intake bot.\nReason: {rejection_reason_name}",
+            subject=f"""Automatic Rejection: {rejection_reason_name}""",
+            body=f"""This matter was automatically rejected by the intake bot.\nReason: {rejection_reason_name}""",
             note_type={"lookup_value_name": "General Notes"},
         )
 
