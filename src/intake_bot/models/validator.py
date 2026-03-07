@@ -12,7 +12,9 @@ def normalize_to_ascii(v: str | None) -> str | None:
     if v is None:
         return None
     if isinstance(v, str):
-        return unicodedata.normalize("NFKD", v).encode("ascii", "ignore").decode("ascii")
+        return (
+            unicodedata.normalize("NFKD", v).encode("ascii", "ignore").decode("ascii")
+        )
     return v
 
 
@@ -29,7 +31,9 @@ class Address(BaseModel):
     zip: str
     county: str
 
-    @field_validator("street", "street_2", "city", "state", "zip", "county", mode="before")
+    @field_validator(
+        "street", "street_2", "city", "state", "zip", "county", mode="before"
+    )
     @classmethod
     def normalize_address_fields(cls, v):
         return normalize_to_ascii(v)
@@ -298,7 +302,15 @@ class IncomeDetail(BaseModel):
         )
 
         # Common canonicalizations
-        if normalized in {"annual", "annually", "year", "yearly", "a year", "yr", "yrs"}:
+        if normalized in {
+            "annual",
+            "annually",
+            "year",
+            "yearly",
+            "a year",
+            "yr",
+            "yrs",
+        }:
             return IncomePeriod.ANNUALLY
         if normalized in {"month", "monthly", "a month", "mo", "mos"}:
             return IncomePeriod.MONTHLY
@@ -329,11 +341,15 @@ class IncomeDetail(BaseModel):
         return v
 
 
-class MemberIncome(RootModel[dict[str, IncomeDetail]]):  # income_category_name -> IncomeDetail
+class MemberIncome(
+    RootModel[dict[str, IncomeDetail]]
+):  # income_category_name -> IncomeDetail
     pass
 
 
-class HouseholdIncome(RootModel[dict[str, MemberIncome]]):  # person_name -> MemberIncome
+class HouseholdIncome(
+    RootModel[dict[str, MemberIncome]]
+):  # person_name -> MemberIncome
     @field_validator("root", mode="before")
     @classmethod
     def normalize_keys(cls, v):

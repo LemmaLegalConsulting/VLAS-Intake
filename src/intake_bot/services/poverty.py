@@ -39,7 +39,10 @@ def poverty_scale_get_income_limit(
 
 
 def poverty_scale_income_qualifies(
-    total_monthly_income: float, household_size: int = 1, multiplier: float = 1.0, state=None
+    total_monthly_income: float,
+    household_size: int = 1,
+    multiplier: float = 1.0,
+    state=None,
 ) -> Union[bool, None]:
     """
     Given monthly income, household size, and an optional multiplier, return whether an individual

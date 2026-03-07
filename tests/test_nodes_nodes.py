@@ -54,7 +54,9 @@ def patch_prompts(monkeypatch):
 @pytest.mark.asyncio
 async def test_system_phone_number_with_phone(flow_manager, patch_validator):
     flow_manager.state["phone"] = "+18665345243"
-    patch_validator.check_phone_number = AsyncMock(return_value=(True, "(866) 534-5243"))
+    patch_validator.check_phone_number = AsyncMock(
+        return_value=(True, "(866) 534-5243")
+    )
     result, next_node = await system_phone_number(flow_manager)
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
@@ -83,8 +85,12 @@ async def test_record_language(flow_manager):
 
 @pytest.mark.asyncio
 async def test_record_phone_number_valid(flow_manager, patch_validator):
-    patch_validator.check_phone_number = AsyncMock(return_value=(True, "(866) 534-5243"))
-    result, next_node = await record_phone_number(flow_manager, "+18665345243", "mobile")
+    patch_validator.check_phone_number = AsyncMock(
+        return_value=(True, "(866) 534-5243")
+    )
+    result, next_node = await record_phone_number(
+        flow_manager, "+18665345243", "mobile"
+    )
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["is_valid"] is True
@@ -112,12 +118,16 @@ async def test_record_name_valid(flow_manager):
     assert result["names"][0]["middle"] == "Q"
     assert result["names"][0]["last"] == "Public"
     assert result["names"][0]["suffix"] == "Jr."
-    assert result["names"][0]["type"] == "Legal Name"  # Primary name should be Legal Name
+    assert (
+        result["names"][0]["type"] == "Legal Name"
+    )  # Primary name should be Legal Name
     assert flow_manager.state["names"]["names"][0]["first"] == "John"
     assert flow_manager.state["names"]["names"][0]["middle"] == "Q"
     assert flow_manager.state["names"]["names"][0]["last"] == "Public"
     assert flow_manager.state["names"]["names"][0]["suffix"] == "Jr."
-    assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"  # Verify type in state
+    assert (
+        flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
+    )  # Verify type in state
     assert "record_service_area_prompt" in next_node
 
 
@@ -176,7 +186,12 @@ async def test_record_address_valid_no_street_2(flow_manager):
 @pytest.mark.asyncio
 async def test_record_address_invalid_missing_street(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="", city="Richmond", state="VA", zip="23219", county="Richmond"
+        flow_manager,
+        street="",
+        city="Richmond",
+        state="VA",
+        zip="23219",
+        county="Richmond",
     )
     assert result["status"] == Status.ERROR
     assert "validating the `address`" in result["error"]
@@ -186,7 +201,12 @@ async def test_record_address_invalid_missing_street(flow_manager):
 @pytest.mark.asyncio
 async def test_record_address_invalid_missing_city(flow_manager):
     result, next_node = await record_address(
-        flow_manager, street="123 Main St", city="", state="VA", zip="23219", county="Richmond"
+        flow_manager,
+        street="123 Main St",
+        city="",
+        state="VA",
+        zip="23219",
+        county="Richmond",
     )
     assert result["status"] == Status.ERROR
     assert "validating the `address`" in result["error"]
@@ -195,7 +215,9 @@ async def test_record_address_invalid_missing_city(flow_manager):
 
 @pytest.mark.asyncio
 async def test_record_service_area_eligible(flow_manager, patch_validator):
-    patch_validator.check_service_area = AsyncMock(return_value=("Amelia County", 51007))
+    patch_validator.check_service_area = AsyncMock(
+        return_value=("Amelia County", 51007)
+    )
     result, next_node = await record_service_area(flow_manager, "Amelia County")
     assert isinstance(result, dict)
     assert result["is_eligible"] is True
@@ -326,7 +348,9 @@ async def test_record_household_composition_only_adults(flow_manager, patch_vali
 
 
 @pytest.mark.asyncio
-async def test_record_household_composition_invalid_no_adults(flow_manager, patch_validator):
+async def test_record_household_composition_invalid_no_adults(
+    flow_manager, patch_validator
+):
     patch_validator.check_household_composition = AsyncMock(return_value=(False, 0))
     result, next_node = await record_household_composition(flow_manager, 0, 2)
     assert result["status"] == Status.ERROR
@@ -344,7 +368,9 @@ async def test_record_household_composition_invalid_negative_children(
 
 
 @pytest.mark.asyncio
-async def test_record_income_valid_eligible_with_dummy_model(flow_manager, patch_validator):
+async def test_record_income_valid_eligible_with_dummy_model(
+    flow_manager, patch_validator
+):
     patch_validator.check_income = AsyncMock(return_value=(True, 1000, 3))
     # Set household composition in state
     flow_manager.state["household_composition"] = {
@@ -521,7 +547,9 @@ async def test_record_date_of_birth_various_formats(flow_manager, patch_validato
     ]
 
     for input_date, expected_output in test_cases:
-        patch_validator.check_date_of_birth = AsyncMock(return_value=(True, expected_output))
+        patch_validator.check_date_of_birth = AsyncMock(
+            return_value=(True, expected_output)
+        )
         result, next_node = await record_date_of_birth(flow_manager, input_date)
         assert result["status"] == Status.SUCCESS
         assert result["date_of_birth"] == expected_output
@@ -630,7 +658,13 @@ async def test_record_names_with_prior_name(flow_manager):
     # Now user provides additional names
     additional_names = [
         {"first": "Jon", "last": "Doe", "type": "Former Name"},
-        {"first": "Jack", "middle": "Q", "last": "Public", "suffix": "III", "type": "Maiden Name"},
+        {
+            "first": "Jack",
+            "middle": "Q",
+            "last": "Public",
+            "suffix": "III",
+            "type": "Maiden Name",
+        },
     ]
 
     result, next_node = await record_names(flow_manager, additional_names)
@@ -682,7 +716,9 @@ async def test_record_names_without_prior_name(flow_manager):
 @pytest.mark.asyncio
 async def test_record_names_empty_list(flow_manager):
     """Test record_names with no additional names but a prior main name."""
-    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+    flow_manager.state["names"] = {
+        "names": [{"first": "John", "middle": "Q", "last": "Public"}]
+    }
 
     # User provides no additional names
     additional_names = []
@@ -732,7 +768,9 @@ async def test_record_names_invalid_with_prior_name(flow_manager):
 @pytest.mark.asyncio
 async def test_record_names_with_optional_middle_names(flow_manager):
     """Test record_names handles optional middle names correctly."""
-    flow_manager.state["names"] = {"names": [{"first": "John", "middle": "Q", "last": "Public"}]}
+    flow_manager.state["names"] = {
+        "names": [{"first": "John", "middle": "Q", "last": "Public"}]
+    }
 
     additional_names = [
         {"first": "Alice", "last": "Smith"},  # No middle name
@@ -807,7 +845,9 @@ async def test_record_adverse_parties_invalid(flow_manager):
 
 @pytest.mark.asyncio
 async def test_continue_intake_valid(flow_manager):
-    with patch("intake_bot.nodes.nodes.prompts.get", return_value={"record_name": True}):
+    with patch(
+        "intake_bot.nodes.nodes.prompts.get", return_value={"record_name": True}
+    ):
         result, next_node = await continue_intake(flow_manager, "record_name")
     assert result is None
     assert "record_name" in next_node

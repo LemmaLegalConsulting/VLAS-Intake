@@ -45,7 +45,9 @@ class StateValidator:
     def __init__(self):
         self.mismatches: List[Dict[str, Any]] = []
 
-    def _fuzzy_match_key(self, key: str, candidates: List[str], threshold: int = 80) -> str | None:
+    def _fuzzy_match_key(
+        self, key: str, candidates: List[str], threshold: int = 80
+    ) -> str | None:
         """
         Use fuzzy matching to find a close match for a key (typically for names).
 
@@ -91,7 +93,9 @@ class StateValidator:
         self._compare_dict(actual_state, expected_state)
         return len(self.mismatches) == 0, self.mismatches
 
-    def _compare_dict(self, actual: Dict[str, Any], expected: Dict[str, Any], path: str = ""):
+    def _compare_dict(
+        self, actual: Dict[str, Any], expected: Dict[str, Any], path: str = ""
+    ):
         """Recursively compare dictionaries."""
         # Track which actual keys have been matched (to detect truly extra keys later)
         matched_actual_keys = set()
@@ -113,7 +117,9 @@ class StateValidator:
 
             if matching_key is None:
                 # For income.listing and assets.listing, try fuzzy matching on string keys
-                if ("income.listing" in path or "assets.listing" in path) and isinstance(key, str):
+                if (
+                    "income.listing" in path or "assets.listing" in path
+                ) and isinstance(key, str):
                     # Use threshold of 50 for generous matching (e.g., "savings account" vs "account")
                     threshold = 50 if "assets.listing" in path else 75
                     fuzzy_match = self._fuzzy_match_key(
@@ -123,8 +129,12 @@ class StateValidator:
                         matching_key = fuzzy_match
                         matched_actual_keys.add(fuzzy_match)
                         # Use the actual matched key in the path, not the expected key
-                        fuzzy_new_path = f"{path}.{fuzzy_match}" if path else fuzzy_match
-                        self._compare_values(actual[fuzzy_match], expected[key], fuzzy_new_path)
+                        fuzzy_new_path = (
+                            f"{path}.{fuzzy_match}" if path else fuzzy_match
+                        )
+                        self._compare_values(
+                            actual[fuzzy_match], expected[key], fuzzy_new_path
+                        )
                     else:
                         self.mismatches.append(
                             {
@@ -135,9 +145,9 @@ class StateValidator:
                             }
                         )
                 # Also try numeric key matching (e.g., 100198 vs "100198")
-                elif ("income.listing" in path or "assets.listing" in path) and isinstance(
-                    key, int
-                ):
+                elif (
+                    "income.listing" in path or "assets.listing" in path
+                ) and isinstance(key, int):
                     str_key = str(key)
                     if str_key in actual:
                         matching_key = str_key
@@ -450,7 +460,9 @@ class TestRunner:
                         "message": f"Script '{script_name}' not found in scripts.yml",
                     }
                 ]
-                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.add_test_result(
+                    call_id, script_name, False, error_mismatches
+                )
                 self.result_manager.save_results()
                 return False, error_mismatches
 
@@ -463,7 +475,9 @@ class TestRunner:
                         "message": f"Script '{script_name}' is in old string format, no expected_state available",
                     }
                 ]
-                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.add_test_result(
+                    call_id, script_name, False, error_mismatches
+                )
                 self.result_manager.save_results()
                 return False, error_mismatches
 
@@ -475,7 +489,9 @@ class TestRunner:
                         "message": f"Script '{script_name}' does not have 'expected_state' defined",
                     }
                 ]
-                self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+                self.result_manager.add_test_result(
+                    call_id, script_name, False, error_mismatches
+                )
                 self.result_manager.save_results()
                 return False, error_mismatches
 
@@ -492,7 +508,9 @@ class TestRunner:
                     "message": f"call_id {call_id} not found in {self.flow_manager_state_file}",
                 }
             ]
-            self.result_manager.add_test_result(call_id, script_name, False, error_mismatches)
+            self.result_manager.add_test_result(
+                call_id, script_name, False, error_mismatches
+            )
             self.result_manager.save_results()
             return False, error_mismatches
 
@@ -544,9 +562,15 @@ class TestRunner:
         for script in sorted(by_script.keys()):
             stats = by_script[script]
             total_for_script = stats["passed"] + stats["failed"]
-            rate = (stats["passed"] / total_for_script * 100) if total_for_script > 0 else 0
+            rate = (
+                (stats["passed"] / total_for_script * 100)
+                if total_for_script > 0
+                else 0
+            )
             status = "✓ PASS" if stats["failed"] == 0 else "✗ FAIL"
-            print(f"  {status} {script:40} {stats['passed']}/{total_for_script} ({rate:.0f}%)")
+            print(
+                f"  {status} {script:40} {stats['passed']}/{total_for_script} ({rate:.0f}%)"
+            )
 
         print("\nTest Details:")
         for call_id, result in sorted(self.result_manager.results.items()):
@@ -628,7 +652,9 @@ class TestRunner:
                     print(f"   Expected: {mismatch.get('expected', 'N/A')}")
                     print(f"   Actual:   {mismatch.get('actual', 'N/A')}")
                 elif "list_length_mismatch" in mismatch.get("issue", ""):
-                    print(f"   Expected Length: {mismatch.get('expected_length', 'N/A')}")
+                    print(
+                        f"   Expected Length: {mismatch.get('expected_length', 'N/A')}"
+                    )
                     print(f"   Actual Length:   {mismatch.get('actual_length', 'N/A')}")
                 else:
                     for key, value in mismatch.items():

@@ -82,9 +82,24 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
         (0, "Monthly", True, 0),  # eligible, no income
         (0, "Annually", True, 0),  # eligible, no income
         (1200, "Monthly", True, 1200),  # eligible, monthly income below 300% of poverty
-        (40000, "Annually", True, 3333),  # eligible, yearly income below 300% of poverty
-        (5000, "Monthly", False, 5000),  # not eligible, monthly income above 300% of poverty
-        (60000, "Annually", False, 5000),  # not eligible, yearly income above 300% of poverty
+        (
+            40000,
+            "Annually",
+            True,
+            3333,
+        ),  # eligible, yearly income below 300% of poverty
+        (
+            5000,
+            "Monthly",
+            False,
+            5000,
+        ),  # not eligible, monthly income above 300% of poverty
+        (
+            60000,
+            "Annually",
+            False,
+            5000,
+        ),  # not eligible, yearly income above 300% of poverty
         (3989, "Monthly", True, 3989),  # eligible, just below 300% poverty for month
         (47868, "Annually", True, 3989),  # eligible, just below 300% poverty for year
         (3990, "Monthly", True, 3990),  # eligible, at 300% poverty for month
@@ -262,7 +277,11 @@ async def test_check_income_semi_monthly_ineligible():
         ([{"car": 5000}, {"savings": 2000}], True, 7000),  # multiple assets below limit
         ([{"house": 10000}], True, 10000),  # exactly at limit
         ([{"house": 10001}], False, 10001),  # just over limit
-        ([{"car": 8000}, {"savings": 3000}], False, 11000),  # multiple assets over limit
+        (
+            [{"car": 8000}, {"savings": 3000}],
+            False,
+            11000,
+        ),  # multiple assets over limit
         ([{"car": 0}], True, 0),  # zero value asset
         (
             [{"car": 5000}, {"boat": 0}, {"savings": 4999}],
@@ -271,7 +290,12 @@ async def test_check_income_semi_monthly_ineligible():
         ),  # just under limit with zero asset
         ([{"expensive_car": 15000}], False, 15000),  # single high-value asset
         (
-            [{"car": 2500}, {"savings": 2500}, {"investments": 2500}, {"jewelry": 2500}],
+            [
+                {"car": 2500},
+                {"savings": 2500},
+                {"investments": 2500},
+                {"jewelry": 2500},
+            ],
             True,
             10000,
         ),  # multiple assets exactly at limit

@@ -8,8 +8,12 @@ class County(BaseModel):
     """Information about a county."""
 
     county_name: Optional[str] = Field(default=None, description="Name of the county")
-    county_state: Optional[str] = Field(default=None, description="Two-letter state abbreviation")
-    county_FIPS: Optional[str] = Field(default=None, description="FIPS code for the county")
+    county_state: Optional[str] = Field(
+        default=None, description="Two-letter state abbreviation"
+    )
+    county_FIPS: Optional[str] = Field(
+        default=None, description="FIPS code for the county"
+    )
 
 
 class User(BaseModel):
@@ -32,8 +36,12 @@ class Lookup(BaseModel):
     lookup_value_id: Optional[int] = Field(
         default=None, description="Numeric ID of the lookup value"
     )
-    lookup_value_uuid: Optional[str] = Field(default=None, description="UUID of the lookup value")
-    lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
+    lookup_value_uuid: Optional[str] = Field(
+        default=None, description="UUID of the lookup value"
+    )
+    lookup_value_name: Optional[str] = Field(
+        default=None, description="Name of the lookup value"
+    )
 
 
 class IncomePayload(BaseModel):
@@ -43,14 +51,17 @@ class IncomePayload(BaseModel):
     """
 
     type: Lookup = Field(
-        ..., description="Income type lookup reference with lookup_value_name (required)"
+        ...,
+        description="Income type lookup reference with lookup_value_name (required)",
     )
     amount: float = Field(..., description="Income amount (required)")
     period: str = Field(
         ...,
         description="Payment period (required). Valid values: Annually, Quarterly, Monthly, Semi-Monthly, Biweekly, Weekly, or numeric: 1, 4, 12, 24, 26, 52",
     )
-    exclude: Optional[bool] = Field(default=False, description="Whether to exclude this income")
+    exclude: Optional[bool] = Field(
+        default=False, description="Whether to exclude this income"
+    )
     notes: Optional[str] = Field(default=None, description="Notes about the income")
 
     @field_validator("period", mode="before")
@@ -95,10 +106,16 @@ class AdversePartyPayload(BaseModel):
     last: Optional[str] = Field(default=None, description="Last name")
     middle: Optional[str] = Field(default=None, description="Middle name")
     suffix: Optional[str] = Field(default=None, description="Name suffix")
-    organization_name: Optional[str] = Field(default=None, description="Organization name")
-    date_of_birth: Optional[str] = Field(default=None, description="Date of birth (YYYY-MM-DD)")
+    organization_name: Optional[str] = Field(
+        default=None, description="Organization name"
+    )
+    date_of_birth: Optional[str] = Field(
+        default=None, description="Date of birth (YYYY-MM-DD)"
+    )
     phone_home: Optional[str] = Field(default=None, description="Home phone number")
-    phone_business: Optional[str] = Field(default=None, description="Business phone number")
+    phone_business: Optional[str] = Field(
+        default=None, description="Business phone number"
+    )
     phone_mobile: Optional[str] = Field(default=None, description="Mobile phone number")
     phone_fax: Optional[str] = Field(default=None, description="Fax phone number")
 
@@ -132,13 +149,21 @@ class RejectionReason(BaseModel):
     lookup_value_id: Optional[int] = Field(
         default=None, description="Numeric ID of the lookup value"
     )
-    lookup_value_uuid: Optional[str] = Field(default=None, description="UUID of the lookup value")
-    lookup_value_name: Optional[str] = Field(default=None, description="Name of the lookup value")
+    lookup_value_uuid: Optional[str] = Field(
+        default=None, description="UUID of the lookup value"
+    )
+    lookup_value_name: Optional[str] = Field(
+        default=None, description="Name of the lookup value"
+    )
     lookup_type_name: Optional[str] = Field(
-        default=None, description="Name of the lookup type", json_schema_extra={"readOnly": True}
+        default=None,
+        description="Name of the lookup type",
+        json_schema_extra={"readOnly": True},
     )
     lookup_type_table_name: Optional[str] = Field(
-        default=None, description="Table name for the lookup", json_schema_extra={"readOnly": True}
+        default=None,
+        description="Table name for the lookup",
+        json_schema_extra={"readOnly": True},
     )
     lookup_type_custom: Optional[bool] = Field(
         default=None,
@@ -146,24 +171,34 @@ class RejectionReason(BaseModel):
         json_schema_extra={"readOnly": True},
     )
     lookup_type_uuid: Optional[str] = Field(
-        default=None, description="UUID of the lookup type", json_schema_extra={"readOnly": True}
+        default=None,
+        description="UUID of the lookup type",
+        json_schema_extra={"readOnly": True},
     )
 
 
 class Organization(BaseModel):
     """Reference to an organization."""
 
-    organization_id: Optional[int] = Field(default=None, description="Numeric organization ID")
-    organization_uuid: Optional[str] = Field(default=None, description="UUID of the organization")
+    organization_id: Optional[int] = Field(
+        default=None, description="Numeric organization ID"
+    )
+    organization_uuid: Optional[str] = Field(
+        default=None, description="UUID of the organization"
+    )
     organization_name: Optional[str] = Field(
-        default=None, description="Name of the organization", json_schema_extra={"readOnly": True}
+        default=None,
+        description="Name of the organization",
+        json_schema_extra={"readOnly": True},
     )
 
 
 class DynamicProcess(BaseModel):
     """Reference to a dynamic process."""
 
-    dynamic_process_id: Optional[int] = Field(default=None, description="Numeric process ID")
+    dynamic_process_id: Optional[int] = Field(
+        default=None, description="Numeric process ID"
+    )
     dynamic_process_uuid: Optional[str] = Field(
         default=None, description="UUID of the dynamic process"
     )
@@ -172,21 +207,31 @@ class DynamicProcess(BaseModel):
 class UpdatePayload(BaseModel):
     """Fields to update in an existing matter."""
 
-    case_disposition: Optional[str] = Field(default=None, description="Case disposition")
+    case_disposition: Optional[str] = Field(
+        default=None, description="Case disposition"
+    )
     case_id: Optional[int] = Field(default=None, description="Case ID")
     case_number: Optional[str] = Field(default=None, description="Case number")
     cause_number: Optional[str] = Field(default=None, description="Cause number")
-    client_email_address: Optional[str] = Field(default=None, description="Client email address")
-    date_of_birth: Optional[date] = Field(default=None, description="Client date of birth")
+    client_email_address: Optional[str] = Field(
+        default=None, description="Client email address"
+    )
+    date_of_birth: Optional[date] = Field(
+        default=None, description="Client date of birth"
+    )
     external_id: Optional[str] = Field(default=None, description="External ID")
     first: Optional[str] = Field(default=None, description="First name")
     intake_office: Optional[str] = Field(default=None, description="Intake office")
     intale_program: Optional[str] = Field(
         default=None, description="Intake program (note: field name has typo in API)"
     )
-    is_lead_case: Optional[str] = Field(default=None, description="Whether this is a lead case")
+    is_lead_case: Optional[str] = Field(
+        default=None, description="Whether this is a lead case"
+    )
     last: Optional[str] = Field(default=None, description="Last name")
-    legal_problem_code: Optional[str] = Field(default=None, description="Legal problem code")
+    legal_problem_code: Optional[str] = Field(
+        default=None, description="Legal problem code"
+    )
     organization: Optional[str] = Field(default=None, description="Organization")
     phone_number: Optional[str] = Field(default=None, description="Phone number")
     pro_bono_opportunity_status: Optional[str] = Field(
@@ -220,7 +265,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
 
     # Client Name Information
-    prefix: Optional[str] = Field(default=None, description="Name prefix (e.g., Dr., Mr., Ms.)")
+    prefix: Optional[str] = Field(
+        default=None, description="Name prefix (e.g., Dr., Mr., Ms.)"
+    )
     first: str = Field(
         ...,
         description="Client first name. Required field.",
@@ -230,7 +277,9 @@ class LegalServerCreateMatterPayload(BaseModel):
         description="Client last name. Required field.",
     )
     middle: Optional[str] = Field(default=None, description="Client middle name")
-    suffix: Optional[str] = Field(default=None, description="Name suffix (e.g., Jr., Sr.)")
+    suffix: Optional[str] = Field(
+        default=None, description="Name suffix (e.g., Jr., Sr.)"
+    )
 
     # Client Type
     is_group: Optional[bool] = Field(
@@ -259,8 +308,12 @@ class LegalServerCreateMatterPayload(BaseModel):
         default=None, description="Current case status (separate from disposition)"
     )
     case_type: Optional[str] = Field(default=None, description="Type of case")
-    case_number: Optional[str] = Field(default=None, description="Case number assigned by court")
-    close_reason: Optional[str] = Field(default=None, description="Reason case was closed")
+    case_number: Optional[str] = Field(
+        default=None, description="Case number assigned by court"
+    )
+    close_reason: Optional[str] = Field(
+        default=None, description="Reason case was closed"
+    )
 
     # Prescreen Information
     is_this_a_prescreen: Optional[bool] = Field(
@@ -288,33 +341,57 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
 
     # Intake Information
-    intake_office: Optional[str] = Field(default=None, description="Office handling intake")
-    intake_program: Optional[str] = Field(default=None, description="Program handling intake")
-    intake_user: Optional[User] = Field(default=None, description="User who handled intake")
+    intake_office: Optional[str] = Field(
+        default=None, description="Office handling intake"
+    )
+    intake_program: Optional[str] = Field(
+        default=None, description="Program handling intake"
+    )
+    intake_user: Optional[User] = Field(
+        default=None, description="User who handled intake"
+    )
     intake_date: Optional[date] = Field(default=None, description="Date of intake")
     intake_type: Optional[str] = Field(default=None, description="Type of intake")
 
     # Key Dates
-    date_opened: Optional[date] = Field(default=None, description="Date case was opened")
-    date_closed: Optional[date] = Field(default=None, description="Date case was closed")
-    date_rejected: Optional[date] = Field(default=None, description="Date case was rejected")
-    rejected: Optional[bool] = Field(default=None, description="Whether the case was rejected")
+    date_opened: Optional[date] = Field(
+        default=None, description="Date case was opened"
+    )
+    date_closed: Optional[date] = Field(
+        default=None, description="Date case was closed"
+    )
+    date_rejected: Optional[date] = Field(
+        default=None, description="Date case was rejected"
+    )
+    rejected: Optional[bool] = Field(
+        default=None, description="Whether the case was rejected"
+    )
     rejection_reason: Optional[RejectionReason] = Field(
         default=None, description="Reason for case rejection"
     )
 
     # Mailing Address
-    mailing_street: Optional[str] = Field(default=None, description="Mailing street address")
-    mailing_apt_num: Optional[str] = Field(default=None, description="Mailing apartment number")
-    mailing_street_2: Optional[str] = Field(default=None, description="Mailing secondary street")
+    mailing_street: Optional[str] = Field(
+        default=None, description="Mailing street address"
+    )
+    mailing_apt_num: Optional[str] = Field(
+        default=None, description="Mailing apartment number"
+    )
+    mailing_street_2: Optional[str] = Field(
+        default=None, description="Mailing secondary street"
+    )
     mailing_city: Optional[str] = Field(default=None, description="Mailing city")
     mailing_state: Optional[str] = Field(default=None, description="Mailing state")
     mailing_zip: Optional[str] = Field(default=None, description="Mailing ZIP code")
 
     # Home Address
     home_street: Optional[str] = Field(default=None, description="Home street address")
-    home_apt_num: Optional[str] = Field(default=None, description="Home apartment number")
-    home_street_2: Optional[str] = Field(default=None, description="Home secondary street")
+    home_apt_num: Optional[str] = Field(
+        default=None, description="Home apartment number"
+    )
+    home_street_2: Optional[str] = Field(
+        default=None, description="Home secondary street"
+    )
     home_city: Optional[str] = Field(default=None, description="Home city")
     home_state: Optional[str] = Field(default=None, description="Home state")
     home_zip: Optional[str] = Field(default=None, description="Home ZIP code")
@@ -324,7 +401,9 @@ class LegalServerCreateMatterPayload(BaseModel):
 
     # Demographic Information
     client_gender: Optional[str] = Field(default=None, description="Client gender")
-    date_of_birth: Optional[date] = Field(default=None, description="Client date of birth")
+    date_of_birth: Optional[date] = Field(
+        default=None, description="Client date of birth"
+    )
     dob_status: Optional[str] = Field(
         default=None, description="Status of date of birth (verified, estimated, etc.)"
     )
@@ -336,13 +415,21 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
     a_number: Optional[str] = Field(default=None, description="A-number (immigration)")
     visa_number: Optional[str] = Field(default=None, description="Visa number")
-    drivers_license: Optional[str] = Field(default=None, description="Driver's license number")
+    drivers_license: Optional[str] = Field(
+        default=None, description="Driver's license number"
+    )
 
     # Veteran & Disability Status
-    veteran: Optional[bool] = Field(default=None, description="Whether client is a veteran")
+    veteran: Optional[bool] = Field(
+        default=None, description="Whether client is a veteran"
+    )
     military_status: Optional[str] = Field(default=None, description="Military status")
-    military_service: Optional[str] = Field(default=None, description="Details of military service")
-    disabled: Optional[bool] = Field(default=None, description="Whether client is disabled")
+    military_service: Optional[str] = Field(
+        default=None, description="Details of military service"
+    )
+    disabled: Optional[bool] = Field(
+        default=None, description="Whether client is disabled"
+    )
 
     # Phone Numbers
     preferred_phone_number: Optional[str] = Field(
@@ -354,33 +441,45 @@ class LegalServerCreateMatterPayload(BaseModel):
     home_phone_safe: Optional[bool] = Field(
         default=None, description="Whether it is safe to call home phone"
     )
-    home_phone_note: Optional[str] = Field(default=None, description="Notes about home phone")
+    home_phone_note: Optional[str] = Field(
+        default=None, description="Notes about home phone"
+    )
     mobile_phone: Optional[str] = Field(
         default=None, description="Mobile phone number (min 1 character)"
     )
     mobile_phone_safe: Optional[bool] = Field(
         default=None, description="Whether it is safe to call mobile phone"
     )
-    mobile_phone_note: Optional[str] = Field(default=None, description="Notes about mobile phone")
+    mobile_phone_note: Optional[str] = Field(
+        default=None, description="Notes about mobile phone"
+    )
     other_phone: Optional[str] = Field(default=None, description="Other phone number")
     other_phone_safe: Optional[bool] = Field(
         default=None, description="Whether it is safe to call other phone"
     )
-    other_phone_note: Optional[str] = Field(default=None, description="Notes about other phone")
+    other_phone_note: Optional[str] = Field(
+        default=None, description="Notes about other phone"
+    )
     work_phone: Optional[str] = Field(default=None, description="Work phone number")
     work_phone_safe: Optional[bool] = Field(
         default=None, description="Whether it is safe to call work phone"
     )
-    work_phone_note: Optional[str] = Field(default=None, description="Notes about work phone")
+    work_phone_note: Optional[str] = Field(
+        default=None, description="Notes about work phone"
+    )
     fax_phone: Optional[str] = Field(default=None, description="Fax phone number")
     fax_phone_safe: Optional[bool] = Field(
         default=None, description="Whether it is safe to call fax phone"
     )
-    fax_phone_note: Optional[str] = Field(default=None, description="Notes about fax phone")
+    fax_phone_note: Optional[str] = Field(
+        default=None, description="Notes about fax phone"
+    )
 
     # Language Information
     language: Optional[str] = Field(default=None, description="Primary language")
-    second_language: Optional[str] = Field(default=None, description="Secondary language")
+    second_language: Optional[str] = Field(
+        default=None, description="Secondary language"
+    )
     interpreter: Optional[bool] = Field(
         default=None, description="Whether client needs an interpreter"
     )
@@ -394,7 +493,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
 
     # Legal Problem Information
-    legal_problem_code: Optional[str] = Field(default=None, description="LSC legal problem code")
+    legal_problem_code: Optional[str] = Field(
+        default=None, description="LSC legal problem code"
+    )
     legal_problem_category: Optional[str] = Field(
         default=None, description="Category of legal problem"
     )
@@ -403,13 +504,17 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
 
     # Case Characteristics
-    impact: Optional[bool] = Field(default=None, description="Whether case has significant impact")
+    impact: Optional[bool] = Field(
+        default=None, description="Whether case has significant impact"
+    )
     special_characteristics: Optional[List[str]] = Field(
         default=None, description="Special characteristics of case"
     )
 
     # Personal/Family Information
-    marital_status: Optional[str] = Field(default=None, description="Client marital status")
+    marital_status: Optional[str] = Field(
+        default=None, description="Client marital status"
+    )
     number_of_adults: Optional[int] = Field(
         default=None, description="Number of adults in household"
     )
@@ -419,16 +524,28 @@ class LegalServerCreateMatterPayload(BaseModel):
 
     # Immigration Information
     citizenship: Optional[str] = Field(default=None, description="Citizenship status")
-    citizenship_country: Optional[str] = Field(default=None, description="Country of citizenship")
-    country_of_origin: Optional[str] = Field(default=None, description="Country of origin")
-    immigration_status: Optional[str] = Field(default=None, description="Immigration status")
-    birth_city: Optional[str] = Field(default=None, description="City where client was born")
-    birth_country: Optional[str] = Field(default=None, description="Country where client was born")
+    citizenship_country: Optional[str] = Field(
+        default=None, description="Country of citizenship"
+    )
+    country_of_origin: Optional[str] = Field(
+        default=None, description="Country of origin"
+    )
+    immigration_status: Optional[str] = Field(
+        default=None, description="Immigration status"
+    )
+    birth_city: Optional[str] = Field(
+        default=None, description="City where client was born"
+    )
+    birth_country: Optional[str] = Field(
+        default=None, description="Country where client was born"
+    )
 
     # Demographics
     race: Optional[str] = Field(default=None, description="Client race")
     ethnicity: Optional[str] = Field(default=None, description="Client ethnicity")
-    highest_education: Optional[str] = Field(default=None, description="Highest level of education")
+    highest_education: Optional[str] = Field(
+        default=None, description="Highest level of education"
+    )
 
     # Financial & Eligibility
     percentage_of_poverty: Optional[str] = Field(
@@ -440,8 +557,12 @@ class LegalServerCreateMatterPayload(BaseModel):
     income_eligible: Optional[bool] = Field(
         default=None, description="Whether client meets income eligibility"
     )
-    lsc_eligible: Optional[bool] = Field(default=None, description="Whether client is LSC eligible")
-    level_of_expertise: Optional[str] = Field(default=None, description="Level of expertise needed")
+    lsc_eligible: Optional[bool] = Field(
+        default=None, description="Whether client is LSC eligible"
+    )
+    level_of_expertise: Optional[str] = Field(
+        default=None, description="Level of expertise needed"
+    )
 
     # Living Situation & Vulnerability
     current_living_situation: Optional[str] = Field(
@@ -462,17 +583,23 @@ class LegalServerCreateMatterPayload(BaseModel):
         default=None, description="How client was referred to organization"
     )
     school_status: Optional[str] = Field(default=None, description="Student status")
-    employment_status: Optional[str] = Field(default=None, description="Employment status")
+    employment_status: Optional[str] = Field(
+        default=None, description="Employment status"
+    )
     referring_organizations: Optional[Organization] = Field(
         default=None, description="Organization referring this client"
     )
 
     # SSI/Welfare Information
-    ssi_welfare_status: Optional[str] = Field(default=None, description="SSI/Welfare status")
+    ssi_welfare_status: Optional[str] = Field(
+        default=None, description="SSI/Welfare status"
+    )
     ssi_months_client_has_received_welfare_payments: Optional[int] = Field(
         default=None, description="Number of months receiving welfare payments"
     )
-    ssi_welfare_case_num: Optional[str] = Field(default=None, description="Welfare case number")
+    ssi_welfare_case_num: Optional[str] = Field(
+        default=None, description="Welfare case number"
+    )
     ssi_section8_housing_type: Optional[str] = Field(
         default=None, description="Section 8 housing type"
     )
@@ -506,9 +633,12 @@ class LegalServerCreateMatterPayload(BaseModel):
         default=False,
         description="Whether to exclude case from appearing in Search Results in UI (does not affect API search results)",
     )
-    case_restrictions: Optional[List[str]] = Field(default=None, description="Case restrictions")
+    case_restrictions: Optional[List[str]] = Field(
+        default=None, description="Case restrictions"
+    )
     case_exclusions: Optional[List[User]] = Field(
-        default=None, description="Users excluded from case. Can be set via user_id or user_uuid"
+        default=None,
+        description="Users excluded from case. Can be set via user_id or user_uuid",
     )
 
     # Pro Bono Information
@@ -590,7 +720,9 @@ class LegalServerCreateMatterPayload(BaseModel):
     )
 
     # Case Flags & Attributes
-    is_lead_case: Optional[bool] = Field(default=False, description="Whether this is a lead case")
+    is_lead_case: Optional[bool] = Field(
+        default=False, description="Whether this is a lead case"
+    )
     lead_case: Optional[str] = Field(default=None, description="Reference to lead case")
     pai_case: Optional[bool] = Field(
         default=None, description="Whether this is a Pesticide Application Injury case"
@@ -615,11 +747,15 @@ class LegalServerCreateMatterPayload(BaseModel):
     fee_generating: Optional[bool] = Field(
         default=None, description="Whether case is fee-generating"
     )
-    rural: Optional[bool] = Field(default=None, description="Whether case is in rural area")
+    rural: Optional[bool] = Field(
+        default=None, description="Whether case is in rural area"
+    )
     income_change_significantly: Optional[bool] = Field(
         default=None, description="Whether income changed significantly"
     )
-    income_change_type: Optional[str] = Field(default=None, description="Type of income change")
+    income_change_type: Optional[str] = Field(
+        default=None, description="Type of income change"
+    )
 
     # Priorities & Tracking
     priorities: Optional[List[str]] = Field(default=None, description="Case priorities")
@@ -663,7 +799,9 @@ class LegalServerCreateMatterPayload(BaseModel):
             raise ValueError("case_disposition is required")
         return v
 
-    @field_validator("first", "last", "organization_name", "organization_uuid", mode="before")
+    @field_validator(
+        "first", "last", "organization_name", "organization_uuid", mode="before"
+    )
     @classmethod
     def validate_client_identification(cls, v, info):
         """Validate that either (first AND last) OR organization_name OR organization_uuid is provided."""

@@ -28,7 +28,9 @@ def clean_pydantic_error_message(error: ValidationError) -> str:
           Value error, Invalid US phone number: 111-111-1111 [type=value_error, input_value='111-111-1111', input_type=str]"
     """
     error_message = str(error)
-    cleaned = re.sub(r"""\n\s*For further information visit https://[^\s]+""", "", error_message)
+    cleaned = re.sub(
+        r"""\n\s*For further information visit https://[^\s]+""", "", error_message
+    )
     return cleaned
 
 

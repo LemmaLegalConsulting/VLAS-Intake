@@ -48,7 +48,9 @@ async def start_call(request: Request):
     url = f"""wss://{domain}/ws"""
     body_data = dict(
         caller_phone_number=form_data.get("From"),
-        websocket_auth_code=generate_websocket_auth_code(call_id=form_data.get("CallSid")),
+        websocket_auth_code=generate_websocket_auth_code(
+            call_id=form_data.get("CallSid")
+        ),
     )
 
     content = create_twiml(

@@ -30,7 +30,9 @@ class ReferenceDataLoader:
         ref_file = Path(DATA_DIR) / "reference_data.yml"
         try:
             if not ref_file.exists():
-                raise FileNotFoundError(f"""Reference data file not found: {ref_file}""")
+                raise FileNotFoundError(
+                    f"""Reference data file not found: {ref_file}"""
+                )
             with open(ref_file) as f:
                 ReferenceDataLoader._data = yaml.safe_load(f)
             logger.debug(f"""Loaded reference data from {ref_file}""")

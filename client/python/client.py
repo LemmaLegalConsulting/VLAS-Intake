@@ -135,7 +135,9 @@ if os.getenv("DISABLE_LOCAL_SMART_TURN") == "TRUE":
     turn_analyzer = None
 else:
     try:
-        from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+        from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import (
+            LocalSmartTurnAnalyzerV3,
+        )
 
         turn_analyzer = LocalSmartTurnAnalyzerV3()
     except Exception:
@@ -158,7 +160,11 @@ async def run_client(
     auth_code = generate_websocket_auth_code(call_sid)
 
     # Track this call for later validation
-    call_id_map[client_name] = {"stream_sid": stream_sid, "call_sid": call_sid, "script": script}
+    call_id_map[client_name] = {
+        "stream_sid": stream_sid,
+        "call_sid": call_sid,
+        "script": script,
+    }
     logger.info(call_id_map[client_name])
 
     serializer = TwilioFrameSerializer(
@@ -350,18 +356,24 @@ async def run_client(
                 expected_state = script_config["expected_state"]
                 # Look for logs/flow_manager_state.json in the intake-bot root
                 flow_manager_state_file = (
-                    Path(__file__).parent.parent.parent / "logs" / "flow_manager_state.json"
+                    Path(__file__).parent.parent.parent
+                    / "logs"
+                    / "flow_manager_state.json"
                 )
                 # Store client test results in logs/client_test_results.json
                 client_test_results_file = (
-                    Path(__file__).parent.parent.parent / "logs" / "client_test_results.json"
+                    Path(__file__).parent.parent.parent
+                    / "logs"
+                    / "client_test_results.json"
                 )
                 # Use TestRunner for validation
                 runner = TestRunner(
                     results_file=str(client_test_results_file),
                     flow_manager_state_file=str(flow_manager_state_file),
                 )
-                passed, mismatches = await runner.validate_call(call_sid, script, expected_state)
+                passed, mismatches = await runner.validate_call(
+                    call_sid, script, expected_state
+                )
                 if passed:
                     logger.info(f"Client {client_name} state validation PASSED")
                 else:
@@ -371,7 +383,9 @@ async def run_client(
                     for mismatch in mismatches[:5]:  # Log first 5 mismatches
                         logger.warning(f"  - {mismatch}")
             else:
-                logger.info(f"No expected_state defined for script '{script}', skipping validation")
+                logger.info(
+                    f"No expected_state defined for script '{script}', skipping validation"
+                )
 
 
 async def main():

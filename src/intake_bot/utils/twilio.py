@@ -51,7 +51,9 @@ async def validate_webhook(request: Request) -> bool:
     twilio_signature = request.headers.get("X-TWILIO-SIGNATURE")
 
     if url and form_data and twilio_signature:
-        is_valid = validator.validate(uri=url, params=form_data, signature=twilio_signature)
+        is_valid = validator.validate(
+            uri=url, params=form_data, signature=twilio_signature
+        )
     else:
         is_valid = False
     return is_valid

@@ -22,7 +22,11 @@ class NodePrompts:
         for key, value in data.items():
             if isinstance(value, list):
                 for item in value:
-                    if isinstance(item, dict) and "content" in item and "role" not in item:
+                    if (
+                        isinstance(item, dict)
+                        and "content" in item
+                        and "role" not in item
+                    ):
                         item["role"] = default_role
             elif isinstance(value, dict):
                 data[key] = self._add_default_role(value, default_role)
@@ -47,7 +51,9 @@ class NodePrompts:
             if "task_messages" in prompt:
                 for task_message in prompt["task_messages"]:
                     if "content" in task_message and kwargs:
-                        task_message["content"] = task_message["content"].format(**kwargs)
+                        task_message["content"] = task_message["content"].format(
+                            **kwargs
+                        )
         else:
             prompt = self.prompts[key]
         return prompt

@@ -101,7 +101,9 @@ async def system_phone_number(
     is_valid, validated_caller_id_phone_number = await validator.check_phone_number(
         phone_number=caller_id_phone_number
     )
-    logger.debug(f"""Caller ID phone number (validated): {validated_caller_id_phone_number}""")
+    logger.debug(
+        f"""Caller ID phone number (validated): {validated_caller_id_phone_number}"""
+    )
 
     status = status_helper(is_valid)
     result = dict(status=status.value, phone_number=validated_caller_id_phone_number)
@@ -148,7 +150,9 @@ async def record_phone_number(
         phone_number (str): The caller's 10 digit US phone number.
         phone_type (str): The type of phone (mobile, home, work, or other).
     """
-    is_valid, validated_phone_number = await validator.check_phone_number(phone_number=phone_number)
+    is_valid, validated_phone_number = await validator.check_phone_number(
+        phone_number=phone_number
+    )
 
     status = status_helper(is_valid)
 
@@ -177,7 +181,9 @@ async def record_phone_number(
         if not is_valid:
             result.error = "Not a valid US phone number"
         else:
-            result.error = "Invalid phone type. Please choose from: mobile, home, work, or other"
+            result.error = (
+                "Invalid phone type. Please choose from: mobile, home, work, or other"
+            )
         next_node = None
     return result, next_node
 
@@ -565,7 +571,9 @@ async def record_assets_list(
     """
     try:
         assets_validated = Assets.model_validate(assets)
-        is_eligible, assets_value = await validator.check_assets(assets=assets_validated)
+        is_eligible, assets_value = await validator.check_assets(
+            assets=assets_validated
+        )
     except ValidationError as e:
         logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
@@ -639,7 +647,9 @@ async def record_ssn_last_4(
         status = Status.SUCCESS
         formatted_ssn = ""
     else:
-        is_valid, formatted_ssn = await validator.check_ssn_last_4(ssn_last_4=ssn_last_4)
+        is_valid, formatted_ssn = await validator.check_ssn_last_4(
+            ssn_last_4=ssn_last_4
+        )
         status = status_helper(is_valid)
 
     result = SSNLast4Result(
@@ -656,7 +666,9 @@ async def record_ssn_last_4(
             }
         )
     else:
-        result.error = "Invalid SSN. Please provide the last 4 digits in format: XXXX or XXX-X."
+        result.error = (
+            "Invalid SSN. Please provide the last 4 digits in format: XXXX or XXX-X."
+        )
         next_node = None
     return result, next_node
 
@@ -676,7 +688,9 @@ async def record_date_of_birth(
         status = Status.SUCCESS
         formatted_dob = ""
     else:
-        is_valid, formatted_dob = await validator.check_date_of_birth(dob_string=date_of_birth)
+        is_valid, formatted_dob = await validator.check_date_of_birth(
+            dob_string=date_of_birth
+        )
         status = status_helper(is_valid)
 
     result = DateOfBirthResult(
@@ -693,9 +707,7 @@ async def record_date_of_birth(
             }
         )
     else:
-        result.error = (
-            "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
-        )
+        result.error = "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
         next_node = None
     return result, next_node
 

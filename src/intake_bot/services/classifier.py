@@ -80,7 +80,9 @@ class Classifier:
         # Build taxonomy string from the normalized labels
         taxonomy_str = "\n".join(taxonomy)
         if not taxonomy_str:
-            taxonomy_str = "No specific legal taxonomy categories were provided or loaded."
+            taxonomy_str = (
+                "No specific legal taxonomy categories were provided or loaded."
+            )
         final_prompt = prompt_template.replace("{{taxonomy}}", taxonomy_str)
         return final_prompt
 
@@ -115,9 +117,13 @@ class Classifier:
 
         # Try to initialize Gemini provider
         try:
-            all_providers.append(self.GeminiProvider(model_name="gemini-2.5-flash-lite"))
+            all_providers.append(
+                self.GeminiProvider(model_name="gemini-2.5-flash-lite")
+            )
         except ValueError as e:
-            logger.warning(f"""Could not initialize gemini-2.5-flash-lite provider: {e}""")
+            logger.warning(
+                f"""Could not initialize gemini-2.5-flash-lite provider: {e}"""
+            )
 
         # Always add keyword provider
         try:
@@ -162,7 +168,10 @@ class Classifier:
                 response = await provider.client.chat.completions.create(
                     model=provider.model_name,
                     messages=[
-                        {"role": "system", "content": self.prompts.get("semantic_merge", "")},
+                        {
+                            "role": "system",
+                            "content": self.prompts.get("semantic_merge", ""),
+                        },
                         {
                             "role": "user",
                             "content": questions_json,
@@ -196,7 +205,9 @@ class Classifier:
                         )
                     )
                 else:
-                    logger.warning(f"""Merged question data missing 'question' key: {q_data}""")
+                    logger.warning(
+                        f"""Merged question data missing 'question' key: {q_data}"""
+                    )
 
             return merged_questions
 
@@ -205,7 +216,9 @@ class Classifier:
             logger.error(error_message)
             return questions
         except Exception as e:
-            error_message = f"""An unexpected error occurred during semantic merging: {e}"""
+            error_message = (
+                f"""An unexpected error occurred during semantic merging: {e}"""
+            )
             logger.error(error_message)
             return questions
 
@@ -230,7 +243,9 @@ class Classifier:
         for provider_model_name, result in results_with_providers:
             base_weight = self.model_weights.get(provider_model_name, 1.0)
             if isinstance(result, Exception):
-                logger.error(f"""Classifier provider '{provider_model_name}' failed: {result}""")
+                logger.error(
+                    f"""Classifier provider '{provider_model_name}' failed: {result}"""
+                )
                 raw_provider_results[provider_model_name] = {"error": str(result)}
             else:
                 # Serialize result for debug output (convert FollowUpQuestion objects to dicts if needed)
@@ -254,13 +269,18 @@ class Classifier:
                         label_scores[label_str] += weighted_score
 
                 # Collect questions from this provider
-                all_questions_by_provider[provider_model_name] = result.get("questions", [])
+                all_questions_by_provider[provider_model_name] = result.get(
+                    "questions", []
+                )
 
         # Normalize label scores to 0-1 range based on max possible score
-        max_possible_score = sum(self.model_weights.get(p[0], 1.0) for p in results_with_providers)
+        max_possible_score = sum(
+            self.model_weights.get(p[0], 1.0) for p in results_with_providers
+        )
         if max_possible_score > 0:
             normalized_label_scores = {
-                label: score / max_possible_score for label, score in label_scores.items()
+                label: score / max_possible_score
+                for label, score in label_scores.items()
             }
         else:
             normalized_label_scores = label_scores
@@ -281,7 +301,9 @@ class Classifier:
             for question_entry in all_questions_by_provider[provider_model_name]:
                 if isinstance(question_entry, dict):
                     question_text = question_entry.get("question")
-                    format_type = question_entry.get("format") or question_entry.get("type")
+                    format_type = question_entry.get("format") or question_entry.get(
+                        "type"
+                    )
                     options = question_entry.get("options")
                 elif isinstance(question_entry, str):
                     question_text = question_entry
@@ -306,7 +328,9 @@ class Classifier:
         if DEBUG and sorted_labels:
             logger.debug(f"""All voted labels (top {len(sorted_labels)}):""")
             for label, score in sorted_labels:
-                original_label = taxonomy_dict.get(label, label) if taxonomy_dict else label
+                original_label = (
+                    taxonomy_dict.get(label, label) if taxonomy_dict else label
+                )
                 logger.debug(f"""  - {original_label} (score: {score:.3f})""")
 
         # Take top 1 label only if it exists in taxonomy
@@ -374,13 +398,17 @@ class Classifier:
         taxonomy = self.taxonomy
         if not taxonomy:
             return ClassificationResponse(
-                follow_up_questions=[FollowUpQuestion(question="Taxonomy could not be loaded.")],
+                follow_up_questions=[
+                    FollowUpQuestion(question="Taxonomy could not be loaded.")
+                ],
             )
 
         if not self.providers:
             return ClassificationResponse(
                 follow_up_questions=[
-                    FollowUpQuestion(question="No providers available for classification.")
+                    FollowUpQuestion(
+                        question="No providers available for classification."
+                    )
                 ],
             )
 
@@ -398,14 +426,19 @@ class Classifier:
             if provider.reasoning_effort:
                 provider_kwargs["reasoning_effort"] = provider.reasoning_effort
             tasks.append(
-                (provider.model_name, asyncio.create_task(provider.classify(**provider_kwargs)))
+                (
+                    provider.model_name,
+                    asyncio.create_task(provider.classify(**provider_kwargs)),
+                )
             )
 
         # Gather results with timeout per provider
         results_with_providers = []
         for provider_name, task in tasks:
             try:
-                result = await asyncio.wait_for(task, timeout=Classifier.Provider.PROVIDER_TIMEOUT)
+                result = await asyncio.wait_for(
+                    task, timeout=Classifier.Provider.PROVIDER_TIMEOUT
+                )
                 results_with_providers.append((provider_name, result))
             except asyncio.TimeoutError:
                 error_msg = f"""Provider timeout after {Classifier.Provider.PROVIDER_TIMEOUT}s"""
@@ -498,7 +531,10 @@ class Classifier:
                 retry_after = resp.headers.get("retry-after")
                 if retry_after:
                     try:
-                        return max(1.0, min(float(retry_after), Classifier.Provider.MAX_WAIT_TIME))
+                        return max(
+                            1.0,
+                            min(float(retry_after), Classifier.Provider.MAX_WAIT_TIME),
+                        )
                     except (ValueError, TypeError):
                         pass
 
@@ -528,7 +564,8 @@ class Classifier:
 
             # Exponential backoff: 2^attempt, but capped
             delay = min(
-                Classifier.Provider.BASE_WAIT_TIME * (2**attempt), Classifier.Provider.MAX_WAIT_TIME
+                Classifier.Provider.BASE_WAIT_TIME * (2**attempt),
+                Classifier.Provider.MAX_WAIT_TIME,
             )
             # Add jitter: ±25%
             jitter = delay * 0.25 * (2 * random.random() - 1)
@@ -592,7 +629,9 @@ class Classifier:
             self,
             problem_description: str,
             prompt: str,
-            reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None,
+            reasoning_effort: Optional[
+                Literal["minimal", "low", "medium", "high"]
+            ] = None,
             **kwargs,
         ) -> Dict[str, Any]:
             """Common classification logic for OpenAI-compatible clients.
@@ -638,7 +677,9 @@ class Classifier:
                         except Exception:
                             pass
 
-                    response = await self.client.chat.completions.create(**request_params)
+                    response = await self.client.chat.completions.create(
+                        **request_params
+                    )
 
                     if DEBUG:
                         elapsed = time.time() - start_time
@@ -663,7 +704,9 @@ class Classifier:
 
                     for item in parsed_response.get("labels", []):
                         if isinstance(item, str):
-                            labels.append({"legal_problem_code": item, "confidence": 1.0})
+                            labels.append(
+                                {"legal_problem_code": item, "confidence": 1.0}
+                            )
                         elif isinstance(item, dict) and item.get("label"):
                             labels.append(
                                 {
@@ -800,12 +843,17 @@ class Classifier:
             key_terms = set(
                 w.rstrip(".,!?;:()[]{}").lower()
                 for w in words
-                if len(w) > 3 and w.rstrip(".,!?;:()[]{}").lower() not in words_to_ignore
+                if len(w) > 3
+                and w.rstrip(".,!?;:()[]{}").lower() not in words_to_ignore
             )
-            key_phrase = " ".join(sorted(key_terms))  # All key terms for stronger signal
+            key_phrase = " ".join(
+                sorted(key_terms)
+            )  # All key terms for stronger signal
 
             if not key_phrase.strip():
-                key_phrase = problem_description  # Fall back to full description if no key terms
+                key_phrase = (
+                    problem_description  # Fall back to full description if no key terms
+                )
 
             # Use rapidfuzz to find matching categories with fuzzy matching
             matches = process.extract(
@@ -841,9 +889,12 @@ class Classifier:
                     filtered_labels[category] = final_score / 100.0
 
             # Sort by score and return top matches as dicts
-            sorted_matches = sorted(filtered_labels.items(), key=lambda x: x[1], reverse=True)
+            sorted_matches = sorted(
+                filtered_labels.items(), key=lambda x: x[1], reverse=True
+            )
             labels = [
-                {"legal_problem_code": label, "confidence": conf} for label, conf in sorted_matches
+                {"legal_problem_code": label, "confidence": conf}
+                for label, conf in sorted_matches
             ]
             logger.debug(f"""[KeywordProvider] {labels}""")
             return {"labels": labels, "questions": []}

@@ -44,7 +44,11 @@ from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat_flows import FlowManager
 
-from intake_bot.nodes.nodes import caller_ended_conversation, end_conversation, node_initial
+from intake_bot.nodes.nodes import (
+    caller_ended_conversation,
+    end_conversation,
+    node_initial,
+)
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.ev import ev_is_true, require_ev
@@ -73,7 +77,9 @@ class TranscriptHandler:
             f"TranscriptHandler initialized {'with output_file=' + output_file if output_file else 'with log output only'}"
         )
 
-    async def save_transcript_message(self, role: str, content: str, timestamp: str = ""):
+    async def save_transcript_message(
+        self, role: str, content: str, timestamp: str = ""
+    ):
         """Save a single transcript message.
 
         Outputs the message to the log and optionally to a file.
@@ -92,13 +98,19 @@ class TranscriptHandler:
             except Exception as e:
                 logger.error(f"Error saving transcript message to file: {e}")
 
-    async def on_user_transcript(self, aggregator, strategy, message: UserTurnStoppedMessage):
+    async def on_user_transcript(
+        self, aggregator, strategy, message: UserTurnStoppedMessage
+    ):
         """Handle new user transcript message."""
         await self.save_transcript_message("user", message.content, message.timestamp)
 
-    async def on_assistant_transcript(self, aggregator, message: AssistantTurnStoppedMessage):
+    async def on_assistant_transcript(
+        self, aggregator, message: AssistantTurnStoppedMessage
+    ):
         """Handle new assistant transcript message."""
-        await self.save_transcript_message("assistant", message.content, message.timestamp)
+        await self.save_transcript_message(
+            "assistant", message.content, message.timestamp
+        )
 
 
 async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
@@ -169,7 +181,11 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         context,
         user_params=LLMUserAggregatorParams(
             user_turn_strategies=UserTurnStrategies(
-                stop=[TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())],
+                stop=[
+                    TurnAnalyzerUserTurnStopStrategy(
+                        turn_analyzer=LocalSmartTurnAnalyzerV3()
+                    )
+                ],
             ),
             user_mute_strategies=[FunctionCallUserMuteStrategy()],
         ),
@@ -331,7 +347,8 @@ async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
         recordings_dir = "recordings"
         os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
         filename = os.path.join(
-            recordings_dir, f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
+            recordings_dir,
+            f"recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav",
         )
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:

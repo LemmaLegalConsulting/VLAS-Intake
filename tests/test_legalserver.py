@@ -87,7 +87,11 @@ class TestBuildMatterPayload:
         """Test that service area FIPS code is included as county_of_dispute."""
         state = {
             "names": {"names": [{"first": "Bob", "last": "Wilson"}]},
-            "service_area": {"location": "Amelia County", "is_eligible": True, "fips_code": 51007},
+            "service_area": {
+                "location": "Amelia County",
+                "is_eligible": True,
+                "fips_code": 51007,
+            },
         }
 
         payload = _build_matter_payload(state)
@@ -101,7 +105,11 @@ class TestBuildMatterPayload:
         """Test that income eligibility flag is included."""
         state = {
             "names": {"names": [{"first": "Carol", "last": "Brown"}]},
-            "income": {"is_eligible": True, "monthly_amount": 2000, "household_size": 3},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 2000,
+                "household_size": 3,
+            },
         }
 
         payload = _build_matter_payload(state)
@@ -128,7 +136,11 @@ class TestBuildMatterPayload:
         """Test that household_composition takes precedence over income household_size for number_of_adults."""
         state = {
             "names": {"names": [{"first": "Betty", "last": "Davis"}]},
-            "income": {"is_eligible": True, "monthly_amount": 2000, "household_size": 5},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 2000,
+                "household_size": 5,
+            },
             "household_composition": {
                 "number_of_adults": 2,
                 "number_of_children": 3,
@@ -276,7 +288,10 @@ class TestBuildMatterPayload:
         assert payload["home_city"] == "Richmond"
         assert payload["home_state"] == "VA"
         assert payload["home_zip"] == "23219"
-        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
+        assert payload["county_of_residence"] == {
+            "county_name": "Arlington",
+            "county_state": "VA",
+        }
 
     def test_payload_with_address_without_apartment(self):
         """Test that address without apartment number is included."""
@@ -301,7 +316,10 @@ class TestBuildMatterPayload:
         assert payload["home_city"] == "Arlington"
         assert payload["home_state"] == "VA"
         assert payload["home_zip"] == "22201"
-        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
+        assert payload["county_of_residence"] == {
+            "county_name": "Arlington",
+            "county_state": "VA",
+        }
 
     def test_payload_excludes_missing_address_section(self):
         """Test that missing address section is handled gracefully."""
@@ -338,7 +356,10 @@ class TestBuildMatterPayload:
 
         payload = _build_matter_payload(state)
 
-        assert payload["county_of_residence"] == {"county_name": "Amelia", "county_state": "VA"}
+        assert payload["county_of_residence"] == {
+            "county_name": "Amelia",
+            "county_state": "VA",
+        }
 
     def test_complete_payload_with_date_of_birth_and_all_fields(self):
         """Test building complete payload with date of birth and all other fields."""
@@ -375,7 +396,11 @@ class TestBuildMatterPayload:
                 "is_eligible": True,
                 "legal_problem_code": "42 Family Law/Domestic Relations",
             },
-            "income": {"is_eligible": True, "monthly_amount": 3000, "household_size": 2},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 3000,
+                "household_size": 2,
+            },
             "assets": {"is_eligible": True, "total_value": 0},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
@@ -399,7 +424,10 @@ class TestBuildMatterPayload:
         assert payload["mobile_phone"] == "(703) 555-1234"
         assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
         assert payload["county_of_dispute"]["county_FIPS"] == "51013"
-        assert payload["county_of_residence"] == {"county_name": "Arlington", "county_state": "VA"}
+        assert payload["county_of_residence"] == {
+            "county_name": "Arlington",
+            "county_state": "VA",
+        }
         assert payload["income_eligible"] is True
         assert payload["asset_eligible"] is True
         assert payload["citizenship"] == "Citizen"
@@ -458,7 +486,11 @@ class TestBuildMatterPayload:
                 "is_eligible": True,
                 "legal_problem_code": "42 Family Law/Domestic Relations",
             },
-            "income": {"is_eligible": True, "monthly_amount": 3000, "household_size": 2},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 3000,
+                "household_size": 2,
+            },
             "assets": {"is_eligible": True, "total_value": 0},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
@@ -556,7 +588,11 @@ class TestBuildMatterPayload:
                 "is_eligible": True,
                 "legal_problem_code": "91 Consumer Transactions",
             },
-            "income": {"is_eligible": True, "monthly_amount": 2500, "household_size": 1},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 2500,
+                "household_size": 1,
+            },
             "assets": {"is_eligible": True, "total_value": 5000},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
@@ -595,7 +631,9 @@ class TestSaveIncomeRecords:
 
         income_data = {
             "is_eligible": True,
-            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}},
+            "listing": {
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
+            },
         }
 
         await _save_income_records(mock_client, "test-uuid-123", income_data)
@@ -632,7 +670,9 @@ class TestSaveIncomeRecords:
         income_data = {
             "listing": {
                 "Person A": {"Employment": {"amount": 5000, "period": "Monthly"}},
-                "Person B": {"Unemployment Compensation": {"amount": 1000, "period": "Weekly"}},
+                "Person B": {
+                    "Unemployment Compensation": {"amount": 1000, "period": "Weekly"}
+                },
                 "Person C": {"Child Support": {"amount": 2000, "period": "Biweekly"}},
             }
         }
@@ -676,7 +716,9 @@ class TestSaveIncomeRecords:
             "listing": {
                 "John Doe": {
                     "Employment": {"amount": 50000, "period": "Annually"},
-                    "Pension/Retirement (Not Soc. Sec.)": {"period": "Annually"},  # Missing amount
+                    "Pension/Retirement (Not Soc. Sec.)": {
+                        "period": "Annually"
+                    },  # Missing amount
                 }
             }
         }
@@ -734,10 +776,14 @@ class TestSaveIncomeRecords:
     async def test_log_failed_income_record_creation(self):
         """Test that failed income record creation is logged."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, reason="Bad Request"))
+        mock_client.post = AsyncMock(
+            return_value=MagicMock(status_code=400, reason="Bad Request")
+        )
 
         income_data = {
-            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}}
+            "listing": {
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
+            }
         }
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
@@ -771,7 +817,9 @@ class TestSaveIncomeRecords:
         mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
 
         income_data = {
-            "listing": {"John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}}
+            "listing": {
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
+            }
         }
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
@@ -815,7 +863,10 @@ class TestSaveAdditionalNames:
         assert call_args[1]["json"]["middle"] == "Marie"
         assert call_args[1]["json"]["last"] == "Smith"
         assert "suffix" not in call_args[1]["json"]  # None values excluded
-        assert call_args[1]["json"]["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
+        assert (
+            call_args[1]["json"]["type"]["lookup_value_name"]
+            == NameTypeValue.MAIDEN_NAME.value
+        )
 
     async def test_save_additional_name_with_default_type(self):
         """Test that type defaults to Former Name when not specified."""
@@ -834,7 +885,10 @@ class TestSaveAdditionalNames:
 
         mock_client.post.assert_called_once()
         call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
+        assert (
+            call_args[1]["json"]["type"]["lookup_value_name"]
+            == NameTypeValue.FORMER_NAME.value
+        )
 
     async def test_save_multiple_additional_names(self):
         """Test saving multiple additional names via API with different types."""
@@ -855,15 +909,26 @@ class TestSaveAdditionalNames:
 
         # Check each call has the correct type
         calls = mock_client.post.call_args_list
-        assert calls[0][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
-        assert calls[1][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
-        assert calls[2][1]["json"]["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
+        assert (
+            calls[0][1]["json"]["type"]["lookup_value_name"]
+            == NameTypeValue.MAIDEN_NAME.value
+        )
+        assert (
+            calls[1][1]["json"]["type"]["lookup_value_name"]
+            == NameTypeValue.FORMER_NAME.value
+        )
+        assert (
+            calls[2][1]["json"]["type"]["lookup_value_name"]
+            == NameTypeValue.FORMER_NAME.value
+        )
 
     async def test_skip_when_only_primary_name(self):
         """Test that no API call is made when only primary name exists."""
         mock_client = AsyncMock()
 
-        names_list = [{"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME}]
+        names_list = [
+            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME}
+        ]
 
         await _save_additional_names(mock_client, "test-uuid-789", names_list)
 
@@ -892,7 +957,10 @@ class TestSaveAdditionalNames:
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {"middle": "Marie", "type": NameTypeValue.MAIDEN_NAME},  # Missing first and last
+            {
+                "middle": "Marie",
+                "type": NameTypeValue.MAIDEN_NAME,
+            },  # Missing first and last
             {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
         ]
 
@@ -954,7 +1022,9 @@ class TestSaveAdditionalNames:
     async def test_handle_failed_name_creation(self):
         """Test that failed name creation is logged as warning."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+        mock_client.post = AsyncMock(
+            return_value=MagicMock(status_code=400, text="Bad Request")
+        )
 
         names_list = [
             {"first": "John", "last": "Doe", "type_id": NameTypeValue.LEGAL_NAME},
@@ -994,7 +1064,9 @@ class TestSaveAdditionalNames:
             await _save_additional_names(mock_client, "test-uuid", names_list)
             # Should have called debug for each successful creation
             debug_calls = [
-                call for call in mock_logger.debug.call_args_list if "created" in str(call).lower()
+                call
+                for call in mock_logger.debug.call_args_list
+                if "created" in str(call).lower()
             ]
             assert len(debug_calls) >= 2
 
@@ -1120,7 +1192,9 @@ class TestSaveAdverseParties:
     async def test_handle_failed_adverse_party_creation(self):
         """Test that failed adverse party creation is logged as warning."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+        mock_client.post = AsyncMock(
+            return_value=MagicMock(status_code=400, text="Bad Request")
+        )
 
         adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
 
@@ -1155,7 +1229,9 @@ class TestSaveAdverseParties:
             await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
             # Should have called debug for each successful creation
             debug_calls = [
-                call for call in mock_logger.debug.call_args_list if "created" in str(call).lower()
+                call
+                for call in mock_logger.debug.call_args_list
+                if "created" in str(call).lower()
             ]
             assert len(debug_calls) >= 2
 
@@ -1182,7 +1258,9 @@ class TestSaveAssetsNote:
         assert call_args[1]["json"]["subject"] == "Assets"
         assert "savings account: $2,100.00" in call_args[1]["json"]["body"]
         assert "Total Assets: $2,100.00" in call_args[1]["json"]["body"]
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
+        assert call_args[1]["json"]["note_type"] == {
+            "lookup_value_name": "General Notes"
+        }
 
     async def test_save_multiple_assets(self):
         """Test saving multiple assets as a single note."""
@@ -1236,7 +1314,9 @@ class TestSaveAssetsNote:
         assert "test-uuid" in call_args[0][0]
         assert call_args[1]["json"]["subject"] == "Assets"
         assert call_args[1]["json"]["body"] == "No assets recorded"
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
+        assert call_args[1]["json"]["note_type"] == {
+            "lookup_value_name": "General Notes"
+        }
 
     async def test_skip_when_assets_data_not_dict(self):
         """Test handling of non-dict assets data."""
@@ -1274,7 +1354,9 @@ class TestSaveAssetsNote:
     async def test_handle_failed_assets_note_creation(self):
         """Test that failed note creation is logged as warning."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=400, text="Bad Request"))
+        mock_client.post = AsyncMock(
+            return_value=MagicMock(status_code=400, text="Bad Request")
+        )
 
         assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
 
@@ -1327,7 +1409,9 @@ class TestSaveCaseDescriptionNote:
         assert "test-uuid-123" in call_args[0][0]
         assert call_args[1]["json"]["subject"] == "Case Description"
         assert call_args[1]["json"]["body"] == "I need help with a divorce."
-        assert call_args[1]["json"]["note_type"] == {"lookup_value_name": "General Notes"}
+        assert call_args[1]["json"]["note_type"] == {
+            "lookup_value_name": "General Notes"
+        }
 
     async def test_skip_empty_case_description(self):
         """Test that no note is created when case description is missing."""
@@ -1361,7 +1445,9 @@ class TestSaveIntakeLegalserver:
 
         mock_response = MagicMock()
         mock_response.status_code = 201
-        mock_response.json.return_value = {"data": {"matter_uuid": "uuid-123", "case_id": 419645}}
+        mock_response.json.return_value = {
+            "data": {"matter_uuid": "uuid-123", "case_id": 419645}
+        }
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = AsyncMock()
@@ -1375,8 +1461,12 @@ class TestSaveIntakeLegalserver:
                 await save_intake_legalserver(state)
 
                 # Check that debug or info was called with matter creation message
-                all_debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
-                all_info_calls = [call[0][0] for call in mock_logger.info.call_args_list]
+                all_debug_calls = [
+                    call[0][0] for call in mock_logger.debug.call_args_list
+                ]
+                all_info_calls = [
+                    call[0][0] for call in mock_logger.info.call_args_list
+                ]
                 all_calls = all_debug_calls + all_info_calls
                 assert any("Matter created successfully" in call for call in all_calls)
 
@@ -1413,7 +1503,9 @@ class TestSaveIntakeLegalserver:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
-            mock_client.post = AsyncMock(side_effect=httpx.ConnectError("Connection timeout"))
+            mock_client.post = AsyncMock(
+                side_effect=httpx.ConnectError("Connection timeout")
+            )
             mock_client_class.return_value = mock_client
 
             with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
@@ -1579,7 +1671,11 @@ class TestSaveIntakeLegalserver:
                 "is_eligible": True,
                 "legal_problem_code": "01 Domestic Violence",
             },
-            "income": {"is_eligible": True, "monthly_amount": 2500, "household_size": 2},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 2500,
+                "household_size": 2,
+            },
             "assets": {"is_eligible": True, "total_value": 5000},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
@@ -1682,7 +1778,9 @@ class TestSaveIntakeLegalserver:
 
                 # Find the note creation call
                 note_calls = [
-                    call for call in mock_client.post.call_args_list if "notes" in call[0][0]
+                    call
+                    for call in mock_client.post.call_args_list
+                    if "notes" in call[0][0]
                 ]
                 assert len(note_calls) > 0
 
@@ -1724,7 +1822,9 @@ class TestSaveIntakeLegalserver:
     async def test_matter_creation_complete_with_ssn(self):
         """Test successful creation of complete matter including SSN last 4."""
         state = {
-            "names": {"names": [{"first": "Robert", "middle": "Lee", "last": "Garcia"}]},
+            "names": {
+                "names": [{"first": "Robert", "middle": "Lee", "last": "Garcia"}]
+            },
             "phone": {"is_valid": True, "phone_number": "(202) 555-0199"},
             "ssn_last_4": {"ssn_last_4": "4321"},
             "date_of_birth": {"date_of_birth": "1988-11-03"},
@@ -1737,7 +1837,11 @@ class TestSaveIntakeLegalserver:
                 "is_eligible": True,
                 "legal_problem_code": "23 Employment",
             },
-            "income": {"is_eligible": True, "monthly_amount": 3500, "household_size": 1},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 3500,
+                "household_size": 1,
+            },
             "assets": {"is_eligible": True, "total_value": 2000},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {
@@ -1796,7 +1900,11 @@ class TestSaveIntakeLegalserver:
                 "number_of_adults": 1,
                 "number_of_children": 2,
             },
-            "income": {"is_eligible": True, "monthly_amount": 2800, "household_size": 3},
+            "income": {
+                "is_eligible": True,
+                "monthly_amount": 2800,
+                "household_size": 3,
+            },
             "assets": {"is_eligible": True, "total_value": 1500},
             "citizenship": {"is_citizen": True},
             "domestic_violence": {

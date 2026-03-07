@@ -152,7 +152,9 @@ class IntakeValidator:
         if household_size is None or household_size < 1:
             household_size = max(len(income.root.keys()), 1)
         is_eligible = poverty_scale_income_qualifies(
-            total_monthly_income=total_monthly_income, household_size=household_size, multiplier=3.0
+            total_monthly_income=total_monthly_income,
+            household_size=household_size,
+            multiplier=3.0,
         )
         return is_eligible, total_monthly_income, household_size
 
@@ -176,7 +178,9 @@ class IntakeValidator:
         is_eligible: bool = vlas_assets_limit >= assets_value
         return is_eligible, assets_value
 
-    async def check_household_composition(self, adults: int, children: int) -> tuple[bool, int]:
+    async def check_household_composition(
+        self, adults: int, children: int
+    ) -> tuple[bool, int]:
         """
         Validate household composition numbers.
 

@@ -47,7 +47,9 @@ async def save_intake_legalserver(state: dict):
 
             rejection_reason_name = None
             if payload.get("rejected") and payload.get("rejection_reason"):
-                rejection_reason_name = payload["rejection_reason"].get("lookup_value_name")
+                rejection_reason_name = payload["rejection_reason"].get(
+                    "lookup_value_name"
+                )
 
             logger.debug(f"""Matter payload: {payload}""")
 
@@ -58,7 +60,9 @@ async def save_intake_legalserver(state: dict):
             )
 
             if matter_response.status_code not in (200, 201):
-                logger.error(f"""Failed to create matter: {matter_response.status_code}""")
+                logger.error(
+                    f"""Failed to create matter: {matter_response.status_code}"""
+                )
                 logger.error(f"""Response: {matter_response.text}""")
                 return
 
@@ -70,9 +74,7 @@ async def save_intake_legalserver(state: dict):
 
             if case_id := matter_info.get("case_id"):
                 subdomain = require_ev("LEGAL_SERVER_SUBDOMAIN")
-                profile_url = (
-                    f"""https://{subdomain}.legalserver.org/matter/profile/view/{case_id}"""
-                )
+                profile_url = f"""https://{subdomain}.legalserver.org/matter/profile/view/{case_id}"""
                 logger.debug(
                     f"""Matter created successfully: {matter_uuid} - View: {profile_url}"""
                 )
@@ -83,17 +85,23 @@ async def save_intake_legalserver(state: dict):
                 await _save_income_records(client, matter_uuid, state["income"])
 
             if "adverse_parties" in state:
-                await _save_adverse_parties(client, matter_uuid, state["adverse_parties"])
+                await _save_adverse_parties(
+                    client, matter_uuid, state["adverse_parties"]
+                )
 
             if "case_type" in state:
-                await _save_case_description_note(client, matter_uuid, state["case_type"])
+                await _save_case_description_note(
+                    client, matter_uuid, state["case_type"]
+                )
 
             if "assets" in state:
                 await _save_assets_note(client, matter_uuid, state["assets"])
 
             if "names" in state and "names" in state["names"]:
                 if len(state["names"]["names"]) > 1:
-                    await _save_additional_names(client, matter_uuid, state["names"]["names"])
+                    await _save_additional_names(
+                        client, matter_uuid, state["names"]["names"]
+                    )
 
             if rejection_reason_name:
                 await _save_rejection_note(client, matter_uuid, rejection_reason_name)
@@ -152,8 +160,12 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         payload["number_of_adults"] = state["income"].get("household_size")
 
     if isinstance(state.get("household_composition"), dict):
-        payload["number_of_adults"] = state["household_composition"].get("number_of_adults")
-        payload["number_of_children"] = state["household_composition"].get("number_of_children")
+        payload["number_of_adults"] = state["household_composition"].get(
+            "number_of_adults"
+        )
+        payload["number_of_children"] = state["household_composition"].get(
+            "number_of_children"
+        )
 
     if isinstance(state.get("assets"), dict):
         payload["asset_eligible"] = state["assets"].get("is_eligible")
@@ -188,7 +200,9 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
                 }
 
     if isinstance(state.get("domestic_violence"), dict):
-        payload["victim_of_domestic_violence"] = state["domestic_violence"].get("is_experiencing")
+        payload["victim_of_domestic_violence"] = state["domestic_violence"].get(
+            "is_experiencing"
+        )
 
     # Determine rejection status
     rejection_reason_name = None
@@ -325,7 +339,9 @@ async def _save_additional_names(
                     f"""{response.status_code} - {response.text}"""
                 )
             else:
-                logger.debug(f"""Additional name created: {payload.first} {payload.last}""")
+                logger.debug(
+                    f"""Additional name created: {payload.first} {payload.last}"""
+                )
 
     except Exception as e:
         logger.error(f"""Error saving additional names: {e}""")
@@ -391,7 +407,9 @@ async def _save_adverse_parties(
                     f"""{response.status_code} - {response.text}"""
                 )
             else:
-                logger.debug(f"""Adverse party created: {payload.first} {payload.last}""")
+                logger.debug(
+                    f"""Adverse party created: {payload.first} {payload.last}"""
+                )
 
     except Exception as e:
         logger.error(f"""Error saving adverse parties: {e}""")
@@ -526,7 +544,9 @@ async def _save_assets_note(
                 f"""Failed to save assets note: {response.status_code} - {response.text}"""
             )
         else:
-            logger.debug(f"""Assets note created with total value: ${total_value:,.2f}""")
+            logger.debug(
+                f"""Assets note created with total value: ${total_value:,.2f}"""
+            )
 
     except Exception as e:
         logger.error(f"""Error saving assets note: {e}""")
@@ -632,7 +652,9 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
                     return None
 
                 data = response.json()
-                logger.debug(f"""Custom lookups page {page_number} response keys: {data.keys()}""")
+                logger.debug(
+                    f"""Custom lookups page {page_number} response keys: {data.keys()}"""
+                )
 
                 # Extract pagination info
                 if total_pages is None:
@@ -684,7 +706,9 @@ async def query_lookup_values(
         async with httpx.AsyncClient(timeout=30) as client:
             # Construct URL based on lookup type
             if is_custom:
-                base_url = f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
+                base_url = (
+                    f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
+                )
             else:
                 base_url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"""
 
@@ -697,7 +721,9 @@ async def query_lookup_values(
 
             while total_pages is None or page_number <= total_pages:
                 response = await client.get(
-                    base_url, headers=LEGALSERVER_HEADERS, params={"page_number": page_number}
+                    base_url,
+                    headers=LEGALSERVER_HEADERS,
+                    params={"page_number": page_number},
                 )
 
                 if response.status_code not in (200, 201):
@@ -783,7 +809,9 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
                 url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"""
 
                 try:
-                    response = await client.get(url, headers=LEGALSERVER_HEADERS, timeout=10)
+                    response = await client.get(
+                        url, headers=LEGALSERVER_HEADERS, timeout=10
+                    )
 
                     if response.status_code not in (200, 201):
                         continue
@@ -794,7 +822,10 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
                     # Handle both list and dict responses
                     if isinstance(values, list):
                         for item in values:
-                            if isinstance(item, dict) and item.get("id") == lookup_value_id:
+                            if (
+                                isinstance(item, dict)
+                                and item.get("id") == lookup_value_id
+                            ):
                                 return {
                                     "lookup_type": lookup_type,
                                     "lookup_value": item,
@@ -809,7 +840,9 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
                     logger.debug(f"""Error querying {lookup_type}: {e}""")
                     continue
 
-            logger.warning(f"""Lookup ID {lookup_value_id} not found in common lookup types""")
+            logger.warning(
+                f"""Lookup ID {lookup_value_id} not found in common lookup types"""
+            )
             return None
 
     except Exception as e:
@@ -981,7 +1014,9 @@ if __name__ == "__main__":
         query_custom_lookups()
     elif command == "--lookup-fips":
         if len(sys.argv) < 3:
-            print("Usage: python legalserver.py --lookup-fips <county_name> [state_abbrev]")
+            print(
+                "Usage: python legalserver.py --lookup-fips <county_name> [state_abbrev]"
+            )
             sys.exit(1)
         county_name = sys.argv[2]
         state_abbrev = sys.argv[3] if len(sys.argv) > 3 else "VA"
