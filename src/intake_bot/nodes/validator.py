@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from intake_bot.models.classifier import ClassificationResponse
@@ -50,6 +51,8 @@ class IntakeValidator:
                 - bool: True if the date of birth is valid and in the past, False otherwise.
                 - str: The ISO formatted date (YYYY-MM-DD) if valid, or empty string if invalid.
         """
+        cleaned = self._normalize_spanish_months(dob_string.strip())
+
         # Common date formats
         formats = [
             "%m/%d/%Y",
@@ -64,13 +67,41 @@ class IntakeValidator:
         ]
         for fmt in formats:
             try:
-                dob = datetime.strptime(dob_string.strip(), fmt)
+                dob = datetime.strptime(cleaned, fmt)
                 if dob.date() >= datetime.now().date():
                     return False, ""
                 return True, dob.strftime("%Y-%m-%d")
             except ValueError:
                 continue
         return False, ""
+
+    @staticmethod
+    def _normalize_spanish_months(text: str) -> str:
+        """Replace Spanish month names and strip the 'de' preposition so
+        standard strptime formats can parse the result."""
+        _SPANISH_MONTHS = {
+            "enero": "January",
+            "febrero": "February",
+            "marzo": "March",
+            "abril": "April",
+            "mayo": "May",
+            "junio": "June",
+            "julio": "July",
+            "agosto": "August",
+            "septiembre": "September",
+            "octubre": "October",
+            "noviembre": "November",
+            "diciembre": "December",
+        }
+        lowered = text.lower()
+        for es, en in _SPANISH_MONTHS.items():
+            if es in lowered:
+                lowered = lowered.replace(es, en)
+                break
+        # Strip Spanish preposition "de" between date parts (e.g. "8 de July de 1980")
+        lowered = re.sub(r"\bde\b", "", lowered).strip()
+        lowered = re.sub(r"\s{2,}", " ", lowered)
+        return lowered
 
     async def check_ssn_last_4(self, ssn_last_4: str) -> tuple[bool, str]:
         """
