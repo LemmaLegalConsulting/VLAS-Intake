@@ -190,7 +190,8 @@ record_adverse_parties:
         3. IF the caller indicates there ARE adverse parties:
            - Ask for the full names of all individuals.
            - For each person, request their `first`, `middle`, and `last` name, and any suffix (for example Jr., Sr., II, III).
-           - If available, also ask for their date of birth `dob` and any phone numbers `phones` (optional; if provided specify type: mobile, home, business, or fax).
+           - Also ask for any phone numbers `phones` they may have for the adverse party (specify type: mobile, home, business, or fax).
+           - If available, ask for their date of birth `dob`.
            - Read back the complete list to confirm accuracy.
         4. IF the caller indicates there are NO adverse parties (e.g., bankruptcy, name change):
            - Confirm that there are no opposing parties.
