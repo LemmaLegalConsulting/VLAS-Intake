@@ -1,6 +1,6 @@
 import os
 import sys
-from uuid import uuid4
+from datetime import UTC, datetime
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +19,10 @@ logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"))
 if ev_is_true("LOG_TO_FILE"):
     os.makedirs("logs", exist_ok=True)
     logger.add("logs/server.log", level=get_ev("LOG_LEVEL", "INFO"))
+
+
+def generate_call_id() -> str:
+    return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
 app = FastAPI()
 
@@ -41,7 +45,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
 
     caller_phone_number = websocket.query_params.get("caller_phone_number", "")
-    call_id = websocket.query_params.get("call_id") or str(uuid4())
+    call_id = websocket.query_params.get("call_id") or generate_call_id()
 
     transport = FastAPIWebsocketTransport(
         websocket=websocket,

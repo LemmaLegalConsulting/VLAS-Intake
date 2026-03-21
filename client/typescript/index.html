@@ -2,33 +2,49 @@
 <html lang="en">
 
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Chatbot</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chatbot</title>
 </head>
 
 <body>
-<div class="container">
-  <div class="status-bar">
-    <div class="status">
-      Transport: <span id="connection-status">Disconnected</span>
+    <div class="container">
+        <div class="status-bar">
+            <div class="status">
+                Transport: <span id="connection-status">Disconnected</span>
+            </div>
+            <div class="controls">
+                <button id="connect-btn">Connect</button>
+                <button id="disconnect-btn" disabled>Disconnect</button>
+            </div>
+        </div>
+
+        <div class="device-panel">
+            <label class="device-control" for="mic-select">
+                <span>Microphone</span>
+                <select id="mic-select">
+                    <option value="default">System default</option>
+                </select>
+            </label>
+            <label class="device-control" for="speaker-select">
+                <span>Speaker</span>
+                <select id="speaker-select">
+                    <option value="default">System default</option>
+                </select>
+            </label>
+            <button id="refresh-devices-btn" type="button">Refresh Devices</button>
+        </div>
+
+        <audio id="bot-audio" autoplay playsinline></audio>
+
+        <div class="debug-panel">
+            <h3>Debug Info</h3>
+            <div id="debug-log"></div>
+        </div>
     </div>
-    <div class="controls">
-      <button id="connect-btn">Connect</button>
-      <button id="disconnect-btn" disabled>Disconnect</button>
-    </div>
-  </div>
 
-  <audio id="bot-audio" autoplay></audio>
-
-  <div class="debug-panel">
-    <h3>Debug Info</h3>
-    <div id="debug-log"></div>
-  </div>
-</div>
-
-<script type="module" src="/src/app.ts"></script>
-<link rel="stylesheet" href="/src/style.css">
+    <script type="module" src="/src/app.ts"></script>
+    <link rel="stylesheet" href="/src/style.css">
 </body>
 
 </html>
