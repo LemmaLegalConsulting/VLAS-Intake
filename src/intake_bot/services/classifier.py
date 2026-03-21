@@ -50,7 +50,6 @@ class Classifier:
 
         # Default weights
         self.model_weights = {
-            # "gpt-4o-mini": 0.85,
             "gpt-4.1-mini": 0.87,
             "gpt-5-nano": 0.9,
             "keyword": 0.5,
@@ -58,7 +57,6 @@ class Classifier:
 
         # Default enabled classifiers
         self.enabled_models = [
-            # "gpt-4o-mini",
             "gpt-4.1-mini",
             "gpt-5-nano",
             "keyword",
@@ -99,11 +97,6 @@ class Classifier:
         all_providers = []
 
         # Try to initialize Azure OpenAI providers
-        try:
-            all_providers.append(self.AzureOpenAIProvider(model_name="gpt-4o-mini"))
-        except ValueError as e:
-            logger.warning(f"""Could not initialize gpt-4o-mini provider: {e}""")
-
         try:
             all_providers.append(self.AzureOpenAIProvider(model_name="gpt-4.1-mini"))
         except ValueError as e:
@@ -687,9 +680,17 @@ class Classifier:
                 questions = []
 
                 if not parsed_response.get("likely_no_legal_problem"):
-                    # Handle categories/labels - convert to dicts with legal_problem_code field
-                    for cat in parsed_response.get("categories", []):
-                        labels.append({"legal_problem_code": cat, "confidence": 1.0})
+                    # Handle categories/labels - convert to dicts with legal_problem_code field.
+                    # Assign position-based confidence: 1st=1.0, 2nd=0.7, 3rd=0.4, 4th+=0.2
+                    # so the LLM's ordering (primary vs secondary) is preserved in voting.
+                    categories = parsed_response.get("categories", [])
+                    _position_conf = [1.0, 0.7, 0.4] + [0.2] * max(
+                        0, len(categories) - 3
+                    )
+                    for i, cat in enumerate(categories):
+                        labels.append(
+                            {"legal_problem_code": cat, "confidence": _position_conf[i]}
+                        )
 
                     for item in parsed_response.get("labels", []):
                         if isinstance(item, str):
@@ -727,7 +728,7 @@ class Classifier:
                 return {"labels": [], "questions": [], "error": error_msg}
 
     class AzureOpenAIProvider(Provider):
-        def __init__(self, model_name: str = "gpt-4o"):
+        def __init__(self, model_name: str = "gpt-5-nano"):
             """Initialize Azure OpenAI provider.
 
             Args:
@@ -737,10 +738,10 @@ class Classifier:
             self.deployment_name = self._resolve_deployment_name(model_name)
             self.client = AsyncAzureOpenAI(
                 api_key=require_ev("AZURE_API_KEY"),
-                api_version="v1 preview release",
+                api_version="2025-03-01-preview",
                 azure_endpoint=require_ev("AZURE_LLM_ENDPOINT"),
             )
-            if model_name.startswith("gpt-5") and "nano" not in model_name:
+            if model_name.startswith("gpt-5"):
                 self.reasoning_effort = "minimal"
 
         @staticmethod
