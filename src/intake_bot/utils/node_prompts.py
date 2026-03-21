@@ -11,7 +11,7 @@ class NodePrompts:
         "Before asking the next question or giving the next instruction, begin with one brief, natural acknowledgment that fits the caller's immediately preceding answer. "
         "Choose the acknowledgment based on what the caller just did in the current turn, not on earlier conversation history. "
         "Whenever possible, weave the acknowledgment directly into the next question or instruction instead of making it a separate sentence. "
-        "Prefer connected phrasing with a comma, such as \"Thanks for confirming, what type of phone number is this?\" or \"Okay, please tell me the city or county where the legal incident occurred.\" "
+        'Prefer connected phrasing with a comma, such as "Thanks for confirming, what type of phone number is this?" or "Okay, please tell me the city or county where the legal incident occurred." '
         'If the caller briefly confirmed something, prefer acknowledgments like "Thanks for confirming," "Okay," or "All right," '
         'If the caller provided new factual information, prefer acknowledgments like "Thanks for sharing that," "Thank you,", or "Okay," '
         'If the caller corrected, clarified, or spelled something, prefer acknowledgments like "Thanks for clarifying," "Thanks for spelling that," or "All right," '

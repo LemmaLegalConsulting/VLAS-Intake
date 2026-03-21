@@ -124,11 +124,15 @@ record_name:
     - content: >-
         [Instructions]
         1. Ask the caller for their full legal name, including their first, middle, and last name. If they have a suffix (for example Jr., Sr., II, III), collect that too.
-        2. After the caller provides their name, spell it back to them letter-by-letter to confirm it is correct.
-           - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas. This ensures each letter is spoken with a natural pause.
-           - For example: "I heard [First Name] [Middle Name] [Last Name]. Is the first name spelled [F I R S T], middle name [M I D D L E], and last name [L A S T]?"
-        3. If the caller says the spelling is wrong, ask them to spell the correct name for you.
-        4. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
+        2. After the caller provides their name, read it back and confirm the spelling.
+          - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas. This ensures each letter is spoken with a natural pause.
+          - Prefer a natural confirmation such as: "I heard [First Name] [Middle Name] [Last Name]. Is the first name spelled [F I R S T], middle name [M I D D L E], and last name [L A S T]?"
+          - If a part of the name seems uncertain, or if the caller says only one part is wrong, ask only about that part.
+          - For example: "I want to make sure I got the last name right. Could you spell just your last name for me?"
+        3. If the caller says the spelling is wrong, ask them to spell only the incorrect or unclear part when possible, rather than asking for the whole name again.
+        4. If the caller confirms some parts of the name but corrects or spells another part in the same response, keep the confirmed parts and update only the corrected part.
+        5. If the caller gives a pronunciation-based correction such as "It's Adamson" or "The last name is Damson," repeat back your best spelling guess and ask them to confirm or spell only that part.
+        6. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -449,7 +453,8 @@ record_ssn_last_4:
         3. After receiving the digits, read them back to the caller digit-by-digit (one digit at a time) and ask them to confirm they are correct.
            - IMPORTANT: Do NOT read the digits as a whole number (for example, say "one, two, three, four" NOT "one thousand two hundred thirty four").
            - If the caller confirms the digits are correct, proceed to the next step.
-           - If the caller indicates the digits are incorrect, ask them to provide the correct last 4 digits and repeat the confirmation process.
+            - If the caller indicates the digits are incorrect, ask them to correct only the wrong digit or digits when possible, then repeat the confirmation.
+            - If the caller corrects part of the sequence in the same response where they confirm the rest, keep the confirmed digits and update only the corrected digits.
         4. If the caller refuses to provide this information or provides a value that is not exactly 4 digits, explain that you need exactly 4 digits and ask them to try again.
            - Exception: If the caller explicitly refuses to provide their SSN or does not know it, you may proceed by calling the function with an empty string: ssn_last_4=""
         5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct (or if you are skipping as per the exception).
@@ -467,7 +472,8 @@ record_date_of_birth:
         2. The caller may provide the date in various formats (for example: "January 15, 1980", "01/15/1980", "1980-01-15", etc.). Accept any reasonable date format.
         3. After receiving the date, read it back to the caller in a clear format (for example, "January 15, 1980") and ask them to confirm it is correct.
            - If the caller confirms the date is correct, proceed to the next step.
-           - If the caller indicates the date is incorrect, ask them to provide their correct date of birth and repeat the confirmation process.
+            - If the caller indicates only part of the date is wrong, ask them to correct only that part when possible, then repeat the full confirmation.
+            - If the caller confirms some parts and corrects another part in the same response, keep the confirmed parts and update only the corrected part.
         4. If the date provided is invalid or is in the future, explain that you need a valid date of birth in the past and ask them to try again.
            - Exception: If the caller explicitly refuses to provide their date of birth or does not know it, you may proceed by calling the function with an empty string: date_of_birth=""
         5. ONLY use the `record_date_of_birth` function if the caller confirms their date of birth is correct (or if you are skipping as per the exception).
@@ -499,7 +505,9 @@ record_address:
           - IMPORTANT: When reading back the state, always say the full state name, not the abbreviation. For example, say "Missouri," not "M O," and say "Virginia," not "V A."
           - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
           - If the caller confirms the address is correct, proceed to the next step.
-          - If the caller indicates any part is incorrect, ask them to provide the correct information and repeat the confirmation process.
+          - If the caller indicates any part is incorrect, ask only for the incorrect part when possible, then repeat the full confirmation.
+          - If the street name, city, county, or other spoken words are unclear, ask the caller to spell only the unclear part.
+          - If the caller confirms some parts and corrects another part in the same response, keep the confirmed parts and update only the corrected part.
           - Exception: If the caller explicitly refuses to provide their address or does not have one, you may proceed by calling the function with empty strings for all address fields.
         4. Only use the `record_address` function after the caller confirms that the address is correct (or if you are skipping as per the exception).
 
@@ -517,25 +525,26 @@ record_names:
            - Names from previous marriages
            - Legally changed names
            - Any other names they have been known by that might appear in court documents or legal records
-          2. If the caller provides other names, first collect the name itself, including first, middle, last, and any suffix (for example Jr., Sr., II, III) when available.
-            - Do NOT require the caller to spell the name before you can continue.
-            - If the caller naturally spells part or all of the name, use that spelling.
-            - If the caller does NOT spell the name, use the spelling you have from the conversation and read it back for confirmation, similar to the `record_name` step.
-          3. For each additional name, ask the caller what type of name it is:
+        2. If the caller provides other names, first collect the name itself, including first, middle, last, and any suffix (for example Jr., Sr., II, III) when available.
+           - Do NOT require the caller to spell the name before you can continue.
+           - If the caller naturally spells part or all of the name, use that spelling.
+           - If the caller does NOT spell the name, use the spelling you have from the conversation and read it back for confirmation, similar to the `record_name` step.
+        3. For each additional name, ask the caller what type of name it is:
            - Maiden Name: A name from before marriage or a previous marriage
            - Former Name: A name previously used that is no longer current
            - Nickname: A commonly used alternative name (not a legal name change)
            - Legal Name: Another legal name that is official in records
            If the caller doesn't specify the type or their answer doesn't clearly match one of these, use Former Name as the default.
-          4. After you have the name and its type, read it back by specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
+        4. After you have the name and its type, read it back by specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
            - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas. This ensures each letter is spoken with a natural pause.
-            - IMPORTANT: If the caller did not explicitly spell a part of the name, spell back the version you heard and ask whether it is correct, like `record_name` does.
-            - IMPORTANT: Do NOT insist on a separate spelling-first turn for nicknames or other names if the caller can simply confirm or correct what you read back.
-            - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
-            - If the caller indicates that any part of the name or type is incorrect, ask them to correct or spell only the incorrect part, update it, and then repeat the confirmation process.
-            - If the caller confirms one part of the name but corrects or spells another part in the same response, accept both pieces of information together. For example, if they confirm the last name and spell the nickname in the same answer, keep the confirmed last name and update the nickname.
-          5. If the caller has no other names to add, call the function with an empty list: names = []
-          6. Once all names are confirmed and spelled correctly with types specified (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
+           - IMPORTANT: If the caller did not explicitly spell a part of the name, spell back the version you heard and ask whether it is correct, like `record_name` does.
+           - IMPORTANT: Do NOT insist on a separate spelling-first turn for nicknames or other names if the caller can simply confirm or correct what you read back.
+           - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
+           - If the caller indicates that any part of the name or type is incorrect, ask them to correct or spell only the incorrect part, update it, and then repeat the confirmation process.
+           - If the caller confirms one part of the name but corrects or spells another part in the same response, accept both pieces of information together. For example, if they confirm the last name and spell the nickname in the same answer, keep the confirmed last name and update the nickname.
+           - If a single spoken word is unclear, prefer a targeted follow-up such as "Could you spell just the first name?" instead of restarting the whole confirmation.
+        5. If the caller has no other names to add, call the function with an empty list: names = []
+        6. Once all names are confirmed and spelled correctly with types specified (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
 
         [Field Name Requirements]
         When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
