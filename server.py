@@ -48,7 +48,7 @@ def _get_user_idle_timeout_secs(websocket: WebSocket, call_id: str) -> float | N
         raw_timeout = get_ev("WEBSOCKET_USER_IDLE_TIMEOUT_SECS", "").strip()
     if raw_timeout is None or raw_timeout == "":
         if call_id.startswith("ws-test"):
-            raw_timeout = get_ev("WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS", "25.0")
+            raw_timeout = get_ev("WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS", "45.0")
     if not raw_timeout:
         return None
 
