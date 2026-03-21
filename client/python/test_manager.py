@@ -27,6 +27,7 @@ Usage:
 """
 
 import argparse
+import fcntl
 import json
 import sys
 from pathlib import Path
@@ -34,6 +35,63 @@ from typing import Any, Dict, List, Tuple
 
 import yaml
 from rapidfuzz import fuzz, process, utils
+
+
+# Standard USPS abbreviation equivalences for address comparison.
+_USPS_ABBREVIATIONS: dict[str, set[str]] = {
+    "apartment": {"apt", "apt."},
+    "building": {"bldg", "bldg."},
+    "department": {"dept", "dept."},
+    "floor": {"fl", "fl."},
+    "suite": {"ste", "ste."},
+    "room": {"rm", "rm."},
+    "space": {"spc", "spc."},
+    "unit": {"unit"},
+    "avenue": {"ave", "ave."},
+    "boulevard": {"blvd", "blvd."},
+    "circle": {"cir", "cir."},
+    "court": {"ct", "ct."},
+    "drive": {"dr", "dr."},
+    "expressway": {"expy", "expy."},
+    "highway": {"hwy", "hwy."},
+    "lane": {"ln", "ln."},
+    "parkway": {"pkwy", "pkwy."},
+    "place": {"pl", "pl."},
+    "road": {"rd", "rd."},
+    "square": {"sq", "sq."},
+    "street": {"st", "st."},
+    "terrace": {"ter", "ter."},
+    "trail": {"trl", "trl."},
+    "turnpike": {"tpke", "tpke."},
+    "way": {"way"},
+    "north": {"n", "n."},
+    "south": {"s", "s."},
+    "east": {"e", "e."},
+    "west": {"w", "w."},
+    "northeast": {"ne", "ne."},
+    "northwest": {"nw", "nw."},
+    "southeast": {"se", "se."},
+    "southwest": {"sw", "sw."},
+}
+
+# Build a reverse lookup: abbreviation → full word
+_USPS_ABBREV_TO_FULL: dict[str, str] = {}
+for _full, _abbrs in _USPS_ABBREVIATIONS.items():
+    for _abbr in _abbrs:
+        _USPS_ABBREV_TO_FULL[_abbr] = _full
+    _USPS_ABBREV_TO_FULL[_full] = _full
+
+
+def _normalize_address_token(token: str) -> str:
+    """Map a single address token to its canonical (full) form."""
+    return _USPS_ABBREV_TO_FULL.get(token.lower().rstrip("."), token.lower())
+
+
+def _addresses_equivalent(a: str, b: str) -> bool:
+    """Compare two address strings with USPS abbreviation normalization."""
+    norm_a = " ".join(_normalize_address_token(t) for t in a.split())
+    norm_b = " ".join(_normalize_address_token(t) for t in b.split())
+    return norm_a == norm_b
 
 
 class StateValidator:
@@ -116,6 +174,10 @@ class StateValidator:
                             break
 
             if matching_key is None:
+                # Pydantic's exclude_none=True omits keys with None values;
+                # treat a missing key as None when the expected value is None.
+                if expected[key] is None:
+                    continue
                 # For income.listing and assets.listing, try fuzzy matching on string keys
                 if (
                     "income.listing" in path or "assets.listing" in path
@@ -229,20 +291,20 @@ class StateValidator:
         else:
             # For string comparisons, normalize to lowercase
             if isinstance(actual, str) and isinstance(expected, str):
-                # Use fuzzy matching for address fields (character-level matching)
+                # Use USPS abbreviation normalization + fuzzy matching for address fields
                 if "address" in path:
-                    match_ratio = fuzz.ratio(actual.lower(), expected.lower())
-                    # 90% threshold catches real differences (wrong streets) but allows minor spacing/punctuation variations
-                    if match_ratio < 90:
-                        self.mismatches.append(
-                            {
-                                "path": path,
-                                "issue": "value_mismatch",
-                                "expected": expected,
-                                "actual": actual,
-                                "match_ratio": match_ratio,
-                            }
-                        )
+                    if not _addresses_equivalent(actual, expected):
+                        match_ratio = fuzz.ratio(actual.lower(), expected.lower())
+                        if match_ratio < 90:
+                            self.mismatches.append(
+                                {
+                                    "path": path,
+                                    "issue": "value_mismatch",
+                                    "expected": expected,
+                                    "actual": actual,
+                                    "match_ratio": match_ratio,
+                                }
+                            )
                 elif actual.lower() != expected.lower():
                     self.mismatches.append(
                         {
@@ -317,9 +379,21 @@ class TestResultManager:
         }
 
     def save_results(self):
-        """Save test results to JSON file."""
-        with open(self.results_file, "w") as f:
-            json.dump(self.results, f, indent=2)
+        """Save test results to JSON file (concurrent-safe via file locking)."""
+        path = Path(self.results_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.results_file, "a+") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                f.seek(0)
+                content = f.read()
+                existing = json.loads(content) if content.strip() else {}
+                existing.update(self.results)
+                f.seek(0)
+                f.truncate()
+                json.dump(existing, f, indent=2)
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
 
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of test results."""

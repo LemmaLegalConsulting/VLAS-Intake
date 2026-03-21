@@ -296,11 +296,12 @@ async def run_bot(
             return True
         else:
             # Third attempt: End the conversation
-            await user_idle.push_frame(
-                TTSSpeakFrame(
-                    "It seems like you're busy right now. Feel free to call back. Have a nice day!"
-                )
-            )
+            language = flow_manager.state.get("language", {}).get("language", "English")
+            if language == "Spanish":
+                goodbye = "Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!"
+            else:
+                goodbye = "It seems like you're busy right now. Feel free to call back. Have a nice day!"
+            await user_idle.push_frame(TTSSpeakFrame(goodbye))
             await task.queue_frame(EndFrame())
             return False
 
@@ -390,11 +391,14 @@ async def run_bot(
     async def handle_timeout(transport, participant):
         # Play timeout message before ending call
         logger.info("Call timed out; ending.")
+        language = flow_manager.state.get("language", {}).get("language", "English")
+        if language == "Spanish":
+            timeout_msg = "Gracias por llamar al servicio de ayuda legal Law-Line de Virginia. Parece que se ha desconectado. No dude en volver a llamarnos. ¡Adiós!"
+        else:
+            timeout_msg = "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
         await task.queue_frames(
             [
-                TTSSpeakFrame(
-                    "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
-                ),
+                TTSSpeakFrame(timeout_msg),
                 EndFrame(),
             ]
         )

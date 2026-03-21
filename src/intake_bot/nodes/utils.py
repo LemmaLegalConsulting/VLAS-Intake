@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -83,6 +84,9 @@ def log_flow_manager_state(flow_manager: FlowManager):
     logger.debug("----------------------------------------")
 
 
+_save_state_lock = asyncio.Lock()
+
+
 async def save_state_to_json(state: dict) -> None:
     """
     Save the state (flow_manager.state) to a JSON file, using call_id as the primary key.
@@ -100,29 +104,31 @@ async def save_state_to_json(state: dict) -> None:
             return
 
         results_file = "logs/flow_manager_state.json"
-        results_data = {}
 
-        # Load existing results if file exists
-        if os.path.exists(results_file):
-            try:
-                async with aiofiles.open(results_file, "r") as f:
-                    content = await f.read()
-                    if content:
-                        results_data = json.loads(content)
-            except (json.JSONDecodeError, IOError) as e:
-                logger.warning(
-                    f"""Error reading {results_file}: {e}. Starting with empty results."""
-                )
+        async with _save_state_lock:
+            results_data = {}
 
-        # Serialize the state, converting enums to their values
-        serialized_state = _serialize_for_logging(state)
+            # Load existing results if file exists
+            if os.path.exists(results_file):
+                try:
+                    async with aiofiles.open(results_file, "r") as f:
+                        content = await f.read()
+                        if content:
+                            results_data = json.loads(content)
+                except (json.JSONDecodeError, IOError) as e:
+                    logger.warning(
+                        f"""Error reading {results_file}: {e}. Starting with empty results."""
+                    )
 
-        # Add or update the current call's state
-        results_data[call_id] = serialized_state
+            # Serialize the state, converting enums to their values
+            serialized_state = _serialize_for_logging(state)
 
-        # Write the updated results back to file
-        async with aiofiles.open(results_file, "w") as f:
-            await f.write(json.dumps(results_data, indent=2))
+            # Add or update the current call's state
+            results_data[call_id] = serialized_state
+
+            # Write the updated results back to file
+            async with aiofiles.open(results_file, "w") as f:
+                await f.write(json.dumps(results_data, indent=2))
 
         logger.info(f"""State for call_id {call_id} saved to {results_file}""")
 

@@ -178,7 +178,7 @@ def _require_env(*names: str) -> str:
     if value is None:
         joined_names = ", ".join(names)
         raise ValueError(
-            f"One of these environment variables must be set: {joined_names}"
+            f"""One of these environment variables must be set: {joined_names}"""
         )
     return value
 
@@ -203,7 +203,7 @@ def _build_websocket_url(
         "caller_phone_number": phone_number,
     }
     if idle_timeout_secs is not None:
-        query_params["idle_timeout_secs"] = f"{idle_timeout_secs:g}"
+        query_params["idle_timeout_secs"] = f"""{idle_timeout_secs:g}"""
 
     query = urlencode(query_params)
     return f"""{base_url}?{query}"""
@@ -213,8 +213,8 @@ def _new_call_id(client_name: str, prefix: str = "ws-test") -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
     normalized_client_name = client_name.replace(" ", "-")
     if prefix:
-        return f"{prefix}-{timestamp}-{normalized_client_name}"
-    return f"{timestamp}-{normalized_client_name}"
+        return f"""{prefix}-{timestamp}-{normalized_client_name}"""
+    return f"""{timestamp}-{normalized_client_name}"""
 
 
 async def run_client(
@@ -260,7 +260,7 @@ async def run_client(
         call_id,
         idle_timeout_secs=server_idle_timeout_secs,
     )
-    logger.info(f"Client {client_name} connecting to {websocket_url}")
+    logger.info(f"""Client {client_name} connecting to {websocket_url}""")
 
     transport = WebsocketClientTransport(
         websocket_url,
@@ -339,7 +339,7 @@ async def run_client(
 
     @transport.event_handler("on_connected")
     async def on_connected(transport, client):
-        logger.info(f"Client {client_name} connected with call_id={call_id}")
+        logger.info(f"""Client {client_name} connected with call_id={call_id}""")
 
     @transport.event_handler("on_disconnected")
     async def on_disconnected(transport, client):
@@ -506,14 +506,25 @@ async def main():
     if args.call_id and args.clients != 1:
         parser.error("--call-id can only be used when --clients is 1")
 
-    if args.script is None:
-        args.script = random.choice(list(scripts.keys()))
-    elif args.script not in scripts.keys():
-        parser.error(
-            f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(scripts.keys())}"""
-        )
+    script_names = list(scripts.keys())
+    if args.script is not None:
+        if args.script not in scripts.keys():
+            parser.error(
+                f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(script_names)}"""
+            )
+        # Explicit script: all clients use it
+        client_scripts = [args.script] * args.clients
+    elif args.clients > 1:
+        # No explicit script + multiple clients: round-robin across all personas
+        client_scripts = [
+            script_names[i % len(script_names)] for i in range(args.clients)
+        ]
+    else:
+        client_scripts = [random.choice(script_names)]
 
-    logger.info(f"""Using script: '{args.script}'""")
+    for cs in sorted(set(client_scripts)):
+        count = client_scripts.count(cs)
+        logger.info(f"""Script '{cs}': {count} client{"s" if count != 1 else ""}""")
     if args.validate:
         logger.info("State validation enabled for all calls")
 
@@ -522,7 +533,7 @@ async def main():
             run_client(
                 client_name=f"""client_{index}""",
                 server_url=args.url,
-                script=args.script,
+                script=client_scripts[index],
                 phone_number=args.phone,
                 call_id=args.call_id
                 or _new_call_id(
