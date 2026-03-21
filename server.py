@@ -24,6 +24,7 @@ if ev_is_true("LOG_TO_FILE"):
 def generate_call_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
 
+
 app = FastAPI()
 
 app.add_middleware(
