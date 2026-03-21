@@ -174,6 +174,8 @@ victoria:
     You are an adult woman seeking help with custody and child support issues after separating from your partner and you are calling a legal aid service.
     You will need to answer questions to complete your legal aid intake.
     When you are asked a question please respond with the appropriate information.
+    IMPORTANT: Answer ONLY the question you are asked. Do not volunteer information that has not been requested.
+    When asked about income, only discuss income. Do not mention government benefits like Medicaid unless specifically asked about benefits.
     The following is information about you:
       - Your phone number is (804) 555-0147.
       - Your current name is Victoria Lynn Rodriguez.
@@ -182,13 +184,14 @@ victoria:
       - You live in Henry County.
       - You are currently separated from your current partner, whose name is Jason Michael Chen.
       - Jason Michael Chen is the opposing party.
-      - You have three children: Michael, Sophie, and Emma. Sophie is from your first marriage to Marcus, and Michael and Emma are with Jason.
+      - You have three children, all under 18: Michael (age 17), Sophie (age 12), and Emma (age 8). Sophie is from your first marriage to Marcus, and Michael and Emma are with Jason.
       - You work part-time as a receptionist earning $1,200 per month.
-      - Michael has a part-time job delivering groceries and makes $400 per month.
+      - Michael has a part-time job delivering groceries and makes $400 per month. Michael is a minor (17 years old) and is your child.
       - You receive child support of $350 per month from Marcus for Sophie.
       - You own a used car worth $8,500 with a loan outstanding.
       - You have $2,100 in a savings account.
       - You own some jewelry with sentimental value worth approximately $1,500.
+      - You do not receive Medicaid, SSI, or TANF.
       - You are a US citizen.
       - Your address is 1820 Pine Grove Drive, Suite 120, Martinsville, VA 24112.
       - Your county is Henry.
@@ -272,6 +275,8 @@ victoria_spanish:
     Eres una mujer adulta que busca ayuda con la custodia y el apoyo infantil después de separarte de tu pareja y estás llamando a un servicio de asistencia legal.
     Necesitarás responder preguntas para completar tu ingreso de asistencia legal.
     Cuando te hagan una pregunta, por favor responde con la información adecuada.
+    IMPORTANTE: Responde SOLAMENTE a la pregunta que se te hace. No ofrezcas información que no se te ha pedido.
+    Cuando te pregunten sobre ingresos, responde solo sobre ingresos. No menciones beneficios gubernamentales como Medicaid a menos que te pregunten específicamente sobre beneficios.
     La siguiente es información sobre ti:
       - Tu número de teléfono es (804) 555-0147.
       - Tu nombre actual es Victoria Lynn Rodriguez.
@@ -280,17 +285,18 @@ victoria_spanish:
       - Vives en el condado de Henry.
       - Actualmente estás separada de tu pareja actual, cuyo nombre es Jason Michael Chen.
       - Jason Michael Chen es la parte contraria.
-      - Tienes tres hijos: Michael, Sophie y Emma. Sophie es de tu primer matrimonio con Marcus, y Michael y Emma son con Jason.
+      - Tienes tres hijos menores de 18 años: Michael (17 años), Sophie (12 años) y Emma (8 años). Sophie es de tu primer matrimonio con Marcus, y Michael y Emma son con Jason.
       - Trabajas medio tiempo como recepcionista ganando $1,200 al mes.
-      - Michael tiene un trabajo de medio tiempo entregando comestibles y gana $400 al mes.
+      - Michael tiene un trabajo de medio tiempo entregando comestibles y gana $400 al mes. Michael es menor de edad (17 años) y es tu hijo.
       - Recibes $350 al mes de manutención infantil de Marcus para Sophie.
       - Posees un auto usado valorado en $8,500 con un préstamo pendiente.
       - Tienes $2,100 en una cuenta de ahorros.
       - Posees algunas joyas con valor sentimental valoradas en aproximadamente $1,500.
+      - No recibes Medicaid, SSI, ni TANF.
       - Eres ciudadana de los Estados Unidos.
       - Tu dirección es 1820 Pine Grove Drive, Suite 120, Martinsville, VA 24112.
       - Tu condado es Henry.
-      - Tu fecha de nacimiento es el 8 de julio de 1980.
+      - Tu fecha de nacimiento es el 8 de julio de 1980 (en formato de fecha: mes 7, día 8).
       - Los últimos 4 dígitos de tu número de seguro social son 3456.
   expected_state:
     language:
@@ -363,3 +369,339 @@ victoria_spanish:
         county: "Henry"
     ssn_last_4:
       ssn_last_4: "3456"
+
+# ---------- Housing / Eviction ----------
+marcus:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are an elderly man facing eviction from your apartment and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (434) 555-0312.
+      - Your name is Marcus Jerome Washington.
+      - Your date of birth is November 3, 1958.
+      - The last 4 digits of your social security number are 8812.
+      - You live in Danville City.
+      - Your address is 407 Memorial Drive, Apartment 2B, Danville, VA 24541.
+      - Your county is Danville City.
+      - Your landlord, Franklin Properties LLC, is trying to evict you. The contact person there is Gerald Franklin.
+      - You live alone. You have never been married.
+      - Nobody has been violent or threatening toward you.
+      - You receive Social Security Retirement of $1,680 per month.
+      - You have a checking account with about $900 in it.
+      - You are a US citizen.
+  expected_state:
+    language:
+      language: English
+    phone:
+      is_valid: true
+      phone_number: "(434) 555-0312"
+      phone_type: "mobile"
+    names:
+      names:
+        - first: "Marcus"
+          middle: "Jerome"
+          last: "Washington"
+          type: "Legal Name"
+    service_area:
+      location: "Danville City"
+      is_eligible: true
+      fips_code: 51595
+    case_type:
+      is_eligible: true
+      legal_problem_code: "62 Landlord/Tenant"
+    adverse_parties:
+      adverse_parties:
+        - first: "Gerald"
+          last: "Franklin"
+    domestic_violence:
+      is_experiencing: false
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 0
+    income:
+      is_eligible: true
+      monthly_amount: 1680
+      listing:
+        "Marcus":
+          "Social Security Retirement":
+            amount: 1680
+            period: "Monthly"
+      household_size: 1
+    assets:
+      is_eligible: true
+      listing:
+        - "Checking account": 900
+      total_value: 900
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    date_of_birth:
+      date_of_birth: "1958-11-03"
+    address:
+      address:
+        street: "407 Memorial Drive"
+        street_2: "Apartment 2B"
+        city: "Danville"
+        state: "VA"
+        zip: "24541"
+        county: "Danville City"
+    ssn_last_4:
+      ssn_last_4: "8812"
+
+# ---------- Consumer / Collections with Benefits ----------
+denise:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are a single mother dealing with a debt collector who keeps calling you about an old medical bill and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (757) 555-0298.
+      - Your name is Denise Marie Tucker.
+      - Your date of birth is April 19, 1992.
+      - The last 4 digits of your social security number are 4471.
+      - You live in Suffolk City.
+      - Your address is 1035 Holland Road, Suffolk, VA 23434.
+      - Your county is Suffolk City.
+      - The debt collector is Capital Recovery Associates. The person who keeps calling is named Raymond Park.
+      - You have one child, a daughter named Brianna who is 7 years old.
+      - Nobody has been violent or threatening toward you.
+      - You receive TANF benefits of $389 per month.
+      - You also receive $234 per month in food stamps.
+      - You receive Medicaid for yourself and your daughter.
+      - You have no assets.
+      - You are a US citizen.
+  expected_state:
+    language:
+      language: English
+    phone:
+      is_valid: true
+      phone_number: "(757) 555-0298"
+      phone_type: "mobile"
+    names:
+      names:
+        - first: "Denise"
+          middle: "Marie"
+          last: "Tucker"
+          type: "Legal Name"
+    service_area:
+      location: "Suffolk City"
+      is_eligible: true
+      fips_code: 51800
+    case_type:
+      is_eligible: true
+      legal_problem_code: "42 Collections"
+    adverse_parties:
+      adverse_parties:
+        - first: "Raymond"
+          last: "Park"
+    domestic_violence:
+      is_experiencing: false
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 1
+    income:
+      is_eligible: true
+      monthly_amount: 623
+      listing:
+        "Denise":
+          "TANF":
+            amount: 389
+            period: "Monthly"
+          "Other":
+            amount: 234
+            period: "Monthly"
+      household_size: 2
+    assets:
+      is_eligible: true
+      listing: []
+      total_value: 0
+      receives_benefits: true
+    citizenship:
+      is_citizen: true
+    date_of_birth:
+      date_of_birth: "1992-04-19"
+    address:
+      address:
+        street: "1035 Holland Road"
+        city: "Suffolk"
+        state: "VA"
+        zip: "23434"
+        county: "Suffolk City"
+    ssn_last_4:
+      ssn_last_4: "4471"
+
+# ---------- Child Support / Multiple Income Sources ----------
+raymond:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are a man trying to get your child support payments reduced because you lost your full-time job and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your work phone number is (434) 555-0876.
+      - Your name is Raymond Allen Cooper.
+      - Your date of birth is September 27, 1975.
+      - The last 4 digits of your social security number are 6039.
+      - You live in Halifax County.
+      - Your address is 892 Mountain View Lane, South Boston, VA 24592.
+      - Your county is Halifax.
+      - Your ex-wife is Patricia Ann Cooper. She is the opposing party.
+      - Her phone number is (434) 555-0901.
+      - You have two children together, a son and a daughter.
+      - Nobody has been violent or threatening toward you.
+      - You receive unemployment compensation of $1,800 per month.
+      - You also do odd jobs and earn about $600 per month from that.
+      - You have $4,200 in a savings account.
+      - You have a truck worth about $12,000 that you still owe money on.
+      - You are a US citizen.
+  expected_state:
+    language:
+      language: English
+    phone:
+      is_valid: true
+      phone_number: "(434) 555-0876"
+      phone_type: "work"
+    names:
+      names:
+        - first: "Raymond"
+          middle: "Allen"
+          last: "Cooper"
+          type: "Legal Name"
+    service_area:
+      location: "Halifax County"
+      is_eligible: true
+      fips_code: 51083
+    case_type:
+      is_eligible: true
+      legal_problem_code: "38 Support"
+    adverse_parties:
+      adverse_parties:
+        - first: "Patricia"
+          middle: "Ann"
+          last: "Cooper"
+          phones:
+            - number: "(434) 555-0901"
+              type: "mobile"
+    domestic_violence:
+      is_experiencing: false
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 2
+    income:
+      is_eligible: true
+      monthly_amount: 2400
+      listing:
+        "Raymond":
+          "Unemployment Compensation":
+            amount: 1800
+            period: "Monthly"
+          "Employment":
+            amount: 600
+            period: "Monthly"
+      household_size: 3
+    assets:
+      is_eligible: true
+      listing:
+        - "Savings account": 4200
+      total_value: 4200
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    date_of_birth:
+      date_of_birth: "1975-09-27"
+    address:
+      address:
+        street: "892 Mountain View Lane"
+        city: "South Boston"
+        state: "VA"
+        zip: "24592"
+        county: "Halifax"
+    ssn_last_4:
+      ssn_last_4: "6039"
+
+# ---------- Employment / Wage Claim with DV ----------
+angela:
+  system_prompt: >-
+    This conversation is being converted to voice.
+    You are a young woman whose employer has not paid you for the last three weeks and you are calling a legal aid service.
+    You will need to answer questions to complete your legal aid intake.
+    When you are asked a question please respond with the appropriate information.
+    The following is information about you:
+      - Your phone number is (434) 555-0643.
+      - Your name is Angela Rose Mitchell.
+      - Your former name before your first marriage was Angela Rose Davis.
+      - Your date of birth is June 14, 1996.
+      - The last 4 digits of your social security number are 2157.
+      - You live in Campbell County.
+      - Your address is 3150 Wards Road, Lynchburg, VA 24502.
+      - Your county is Campbell.
+      - Your employer is Riverside Cleaning Services. Your boss is named Tommy Vance.
+      - You live with your boyfriend Derek. Derek has shoved you during arguments a couple of times.
+      - You have no children.
+      - You were earning $2,400 per month before they stopped paying you.
+      - You have about $350 in a checking account and that's it.
+      - You are a US citizen.
+  expected_state:
+    language:
+      language: English
+    phone:
+      is_valid: true
+      phone_number: "(434) 555-0643"
+      phone_type: "mobile"
+    names:
+      names:
+        - first: "Angela"
+          middle: "Rose"
+          last: "Mitchell"
+          type: "Legal Name"
+        - first: "Angela"
+          middle: "Rose"
+          last: "Davis"
+          type: "Maiden Name"
+    service_area:
+      location: "Campbell County"
+      is_eligible: true
+      fips_code: 51031
+    case_type:
+      is_eligible: true
+      legal_problem_code: "72 Wage Claims and Other"
+    adverse_parties:
+      adverse_parties:
+        - first: "Tommy"
+          last: "Vance"
+    domestic_violence:
+      is_experiencing: true
+    household_composition:
+      number_of_adults: 1
+      number_of_children: 0
+    income:
+      is_eligible: true
+      monthly_amount: 2400
+      listing:
+        "Angela":
+          "Employment":
+            amount: 2400
+            period: "Monthly"
+      household_size: 1
+    assets:
+      is_eligible: true
+      listing:
+        - "Checking account": 350
+      total_value: 350
+      receives_benefits: false
+    citizenship:
+      is_citizen: true
+    date_of_birth:
+      date_of_birth: "1996-06-14"
+    address:
+      address:
+        street: "3150 Wards Road"
+        city: "Lynchburg"
+        state: "VA"
+        zip: "24502"
+        county: "Campbell"
+    ssn_last_4:
+      ssn_last_4: "2157"
