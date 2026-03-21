@@ -33,6 +33,8 @@ class WebsocketClientApp {
         this.keepAliveAudioContext = null;
         this.keepAliveOscillator = null;
         this.keepAliveGainNode = null;
+        this.isDisconnecting = false;
+        this.audioPlaybackAttemptId = 0;
         const existingAudio = document.getElementById('bot-audio');
         this.botAudio =
             existingAudio ||
@@ -136,6 +138,31 @@ class WebsocketClientApp {
             return error.message;
         }
         return String(error);
+    }
+    isInterruptedPlaybackError(error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+            return true;
+        }
+        const message = this.getErrorMessage(error).toLowerCase();
+        return (message.includes('interrupted by a call to pause') ||
+            message.includes('interrupted by a new load request'));
+    }
+    getAttachedBotTrack() {
+        if (!this.botAudio.srcObject || !('getAudioTracks' in this.botAudio.srcObject)) {
+            return null;
+        }
+        return this.botAudio.srcObject.getAudioTracks()[0] || null;
+    }
+    syncBotAudioTrack(forceReplace = false) {
+        if (!this.currentBotTrack) {
+            return false;
+        }
+        const attachedTrack = this.getAttachedBotTrack();
+        if (!forceReplace && (attachedTrack === null || attachedTrack === void 0 ? void 0 : attachedTrack.id) === this.currentBotTrack.id) {
+            return true;
+        }
+        this.botAudio.srcObject = new MediaStream([this.currentBotTrack]);
+        return true;
     }
     buildWebsocketUrl() {
         const configuredUrl = import.meta.env.VITE_BACKEND_WS_URL || 'ws://localhost:8765/ws';
@@ -244,15 +271,12 @@ class WebsocketClientApp {
      * Handles both initial setup and track updates
      */
     setupAudioTrack(track) {
+        var _a;
         this.log('Setting up audio track');
         this.currentBotTrack = track;
-        if (this.botAudio.srcObject &&
-            'getAudioTracks' in this.botAudio.srcObject) {
-            const oldTrack = this.botAudio.srcObject.getAudioTracks()[0];
-            if ((oldTrack === null || oldTrack === void 0 ? void 0 : oldTrack.id) === track.id)
-                return;
-        }
-        this.botAudio.srcObject = new MediaStream([track]);
+        if (((_a = this.getAttachedBotTrack()) === null || _a === void 0 ? void 0 : _a.id) === track.id)
+            return;
+        this.syncBotAudioTrack(true);
         track.addEventListener('ended', () => {
             var _a;
             if (((_a = this.currentBotTrack) === null || _a === void 0 ? void 0 : _a.id) === track.id) {
@@ -265,25 +289,44 @@ class WebsocketClientApp {
     }
     ensureAudioPlayback(reason) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (this.currentBotTrack && !this.botAudio.srcObject) {
-                this.botAudio.srcObject = new MediaStream([this.currentBotTrack]);
+            var _a, _b;
+            if (this.isDisconnecting || !((_a = this.rtviClient) === null || _a === void 0 ? void 0 : _a.connected)) {
+                return;
+            }
+            if (!this.syncBotAudioTrack()) {
+                return;
             }
             yield this.resumeKeepAliveAudioContext(reason);
+            if (!this.botAudio.paused) {
+                return;
+            }
+            const playbackAttemptId = ++this.audioPlaybackAttemptId;
             try {
                 yield this.botAudio.play();
             }
             catch (error) {
+                if (this.isDisconnecting ||
+                    !((_b = this.rtviClient) === null || _b === void 0 ? void 0 : _b.connected) ||
+                    playbackAttemptId !== this.audioPlaybackAttemptId ||
+                    this.isInterruptedPlaybackError(error)) {
+                    this.log(`Bot audio playback retry interrupted (${reason})`);
+                    return;
+                }
                 this.log(`Unable to resume bot audio (${reason}): ${this.getErrorMessage(error)}`);
             }
         });
     }
     recoverAudioPlayback(reason) {
         return __awaiter(this, void 0, void 0, function* () {
-            if (!this.currentBotTrack) {
+            var _a;
+            if (this.isDisconnecting || !((_a = this.rtviClient) === null || _a === void 0 ? void 0 : _a.connected) || !this.currentBotTrack) {
                 return;
             }
-            this.botAudio.srcObject = null;
-            this.botAudio.srcObject = new MediaStream([this.currentBotTrack]);
+            const attachedTrack = this.getAttachedBotTrack();
+            const shouldReplaceTrack = !attachedTrack ||
+                attachedTrack.readyState === 'ended' ||
+                attachedTrack.id !== this.currentBotTrack.id;
+            this.syncBotAudioTrack(shouldReplaceTrack);
             yield this.applySelectedSpeaker();
             yield this.ensureAudioPlayback(reason);
         });
@@ -551,6 +594,7 @@ class WebsocketClientApp {
         return __awaiter(this, void 0, void 0, function* () {
             try {
                 const startTime = Date.now();
+                this.isDisconnecting = false;
                 const ws_opts = {
                     recorderSampleRate: 8000,
                     playerSampleRate: 8000,
@@ -631,6 +675,7 @@ class WebsocketClientApp {
         return __awaiter(this, void 0, void 0, function* () {
             if (this.rtviClient) {
                 try {
+                    this.isDisconnecting = true;
                     yield this.rtviClient.disconnect();
                     this.rtviClient = null;
                     this.currentBotTrack = null;
@@ -642,6 +687,9 @@ class WebsocketClientApp {
                 }
                 catch (error) {
                     this.log(`Error disconnecting: ${this.getErrorMessage(error)}`);
+                }
+                finally {
+                    this.isDisconnecting = false;
                 }
             }
         });
