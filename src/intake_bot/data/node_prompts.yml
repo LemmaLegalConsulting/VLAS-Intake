@@ -483,19 +483,25 @@ record_address:
     - content: >-
         [Instructions]
         1. Ask the caller for their residential address, including:
-           - Street address (required)
-           - Apartment, suite, or unit number (optional)
-           - City (required)
-           - State abbreviation, e.g., "VA" (required)
-           - 5-digit ZIP code (required)
-           - County (required)
-        2. After collecting the address, read back the complete address to the caller and confirm it is accurate.
-           - IMPORTANT: When reading back the street address, unit number, and ZIP code, say it digit-by-digit (for example "two, three, two, one, nine").
-           - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
-           - If the caller confirms the address is correct, proceed to the next step.
-           - If the caller indicates any part is incorrect, ask them to provide the correct information and repeat the confirmation process.
-           - Exception: If the caller explicitly refuses to provide their address or does not have one, you may proceed by calling the function with empty strings for all address fields.
-        3. Only use the `record_address` function after the caller confirms that the address is correct (or if you are skipping as per the exception).
+          - Street address (required)
+          - Apartment, suite, or unit number (optional)
+          - City (required)
+          - State abbreviation, e.g., "VA" (required)
+          - 5-digit ZIP code (required)
+          - County (required)
+          - IMPORTANT: In your initial question, explicitly ask for the county along with the other address fields. Do not leave county for a later question unless the caller omits it.
+        2. If the caller does not include the county, ask a separate follow-up question asking only for the county, and wait for their answer.
+          - IMPORTANT: Do NOT combine the county follow-up with the address confirmation.
+          - IMPORTANT: Do NOT combine the county follow-up with any question about apartment, suite, or unit number.
+        3. After all required address fields, including county, have been collected, read back the complete address to the caller and confirm it is accurate.
+          - IMPORTANT: When reading back the numeric part of the street address, any unit number, and the ZIP code, say each digit individually (for example "two three two one nine").
+          - IMPORTANT: After the last spoken digit of the street number, insert a brief pause before saying the street name. For example, say "two three two one nine, West Main Street," not "two, three, two, one, nine West Main Street."
+          - IMPORTANT: When reading back the state, always say the full state name, not the abbreviation. For example, say "Missouri," not "M O," and say "Virginia," not "V A."
+          - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
+          - If the caller confirms the address is correct, proceed to the next step.
+          - If the caller indicates any part is incorrect, ask them to provide the correct information and repeat the confirmation process.
+          - Exception: If the caller explicitly refuses to provide their address or does not have one, you may proceed by calling the function with empty strings for all address fields.
+        4. Only use the `record_address` function after the caller confirms that the address is correct (or if you are skipping as per the exception).
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -511,19 +517,25 @@ record_names:
            - Names from previous marriages
            - Legally changed names
            - Any other names they have been known by that might appear in court documents or legal records
-        2. If the caller provides other names, ask them to spell each name completely, including first, middle, last, and any suffix (for example Jr., Sr., II, III). Do not make any assumptions about common spellings or infer any part of the name that the caller does not explicitly spell out.
-        3. For each additional name, ask the caller what type of name it is:
+          2. If the caller provides other names, first collect the name itself, including first, middle, last, and any suffix (for example Jr., Sr., II, III) when available.
+            - Do NOT require the caller to spell the name before you can continue.
+            - If the caller naturally spells part or all of the name, use that spelling.
+            - If the caller does NOT spell the name, use the spelling you have from the conversation and read it back for confirmation, similar to the `record_name` step.
+          3. For each additional name, ask the caller what type of name it is:
            - Maiden Name: A name from before marriage or a previous marriage
            - Former Name: A name previously used that is no longer current
            - Nickname: A commonly used alternative name (not a legal name change)
            - Legal Name: Another legal name that is official in records
            If the caller doesn't specify the type or their answer doesn't clearly match one of these, use Former Name as the default.
-        4. After the caller spells each name and specifies its type, read it back exactly as spelled, specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
+          4. After you have the name and its type, read it back by specifying each part (first, middle, and last name) and the type, then confirm with the caller that the spelling and type are correct.
            - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas. This ensures each letter is spoken with a natural pause.
-           - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
-           - If the caller indicates that any part of the name or type is incorrect, ask them to spell the incorrect part again and repeat the confirmation process.
-        5. If the caller has no other names to add, call the function with an empty list: names = []
-        6. Once all names are confirmed and spelled correctly with types specified (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
+            - IMPORTANT: If the caller did not explicitly spell a part of the name, spell back the version you heard and ask whether it is correct, like `record_name` does.
+            - IMPORTANT: Do NOT insist on a separate spelling-first turn for nicknames or other names if the caller can simply confirm or correct what you read back.
+            - If the caller confirms the spelling and type are correct, continue to the next name or proceed to the next step.
+            - If the caller indicates that any part of the name or type is incorrect, ask them to correct or spell only the incorrect part, update it, and then repeat the confirmation process.
+            - If the caller confirms one part of the name but corrects or spells another part in the same response, accept both pieces of information together. For example, if they confirm the last name and spell the nickname in the same answer, keep the confirmed last name and update the nickname.
+          5. If the caller has no other names to add, call the function with an empty list: names = []
+          6. Once all names are confirmed and spelled correctly with types specified (or if the caller has no other names), ALWAYS call the `record_names` function with the names argument.
 
         [Field Name Requirements]
         When calling the function, ALWAYS pass a "names" argument containing a list of name objects.
@@ -558,6 +570,7 @@ record_names:
         If the caller doesn't specify a type, you will automatically apply the default type of "Former Name".
         If the type name is ambiguous, ask for clarification or use "Former Name" as default.
         If the caller provides a single name (e.g., "Jack") as a nickname or alias, assume the last name is the same as their legal last name unless they specify otherwise. Confirm this assumption with the caller.
+        If the caller confirms that the last name is the same as their legal last name while also correcting or spelling the first name or nickname, treat that as a valid confirmation plus correction in one response.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)

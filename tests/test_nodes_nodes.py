@@ -27,6 +27,7 @@ from intake_bot.nodes.nodes import (
     record_ssn_last_4,
     system_phone_number,
 )
+from intake_bot.utils.node_prompts import NodePrompts
 
 
 @pytest.fixture
@@ -214,6 +215,49 @@ async def test_record_address_invalid_missing_city(flow_manager):
     assert result["status"] == Status.ERROR
     assert "validating the `address`" in result["error"]
     assert next_node is None
+
+
+def test_record_address_prompt_includes_county_follow_up_separation_rules():
+    prompt = NodePrompts().get("record_address")
+    content = prompt["task_messages"][0]["content"]
+
+    assert (
+        "explicitly ask for the county along with the other address fields" in content
+    )
+    assert "ask a separate follow-up question asking only for the county" in content
+    assert (
+        "Do NOT combine the county follow-up with the address confirmation" in content
+    )
+    assert "insert a brief pause before saying the street name" in content
+    assert "always say the full state name, not the abbreviation" in content
+
+
+def test_standard_node_prompts_include_thank_you_acknowledgment_instruction():
+    prompt = NodePrompts().get("record_name")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "fits the caller's immediately preceding answer" in content
+    assert (
+        "Whenever possible, weave the acknowledgment directly into the next question or instruction"
+        in content
+    )
+    assert "Prefer connected phrasing with a comma" in content
+    assert "If the caller briefly confirmed something" in content
+    assert "If the caller provided new factual information" in content
+    assert "If the caller corrected, clarified, or spelled something" in content
+    assert "Use exactly one short acknowledgment lead-in before continuing" in content
+    assert (
+        "Do not stack an acknowledgment sentence and then a separate next-question sentence"
+        in content
+    )
+    assert "Do not add extra praise, filler, or multiple acknowledgments" in content
+
+
+def test_excluded_node_prompts_do_not_include_thank_you_acknowledgment_instruction():
+    prompt = NodePrompts().get("record_language")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "fits the caller's immediately preceding answer" not in content
 
 
 @pytest.mark.asyncio
