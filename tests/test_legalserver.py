@@ -13,6 +13,11 @@ from intake_bot.services.legalserver import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _enable_legalserver_connection_by_default(monkeypatch):
+    monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "false")
+
+
 class TestBuildMatterPayload:
     """Tests for _build_matter_payload helper function."""
 
