@@ -15,14 +15,58 @@ from pipecat.transports.websocket.fastapi import (
 )
 
 logger.remove(0)
-logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"))
+
+# Suppress noisy pipecat DEBUG logs from turn-detection internals.
+_NOISY_PIPECAT_MODULES = {
+    "pipecat.turns.user_start",
+    "pipecat.audio.turn.smart_turn",
+}
+
+
+def _log_filter(record):
+    if record["level"].name == "DEBUG":
+        name = record["name"] or ""
+        for prefix in _NOISY_PIPECAT_MODULES:
+            if name.startswith(prefix):
+                return False
+    return True
+
+
+logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"), filter=_log_filter)
 if ev_is_true("LOG_TO_FILE"):
     os.makedirs("logs", exist_ok=True)
-    logger.add("logs/server.log", level=get_ev("LOG_LEVEL", "INFO"))
+    logger.add("logs/server.log", level=get_ev("LOG_LEVEL", "INFO"), filter=_log_filter)
 
 
 def generate_call_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+def _get_user_idle_timeout_secs(websocket: WebSocket, call_id: str) -> float | None:
+    raw_timeout = websocket.query_params.get("idle_timeout_secs")
+    if raw_timeout is None:
+        raw_timeout = get_ev("WEBSOCKET_USER_IDLE_TIMEOUT_SECS", "").strip()
+    if raw_timeout is None or raw_timeout == "":
+        if call_id.startswith("ws-test"):
+            raw_timeout = get_ev("WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS", "25.0")
+    if not raw_timeout:
+        return None
+
+    try:
+        timeout_secs = float(raw_timeout)
+    except ValueError:
+        logger.warning(
+            f"""Ignoring invalid websocket idle timeout value: {raw_timeout!r}"""
+        )
+        return None
+
+    if timeout_secs <= 0:
+        logger.warning(
+            f"""Ignoring non-positive websocket idle timeout value: {raw_timeout!r}"""
+        )
+        return None
+
+    return timeout_secs
 
 
 app = FastAPI()
@@ -47,6 +91,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     caller_phone_number = websocket.query_params.get("caller_phone_number", "")
     call_id = websocket.query_params.get("call_id") or generate_call_id()
+    user_idle_timeout_secs = _get_user_idle_timeout_secs(websocket, call_id)
 
     transport = FastAPIWebsocketTransport(
         websocket=websocket,
@@ -70,4 +115,5 @@ async def websocket_endpoint(websocket: WebSocket):
         caller_phone_number=caller_phone_number,
         handle_sigint=False,
         configure_transport=configure_websocket_transport,
+        user_idle_timeout_secs=user_idle_timeout_secs,
     )

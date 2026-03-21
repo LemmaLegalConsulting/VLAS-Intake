@@ -53,7 +53,7 @@ from intake_bot.utils.daily_dialin import (
     looks_like_daily_dialin_body,
     normalize_daily_dialin_body,
 )
-from intake_bot.utils.ev import ev_is_true, require_ev
+from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
 
 TransportSetup = Callable[
     [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
@@ -227,6 +227,7 @@ async def run_bot(
     caller_phone_number: str,
     handle_sigint: bool,
     configure_transport: TransportSetup | None = None,
+    user_idle_timeout_secs: float | None = None,
 ):
     """
     Main function to set up and run the VLAS intake bot.
@@ -303,7 +304,19 @@ async def run_bot(
             await task.queue_frame(EndFrame())
             return False
 
-    user_idle = UserIdleProcessor(callback=handle_user_idle, timeout=10.0)
+    resolved_user_idle_timeout_secs = user_idle_timeout_secs
+    if resolved_user_idle_timeout_secs is None:
+        resolved_user_idle_timeout_secs = float(
+            get_ev("USER_IDLE_TIMEOUT_SECS", "10.0")
+        )
+
+    logger.info(
+        f"""Using user idle timeout of {resolved_user_idle_timeout_secs:.1f}s for call {call_id}"""
+    )
+    user_idle = UserIdleProcessor(
+        callback=handle_user_idle,
+        timeout=resolved_user_idle_timeout_secs,
+    )
 
     # Create transcript handler
     transcript_file = None

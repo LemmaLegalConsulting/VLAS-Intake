@@ -102,7 +102,7 @@ class StateValidator:
 
         # Check for missing keys in actual
         for key in expected:
-            new_path = f"{path}.{key}" if path else key
+            new_path = f"""{path}.{key}""" if path else key
             # Try exact match first, then case-insensitive match
             matching_key = None
             if key in actual:
@@ -130,7 +130,7 @@ class StateValidator:
                         matched_actual_keys.add(fuzzy_match)
                         # Use the actual matched key in the path, not the expected key
                         fuzzy_new_path = (
-                            f"{path}.{fuzzy_match}" if path else fuzzy_match
+                            f"""{path}.{fuzzy_match}""" if path else fuzzy_match
                         )
                         self._compare_values(
                             actual[fuzzy_match], expected[key], fuzzy_new_path
@@ -184,7 +184,7 @@ class StateValidator:
             if key in self.SYSTEM_KEYS:
                 continue
 
-            new_path = f"{path}.{key}" if path else key
+            new_path = f"""{path}.{key}""" if path else key
             self.mismatches.append(
                 {
                     "path": new_path,
@@ -278,7 +278,7 @@ class StateValidator:
             return
 
         for i, (actual_item, expected_item) in enumerate(zip(actual, expected)):
-            new_path = f"{path}[{i}]"
+            new_path = f"""{path}[{i}]"""
             self._compare_values(actual_item, expected_item, new_path)
 
 
@@ -358,7 +358,7 @@ class TestRunner:
             scripts_file = Path(scripts_file)
 
         if not scripts_file.exists():
-            print(f"Error: Scripts file not found: {scripts_file}")
+            print(f"""Error: Scripts file not found: {scripts_file}""")
             sys.exit(1)
 
         with open(scripts_file) as f:
@@ -387,7 +387,7 @@ class TestRunner:
 
         # Store the initial set of call_ids to revalidate
         call_ids = list(self.result_manager.results.keys())
-        print(f"Revalidating {len(call_ids)} tests...\n")
+        print(f"""Revalidating {len(call_ids)} tests...\n""")
 
         # Track which call_ids to remove (no state data)
         call_ids_to_remove = []
@@ -396,17 +396,17 @@ class TestRunner:
             # Skip if this call_id doesn't have state data
             if call_id not in self.flow_manager_state:
                 call_ids_to_remove.append(call_id)
-                print(f"⊘ Skipping {call_id}: no state data available")
+                print(f"""⊘ Skipping {call_id}: no state data available""")
                 continue
 
             result = self.result_manager.results.get(call_id)
             if not result:
-                print(f"⚠ Skipping {call_id}: not found in results")
+                print(f"""⚠ Skipping {call_id}: not found in results""")
                 continue
 
             script_name = result.get("script")
             if not script_name:
-                print(f"⚠ Skipping {call_id}: no script name found")
+                print(f"""⚠ Skipping {call_id}: no script name found""")
                 continue
 
             try:
@@ -415,11 +415,11 @@ class TestRunner:
                 status = "✓" if passed else "✗"
                 mismatch_count = len(mismatches)
                 print(
-                    f"{status} {call_id}: {script_name} "
-                    f"({mismatch_count} mismatch{'es' if mismatch_count != 1 else ''})"
+                    f"""{status} {call_id}: {script_name} """
+                    f"""({mismatch_count} mismatch{"es" if mismatch_count != 1 else ""})"""
                 )
             except Exception as e:
-                print(f"ERROR {call_id}: Error during revalidation - {str(e)}")
+                print(f"""ERROR {call_id}: Error during revalidation - {str(e)}""")
                 revalidation_results[call_id] = (False, [{"error": str(e)}])
 
         # Remove call_ids without state data from results
@@ -457,7 +457,7 @@ class TestRunner:
                     {
                         "path": "root",
                         "issue": "script_not_found",
-                        "message": f"Script '{script_name}' not found in scripts.yml",
+                        "message": f"""Script '{script_name}' not found in scripts.yml""",
                     }
                 ]
                 self.result_manager.add_test_result(
@@ -472,7 +472,7 @@ class TestRunner:
                     {
                         "path": "root",
                         "issue": "invalid_script_format",
-                        "message": f"Script '{script_name}' is in old string format, no expected_state available",
+                        "message": f"""Script '{script_name}' is in old string format, no expected_state available""",
                     }
                 ]
                 self.result_manager.add_test_result(
@@ -486,7 +486,7 @@ class TestRunner:
                     {
                         "path": "root",
                         "issue": "missing_expected_state",
-                        "message": f"Script '{script_name}' does not have 'expected_state' defined",
+                        "message": f"""Script '{script_name}' does not have 'expected_state' defined""",
                     }
                 ]
                 self.result_manager.add_test_result(
@@ -505,7 +505,7 @@ class TestRunner:
                 {
                     "path": "root",
                     "issue": "call_id_not_found",
-                    "message": f"call_id {call_id} not found in {self.flow_manager_state_file}",
+                    "message": f"""call_id {call_id} not found in {self.flow_manager_state_file}""",
                 }
             ]
             self.result_manager.add_test_result(
@@ -538,14 +538,14 @@ class TestRunner:
         failed = summary["failed"]
         pass_rate = summary["pass_rate"]
 
-        print(f"\n{'=' * 60}")
+        print(f"""\n{"=" * 60}""")
         print("TEST RESULTS SUMMARY")
-        print(f"{'=' * 60}")
-        print(f"Total Tests:    {total}")
-        print(f"Passed:         {passed}")
-        print(f"Failed:         {failed}")
-        print(f"Pass Rate:      {pass_rate:.1f}%")
-        print(f"{'=' * 60}\n")
+        print(f"""{"=" * 60}""")
+        print(f"""Total Tests:    {total}""")
+        print(f"""Passed:         {passed}""")
+        print(f"""Failed:         {failed}""")
+        print(f"""Pass Rate:      {pass_rate:.1f}%""")
+        print(f"""{"=" * 60}\n""")
 
         # Group by script
         by_script = {}
@@ -569,14 +569,14 @@ class TestRunner:
             )
             status = "✓ PASS" if stats["failed"] == 0 else "✗ FAIL"
             print(
-                f"  {status} {script:40} {stats['passed']}/{total_for_script} ({rate:.0f}%)"
+                f"""  {status} {script:40} {stats["passed"]}/{total_for_script} ({rate:.0f}%)"""
             )
 
         print("\nTest Details:")
         for call_id, result in sorted(self.result_manager.results.items()):
             status = "✓" if result["passed"] else "✗"
             script = result.get("script", "unknown")
-            print(f"  {status} {script:20} {call_id}")
+            print(f"""  {status} {script:20} {call_id}""")
         print()
 
     def print_detailed(self, show_passed: bool = True, show_failed: bool = True):
@@ -585,9 +585,9 @@ class TestRunner:
             print("No test results found")
             return
 
-        print(f"\n{'=' * 80}")
+        print(f"""\n{"=" * 80}""")
         print("DETAILED TEST RESULTS")
-        print(f"{'=' * 80}\n")
+        print(f"""{"=" * 80}\n""")
 
         for call_id, result in sorted(self.result_manager.results.items()):
             if result["passed"] and not show_passed:
@@ -600,39 +600,39 @@ class TestRunner:
             mismatches = result.get("mismatches", [])
             mismatch_count = result.get("mismatch_count", 0)
 
-            print(f"{status} {script}")
-            print(f"    Call ID: {call_id}")
+            print(f"""{status} {script}""")
+            print(f"""    Call ID: {call_id}""")
             if not result["passed"]:
-                print(f"    Mismatches: {mismatch_count}")
+                print(f"""    Mismatches: {mismatch_count}""")
                 for i, mismatch in enumerate(mismatches[:5], 1):
                     path = mismatch.get("path", "unknown")
                     issue = mismatch.get("issue", "unknown")
                     expected = mismatch.get("expected", "N/A")
                     actual = mismatch.get("actual", "N/A")
-                    print(f"      {i}. {path}")
-                    print(f"         Issue: {issue}")
-                    print(f"         Expected: {expected}")
-                    print(f"         Actual: {actual}")
+                    print(f"""      {i}. {path}""")
+                    print(f"""         Issue: {issue}""")
+                    print(f"""         Expected: {expected}""")
+                    print(f"""         Actual: {actual}""")
                 if len(mismatches) > 5:
-                    print(f"      ... and {len(mismatches) - 5} more mismatches")
+                    print(f"""      ... and {len(mismatches) - 5} more mismatches""")
             print()
 
     def print_call_details(self, call_id: str):
         """Print detailed information about a specific call."""
         if call_id not in self.result_manager.results:
-            print(f"Call ID '{call_id}' not found in results")
+            print(f"""Call ID '{call_id}' not found in results""")
             return False
 
         result = self.result_manager.results[call_id]
 
-        print(f"\n{'=' * 80}")
-        print(f"CALL DETAILS: {call_id}")
-        print(f"{'=' * 80}\n")
+        print(f"""\n{"=" * 80}""")
+        print(f"""CALL DETAILS: {call_id}""")
+        print(f"""{"=" * 80}\n""")
 
         status = "✓ PASS" if result["passed"] else "✗ FAIL"
-        print(f"Status:       {status}")
-        print(f"Script:       {result.get('script', 'unknown')}")
-        print(f"Mismatches:   {result.get('mismatch_count', 0)}")
+        print(f"""Status:       {status}""")
+        print(f"""Script:       {result.get("script", "unknown")}""")
+        print(f"""Mismatches:   {result.get("mismatch_count", 0)}""")
         print()
 
         mismatches = result.get("mismatches", [])
@@ -640,26 +640,30 @@ class TestRunner:
             print("Mismatch Details:")
             print("-" * 80)
             for i, mismatch in enumerate(mismatches, 1):
-                print(f"\n{i}. Path: {mismatch.get('path', 'unknown')}")
-                print(f"   Issue: {mismatch.get('issue', 'unknown')}")
+                print(f"""\n{i}. Path: {mismatch.get("path", "unknown")}""")
+                print(f"""   Issue: {mismatch.get("issue", "unknown")}""")
 
                 if "value_mismatch" in mismatch.get("issue", ""):
-                    print(f"   Expected: {mismatch.get('expected', 'N/A')}")
-                    print(f"   Actual:   {mismatch.get('actual', 'N/A')}")
+                    print(f"""   Expected: {mismatch.get("expected", "N/A")}""")
+                    print(f"""   Actual:   {mismatch.get("actual", "N/A")}""")
                 elif "type_mismatch" in mismatch.get("issue", ""):
-                    print(f"   Expected Type: {mismatch.get('expected_type', 'N/A')}")
-                    print(f"   Actual Type:   {mismatch.get('actual_type', 'N/A')}")
-                    print(f"   Expected: {mismatch.get('expected', 'N/A')}")
-                    print(f"   Actual:   {mismatch.get('actual', 'N/A')}")
+                    print(
+                        f"""   Expected Type: {mismatch.get("expected_type", "N/A")}"""
+                    )
+                    print(f"""   Actual Type:   {mismatch.get("actual_type", "N/A")}""")
+                    print(f"""   Expected: {mismatch.get("expected", "N/A")}""")
+                    print(f"""   Actual:   {mismatch.get("actual", "N/A")}""")
                 elif "list_length_mismatch" in mismatch.get("issue", ""):
                     print(
-                        f"   Expected Length: {mismatch.get('expected_length', 'N/A')}"
+                        f"""   Expected Length: {mismatch.get("expected_length", "N/A")}"""
                     )
-                    print(f"   Actual Length:   {mismatch.get('actual_length', 'N/A')}")
+                    print(
+                        f"""   Actual Length:   {mismatch.get("actual_length", "N/A")}"""
+                    )
                 else:
                     for key, value in mismatch.items():
                         if key not in ["path", "issue"]:
-                            print(f"   {key}: {value}")
+                            print(f"""   {key}: {value}""")
         else:
             print("No mismatches - call passed validation!")
         print()
