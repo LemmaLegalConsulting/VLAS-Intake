@@ -1,31 +1,36 @@
 [project]
-name = "intake-bot"
-version = "0.3.9"
-description = "Virginia Legal Aid Society (VLAS) Telephone Intake Bot"
-readme = "README.md"
-requires-python = ">=3.12"
 dependencies = [
-    "fastapi",
-    "granian",
     "loguru",
     "phonenumberslite",
-    "pipecat-ai-flows",
-    "pipecat-ai[openai,google,local-smart-turn-v3,websocket]",
+    "pipecat-ai-flows>=0.0.24",
+    "pipecat-ai[azure,daily,rnnoise,runner,silero,webrtc]>=0.0.106",
+    "pipecatcloud",
     "python-dotenv",
-    "python-multipart",
     "pyyaml",
     "rapidfuzz",
-    "twilio",
-    "winuvloop",
 ]
+description = "Virginia Legal Aid Society (VLAS) Telephone Intake Bot"
+name = "intake-bot"
+readme = "README.md"
+requires-python = ">=3.12"
+version = "0.3.9"
 
 [dependency-groups]
-dev = ["granian[reload]", "pipecat-ai-tail", "pipecat-ai-whisker", "pytest-asyncio", "pytest"]
-test = ["pytest-asyncio", "pytest"]
+dev = [
+    "fastapi",
+    "pipecat-ai-cli",
+    "pipecat-ai-tail",
+    "pipecat-ai-whisker",
+    "pipecat-ai[websocket]",
+    "pytest",
+    "pytest-asyncio",
+    "uvicorn",
+]
+test = ["pytest", "pytest-asyncio"]
 
 [build-system]
-requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
+requires = ["setuptools"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -34,8 +39,8 @@ where = ["src"]
 intake_bot = ["data/*.yml"]
 
 [tool.pytest.ini_options]
+filterwarnings = ["ignore::DeprecationWarning:pipecat"]
 minversion = "8.0"
-testpaths = ["tests"]
 pythonpath = ["src"]
 required_plugins = ["pytest-asyncio"]
-filterwarnings = ["ignore::DeprecationWarning:pipecat"]
+testpaths = ["tests"]

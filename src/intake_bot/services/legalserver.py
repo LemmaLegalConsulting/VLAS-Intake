@@ -34,7 +34,7 @@ async def save_intake_legalserver(state: dict):
     Save the intake state (flow_manager.state) in LegalServer.
     Extracts all collected intake data and creates a matter with related records.
     """
-    if ev_is_true("LEGALSERVER_CONNECTION_DISABLED"):
+    if ev_is_true("LEGALSERVER_TESTING_DISABLE_CONNECTION"):
         logger.debug("LegalServer connection disabled")
         return
 

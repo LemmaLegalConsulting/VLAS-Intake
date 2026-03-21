@@ -1,6 +1,5 @@
 # Docker
 compose.yml
-Dockerfile
 .dockerignore
 
 # Fly.io
@@ -45,3 +44,6 @@ debug
 logs
 recordings
 tests
+
+# MacOS
+.DS_Store

@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import os
 import re
 import sys
 import time
@@ -17,7 +18,7 @@ from intake_bot.services.reference_data import ReferenceDataLoader
 from intake_bot.utils.ev import require_ev
 from intake_bot.utils.globals import DATA_DIR, DEBUG
 from loguru import logger
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI
 from rapidfuzz import fuzz, process, utils
 
 
@@ -51,7 +52,6 @@ class Classifier:
         self.model_weights = {
             # "gpt-4o-mini": 0.85,
             "gpt-4.1-mini": 0.87,
-            "gemini-2.5-flash-lite": 0.9,
             "gpt-5-nano": 0.9,
             "keyword": 0.5,
         }
@@ -60,7 +60,6 @@ class Classifier:
         self.enabled_models = [
             # "gpt-4o-mini",
             "gpt-4.1-mini",
-            "gemini-2.5-flash-lite",
             "gpt-5-nano",
             "keyword",
         ]
@@ -99,31 +98,21 @@ class Classifier:
         """
         all_providers = []
 
-        # Try to initialize OpenAI providers
+        # Try to initialize Azure OpenAI providers
         try:
-            all_providers.append(self.OpenAIProvider(model_name="gpt-4o-mini"))
+            all_providers.append(self.AzureOpenAIProvider(model_name="gpt-4o-mini"))
         except ValueError as e:
             logger.warning(f"""Could not initialize gpt-4o-mini provider: {e}""")
 
         try:
-            all_providers.append(self.OpenAIProvider(model_name="gpt-4.1-mini"))
+            all_providers.append(self.AzureOpenAIProvider(model_name="gpt-4.1-mini"))
         except ValueError as e:
             logger.warning(f"""Could not initialize gpt-4.1-mini provider: {e}""")
 
         try:
-            all_providers.append(self.OpenAIProvider(model_name="gpt-5-nano"))
+            all_providers.append(self.AzureOpenAIProvider(model_name="gpt-5-nano"))
         except ValueError as e:
             logger.warning(f"""Could not initialize gpt-5-nano provider: {e}""")
-
-        # Try to initialize Gemini provider
-        try:
-            all_providers.append(
-                self.GeminiProvider(model_name="gemini-2.5-flash-lite")
-            )
-        except ValueError as e:
-            logger.warning(
-                f"""Could not initialize gemini-2.5-flash-lite provider: {e}"""
-            )
 
         # Always add keyword provider
         try:
@@ -154,7 +143,7 @@ class Classifier:
         questions_data = [q.model_dump() for q in questions]
         questions_json = json.dumps(questions_data, indent=2)
 
-        provider = self.GeminiProvider(model_name="gemini-2.5-flash-lite")
+        provider = self.AzureOpenAIProvider(model_name="gpt-4.1-mini")
 
         try:
 
@@ -477,7 +466,7 @@ class Classifier:
         MAX_WAIT_TIME = 15.0  # 15 seconds max per retry
         PROVIDER_TIMEOUT = 45.0  # 45 seconds max for any single provider call
 
-        client: Optional[AsyncOpenAI] = None
+        client: Optional[AsyncAzureOpenAI] = None
         reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None
 
         def __init__(self, model_name: str):
@@ -636,7 +625,7 @@ class Classifier:
         ) -> Dict[str, Any]:
             """Common classification logic for OpenAI-compatible clients.
 
-            Uses self.client which should be an AsyncOpenAI instance.
+            Uses self.client which should be an OpenAI-compatible async client instance.
 
             Args:
               problem_description: The problem description to classify.
@@ -656,7 +645,7 @@ class Classifier:
 
                     # Build request parameters
                     request_params = {
-                        "model": self.model_name,
+                        "model": getattr(self, "deployment_name", self.model_name),
                         "messages": [
                             {"role": "system", "content": prompt},
                             {"role": "user", "content": problem_description},
@@ -737,37 +726,30 @@ class Classifier:
                 logger.error(error_msg)
                 return {"labels": [], "questions": [], "error": error_msg}
 
-    class OpenAIProvider(Provider):
+    class AzureOpenAIProvider(Provider):
         def __init__(self, model_name: str = "gpt-4o"):
-            """Initialize OpenAI provider.
+            """Initialize Azure OpenAI provider.
 
             Args:
-              model_name: The OpenAI model to use.
+              model_name: Logical model identifier used for weighting/config.
             """
             super().__init__(model_name)
-            api_key = require_ev("OPENAI_API_KEY")
-            self.client = AsyncOpenAI(api_key=api_key)
-            if model_name.startswith("gpt-5"):
+            self.deployment_name = self._resolve_deployment_name(model_name)
+            self.client = AsyncAzureOpenAI(
+                api_key=require_ev("AZURE_API_KEY"),
+                api_version="v1 preview release",
+                azure_endpoint=require_ev("AZURE_LLM_ENDPOINT"),
+            )
+            if model_name.startswith("gpt-5") and "nano" not in model_name:
                 self.reasoning_effort = "minimal"
 
-    class GeminiProvider(Provider):
-        """
-        Uses the OpenAI-compatible API endpoint for Gemini as documented at:
-        https://ai.google.dev/gemini-api/docs/openai
-        """
-
-        def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
-            """Initialize Gemini provider.
-
-            Args:
-              model_name: The Gemini model to use.
-            """
-            super().__init__(model_name)
-            api_key = require_ev("GOOGLE_API_KEY")
-            # Use OpenAI-compatible API for Gemini
-            self.client = AsyncOpenAI(
-                base_url="https://generativelanguage.googleapis.com/v1beta/openai",
-                api_key=api_key,
+        @staticmethod
+        def _resolve_deployment_name(model_name: str) -> str:
+            env_suffix = re.sub(r"[^A-Za-z0-9]+", "_", model_name).upper()
+            return (
+                os.getenv(f"AZURE_CLASSIFIER_{env_suffix}_DEPLOYMENT")
+                or os.getenv("AZURE_LLM_MODEL")
+                or model_name
             )
 
     class KeywordProvider(Provider):

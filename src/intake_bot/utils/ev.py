@@ -5,13 +5,18 @@ from dotenv import load_dotenv
 load_dotenv(override=True)
 
 
-def get_ev(key: str, default: str = None) -> str:
-    return os.getenv(key=key, default=default)
+def get_ev(key: str, default: str = "") -> str:
+    value = os.getenv(key=key, default=default)
+    if value.strip() == "":
+        return default
+    return value
 
 
 def require_ev(key: str) -> str:
     """
-    Ensure that the specified environment variable is set and return its value.
+    Ensure that the specified environment variable is set to a non-empty value.
+
+    Environment variables assigned as `VAR=` are treated as unset.
 
     Args:
         key (str): The name of the environment variable to check.
@@ -20,7 +25,7 @@ def require_ev(key: str) -> str:
         str: The value of the environment variable.
 
     Raises:
-        ValueError: If the environment variable is not set.
+        ValueError: If the environment variable is missing or empty.
     """
     if not (value := os.getenv(key)):
         raise ValueError(f"""The {key} environment variable must be set.""")

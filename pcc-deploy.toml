@@ -1,0 +1,8 @@
+agent_name = "vlas-intake-bot"
+agent_profile = "agent-1x"
+region = "us-east"
+secret_set = "vlas-intake-bot-secrets-lemma"
+# PIPECAT_LOG_LEVEL = "INFO"
+
+[scaling]
+min_agents = 0

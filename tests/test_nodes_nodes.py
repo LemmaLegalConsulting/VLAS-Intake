@@ -33,6 +33,8 @@ from intake_bot.nodes.nodes import (
 def flow_manager():
     fm = MagicMock()
     fm.state = {}
+    fm.task = MagicMock()
+    fm.task.queue_frame = AsyncMock()
     return fm
 
 
@@ -46,7 +48,7 @@ def patch_validator(monkeypatch):
 @pytest.fixture(autouse=True)
 def patch_prompts(monkeypatch):
     prompts_mock = MagicMock()
-    prompts_mock.get.side_effect = lambda k, **kwargs: {f"{k}_prompt": True}
+    prompts_mock.get.side_effect = lambda k, **kwargs: {f"""{k}_prompt""": True}
     monkeypatch.setattr("intake_bot.nodes.nodes.prompts", prompts_mock)
     return prompts_mock
 
@@ -80,6 +82,7 @@ async def test_record_language(flow_manager):
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["language"]["language"] == "English"
+    flow_manager.task.queue_frame.assert_awaited_once()
     assert "record_phone_number_prompt" in next_node
 
 

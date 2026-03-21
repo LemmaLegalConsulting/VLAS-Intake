@@ -36,6 +36,9 @@ from intake_bot.nodes.validator import IntakeValidator
 from intake_bot.utils.ev import get_ev
 from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
+from pipecat.frames.frames import STTUpdateSettingsFrame
+from pipecat.services.azure.stt import AzureSTTService
+from pipecat.transcriptions.language import Language
 from pipecat_flows import (
     ContextStrategy,
     ContextStrategyConfig,
@@ -59,13 +62,18 @@ def node_initial() -> NodeConfig:
     Create initial node for welcoming the caller. Allow the conversation to be ended.
     """
     initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
+    initial_function_name = get_ev(
+        "TEST_INITIAL_FUNCTION", default="system_phone_number"
+    )
     try:
         initial_function = getattr(
             sys.modules[__name__],
-            get_ev("TEST_INITIAL_FUNCTION", default="system_phone_number"),
+            initial_function_name,
         )
     except AttributeError:
-        raise ValueError(f"""Function '{initial_function}' does not exist.""")
+        raise ValueError(
+            f"""Function '{initial_function_name}' does not exist."""
+        ) from None
 
     return {
         **prompts.get("primary_role_message"),
@@ -126,6 +134,14 @@ async def record_language(
     Args:
         language (str): The caller's preferred language (English or Spanish).
     """
+    normalized_language = language.strip().lower()
+    stt_language = (
+        Language.ES_US if normalized_language == "spanish" else Language.EN_US
+    )
+    await flow_manager.task.queue_frame(
+        STTUpdateSettingsFrame(delta=AzureSTTService.Settings(language=stt_language))
+    )
+
     result = LanguageResult(status=Status.SUCCESS, language=language)
     next_node = NodeConfig(
         {

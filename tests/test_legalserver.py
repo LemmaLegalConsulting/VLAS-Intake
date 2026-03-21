@@ -1432,7 +1432,9 @@ class TestSaveIntakeLegalserver:
         """Test that disabled connection returns without action."""
         state = {}
 
-        with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "true"}):
+        with patch.dict(
+            "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "true"}
+        ):
             with patch("intake_bot.services.legalserver.logger") as mock_logger:
                 from intake_bot.services.legalserver import save_intake_legalserver
 
@@ -1485,7 +1487,9 @@ class TestSaveIntakeLegalserver:
             mock_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value = mock_client
 
-            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
+            with patch.dict(
+                "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "false"}
+            ):
                 with patch("intake_bot.services.legalserver.logger") as mock_logger:
                     from intake_bot.services.legalserver import (
                         save_intake_legalserver,
@@ -1508,7 +1512,9 @@ class TestSaveIntakeLegalserver:
             )
             mock_client_class.return_value = mock_client
 
-            with patch.dict("os.environ", {"LEGALSERVER_CONNECTION_DISABLED": "false"}):
+            with patch.dict(
+                "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "false"}
+            ):
                 with patch("intake_bot.services.legalserver.logger") as mock_logger:
                     from intake_bot.services.legalserver import (
                         save_intake_legalserver,
@@ -1568,7 +1574,7 @@ class TestSaveIntakeLegalserver:
             mock_response = MagicMock()
             mock_response.status_code = 201
             mock_response.json.return_value = {
-                "data": {"matter_uuid": f"uuid-{input_date}", "case_id": 419647}
+                "data": {"matter_uuid": f"""uuid-{input_date}""", "case_id": 419647}
             }
 
             with patch("httpx.AsyncClient") as mock_client_class:

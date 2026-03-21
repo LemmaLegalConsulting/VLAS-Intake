@@ -8,7 +8,6 @@ from intake_bot.services.classifier import Classifier
 ENABLED_MODELS = [
     # "gpt-4o-mini",
     # "gpt-4.1-mini",
-    # "gemini-2.5-flash",
     # "gpt-5-nano",
     "keyword",
 ]
@@ -266,26 +265,28 @@ async def _test_single_case(classifier, test_case):
     actual_code = response.legal_problem_code
 
     # Print for debugging
-    print(f"\n{case_name}: {problem_description[:60]}...")
-    print(f"  Expected: {expected_code}")
-    print(f"  Got: {actual_code}")
-    print(f"  Confidence: {response.confidence}")
-    print(f"  Is Eligible: {response.is_eligible}")
+    print(f"""\n{case_name}: {problem_description[:60]}...""")
+    print(f"""  Expected: {expected_code}""")
+    print(f"""  Got: {actual_code}""")
+    print(f"""  Confidence: {response.confidence}""")
+    print(f"""  Is Eligible: {response.is_eligible}""")
     if response.follow_up_questions:
-        print(f"  Follow-up Questions: {len(response.follow_up_questions)} question(s)")
+        print(
+            f"""  Follow-up Questions: {len(response.follow_up_questions)} question(s)"""
+        )
 
     assert actual_code == expected_code, (
-        f"Incorrect code for '{case_name}'.\nExpected: {expected_code}\nGot: {actual_code}"
+        f"""Incorrect code for '{case_name}'.\nExpected: {expected_code}\nGot: {actual_code}"""
     )
 
     # Verify is_eligible is set correctly (should be False for codes starting with "00")
     if expected_code.startswith("00"):
         assert response.is_eligible is False, (
-            f"Code '{expected_code}' starts with '00' and should have is_eligible=False"
+            f"""Code '{expected_code}' starts with '00' and should have is_eligible=False"""
         )
     else:
         assert response.is_eligible is True, (
-            f"Code '{expected_code}' does not start with '00' and should have is_eligible=True"
+            f"""Code '{expected_code}' does not start with '00' and should have is_eligible=True"""
         )
 
 
@@ -312,5 +313,5 @@ async def test_all_classifications_concurrent(classifier):
     # Check for any failures and report them all
     failures = [r for r in results if isinstance(r, Exception)]
     if failures:
-        failure_messages = "\n".join(f"  - {str(f)}" for f in failures)
-        pytest.fail(f"Failed {len(failures)} test case(s):\n{failure_messages}")
+        failure_messages = "\n".join(f"""  - {str(f)}""" for f in failures)
+        pytest.fail(f"""Failed {len(failures)} test case(s):\n{failure_messages}""")

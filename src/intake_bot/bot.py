@@ -1,10 +1,9 @@
-import datetime
-import io
 import os
-import wave
+from collections.abc import Awaitable, Callable
 
 import aiofiles
 from loguru import logger
+from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
@@ -23,26 +22,25 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
 )
-from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.processors.user_idle_processor import UserIdleProcessor
-from pipecat.runner.types import WebSocketRunnerArguments
-from pipecat.runner.utils import parse_telephony_websocket
-from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.services.google.tts import GoogleTTSService
-from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.services.openai.stt import OpenAISTTService
-from pipecat.transcriptions.language import Language
+from pipecat.runner.types import DailyDialinRequest, RunnerArguments
+from pipecat.services.azure.llm import AzureLLMService
+from pipecat.services.azure.stt import AzureSTTService
+from pipecat.services.azure.tts import AzureTTSService
 from pipecat.transports.base_transport import BaseTransport
-from pipecat.transports.websocket.fastapi import (
-    FastAPIWebsocketParams,
-    FastAPIWebsocketTransport,
+from pipecat.transports.daily.transport import (
+    DailyDialinSettings,
+    DailyParams,
+    DailyTransport,
 )
-from pipecat.turns.mute import (
+from pipecat.turns.user_mute import (
     FunctionCallUserMuteStrategy,
 )
+from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat_flows import FlowManager
+from pydantic import ValidationError
 
 from intake_bot.nodes.nodes import (
     caller_ended_conversation,
@@ -51,8 +49,15 @@ from intake_bot.nodes.nodes import (
 )
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
+from intake_bot.utils.daily_dialin import (
+    looks_like_daily_dialin_body,
+    normalize_daily_dialin_body,
+)
 from intake_bot.utils.ev import ev_is_true, require_ev
-from intake_bot.utils.security import verify_websocket_auth_code
+
+TransportSetup = Callable[
+    [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
+]
 
 
 class TranscriptHandler:
@@ -113,66 +118,137 @@ class TranscriptHandler:
         )
 
 
-async def bot(runner_args: WebSocketRunnerArguments) -> None | dict[str, int]:
-    """
-    Main bot entry point.
-    """
-    transport_type, call_data = await parse_telephony_websocket(runner_args.websocket)
-    logger.info(f"""Auto-detected transport: {transport_type}""")
-
-    call_id = call_data["call_id"]
-    websocket_auth_code = call_data["body"].get("websocket_auth_code")
-    call_is_valid = verify_websocket_auth_code(
-        call_id=call_id,
-        received_code=websocket_auth_code,
-    )
-    if not call_is_valid:
-        logger.debug(f"""WebSocket connection denied for call_id: {call_id}""")
-        return {"code": 1008}
-    logger.debug(f"""WebSocket connection accepted for call_id: {call_id}""")
-
-    serializer = TwilioFrameSerializer(
-        stream_sid=call_data["stream_id"],
-        call_sid=call_data["call_id"],
-        account_sid=require_ev("TWILIO_ACCOUNT_SID"),
-        auth_token=require_ev("TWILIO_AUTH_TOKEN"),
+async def bot(runner_args: RunnerArguments):
+    """Main bot entry point for Daily local and Pipecat Cloud runtimes."""
+    body = runner_args.body if isinstance(runner_args.body, dict) else {}
+    logger.info(
+        f"""Inbound bot invoked. body_type={type(runner_args.body).__name__}, body_keys={sorted(body.keys())}, room_url_present={bool(runner_args.room_url)}"""
     )
 
-    transport = FastAPIWebsocketTransport(
-        websocket=runner_args.websocket,
-        params=FastAPIWebsocketParams(
+    def build_daily_participant_initializer(log_message: str):
+        async def configure_daily_transport(transport, task, flow_manager, call_id):
+            flow_initialized = False
+
+            @transport.event_handler("on_first_participant_joined")
+            async def on_first_participant_joined(transport, participant):
+                nonlocal flow_initialized
+                if flow_initialized:
+                    return
+
+                flow_initialized = True
+                logger.info(log_message.format(call_id=call_id))
+                await flow_manager.initialize(node_initial())
+
+        return configure_daily_transport
+
+    if not looks_like_daily_dialin_body(body):
+        logger.info(
+            "No Daily dial-in metadata detected; starting standard Pipecat Cloud WebRTC session."
+        )
+        transport = DailyTransport(
+            runner_args.room_url,
+            runner_args.token,
+            "VLAS Intake Bot",
+            params=DailyParams(
+                audio_in_enabled=True,
+                audio_in_filter=RNNoiseFilter(),
+                audio_out_enabled=True,
+            ),
+        )
+        await run_bot(
+            transport,
+            call_id="sandbox-session",
+            caller_phone_number="",
+            handle_sigint=runner_args.handle_sigint,
+            configure_transport=build_daily_participant_initializer(
+                "First Daily WebRTC participant joined call {call_id}"
+            ),
+        )
+        return
+
+    try:
+        request = DailyDialinRequest.model_validate(normalize_daily_dialin_body(body))
+    except (ValidationError, ValueError) as e:
+        logger.error(
+            f"""Invalid Daily dial-in request: {e}. Received body keys: {sorted(body.keys())}. If you are using Pipecat Cloud automatic telephony, point the Daily number at the Pipecat Cloud /dialin webhook. If you are using a custom webhook server, forward dialin_settings plus Daily API credentials."""
+        )
+        return
+
+    daily_dialin_settings = DailyDialinSettings(
+        call_id=request.dialin_settings.call_id,
+        call_domain=request.dialin_settings.call_domain,
+    )
+
+    caller_phone_number = request.dialin_settings.From or ""
+    call_id = request.dialin_settings.call_id
+    if caller_phone_number:
+        logger.info(f"""Handling Daily PSTN call from: {caller_phone_number}""")
+
+    transport = DailyTransport(
+        runner_args.room_url,
+        runner_args.token,
+        "VLAS Intake Bot",
+        params=DailyParams(
+            api_key=request.daily_api_key,
+            api_url=request.daily_api_url,
+            dialin_settings=daily_dialin_settings,
             audio_in_enabled=True,
+            audio_in_filter=RNNoiseFilter(),
             audio_out_enabled=True,
-            add_wav_header=False,
-            serializer=serializer,
-            vad_analyzer=SileroVADAnalyzer(params=VADParams(start_secs=0.1)),
         ),
     )
 
-    handle_sigint = runner_args.handle_sigint
+    configure_daily_transport = build_daily_participant_initializer(
+        "First PSTN participant joined call {call_id}"
+    )
 
-    await run_bot(transport, call_data, handle_sigint)
+    async def configure_daily_transport_with_dialin_error(
+        transport, task, flow_manager, call_id
+    ):
+        await configure_daily_transport(transport, task, flow_manager, call_id)
+
+        @transport.event_handler("on_dialin_error")
+        async def on_dialin_error(transport, data):
+            logger.error(f"""Dial-in error: {data}""")
+            await task.cancel()
+
+    await run_bot(
+        transport,
+        call_id,
+        caller_phone_number,
+        runner_args.handle_sigint,
+        configure_transport=configure_daily_transport_with_dialin_error,
+    )
 
 
-async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool):
+async def run_bot(
+    transport: BaseTransport,
+    call_id: str,
+    caller_phone_number: str,
+    handle_sigint: bool,
+    configure_transport: TransportSetup | None = None,
+):
     """
     Main function to set up and run the VLAS intake bot.
     """
-    stt = OpenAISTTService(
-        api_key=require_ev("OPENAI_API_KEY"),
-        model="gpt-4o-transcribe",
-        prompt="Expect words related to law, legal situations, and information about people. The language may be English or Spanish.",
-        language=None,
+    stt = AzureSTTService(
+        api_key=require_ev("AZURE_API_KEY"),
+        region=require_ev("AZURE_SPEECH_REGION"),
     )
 
-    llm = OpenAILLMService(api_key=require_ev("OPENAI_API_KEY"), model="gpt-4o")
+    llm = AzureLLMService(
+        api_key=require_ev("AZURE_API_KEY"),
+        endpoint=require_ev("AZURE_LLM_ENDPOINT"),
+        settings=AzureLLMService.Settings(
+            model=require_ev("AZURE_LLM_MODEL"),
+        ),
+    )
 
-    tts = GoogleTTSService(
-        credentials=require_ev("GOOGLE_ACCESS_CREDENTIALS"),
-        voice_id="en-US-Chirp3-HD-Achernar",
-        push_silence_after_stop=False,
-        params=GoogleTTSService.InputParams(
-            language=Language.EN, gender="female", google_style="empathetic"
+    tts = AzureTTSService(
+        api_key=require_ev("AZURE_API_KEY"),
+        region=require_ev("AZURE_SPEECH_REGION"),
+        settings=AzureTTSService.Settings(
+            voice=require_ev("AZURE_SPEECH_VOICE"),
         ),
     )
 
@@ -180,14 +256,23 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
+            user_mute_strategies=[FunctionCallUserMuteStrategy()],
             user_turn_strategies=UserTurnStrategies(
+                start=[
+                    MinWordsUserTurnStartStrategy(min_words=2),
+                ],
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
                         turn_analyzer=LocalSmartTurnAnalyzerV3()
                     )
                 ],
             ),
-            user_mute_strategies=[FunctionCallUserMuteStrategy()],
+            vad_analyzer=SileroVADAnalyzer(
+                params=VADParams(
+                    confidence=0.8,
+                    start_secs=0.3,
+                )
+            ),
         ),
     )
 
@@ -224,13 +309,9 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
     transcript_file = None
     if ev_is_true("LOG_TO_FILE"):
         os.makedirs("logs", exist_ok=True)
-        transcript_file = f"""logs/transcript_{call_data["call_id"]}.txt"""
+        transcript_file = f"""logs/transcript_{call_id}.txt"""
         logger.info(f"""Logging transcript to file: {transcript_file}""")
     transcript_handler = TranscriptHandler(output_file=transcript_file)
-
-    # NOTE: Watch out! This will save all the conversation in memory. You can
-    # pass `buffer_size` to get periodic callbacks.
-    audiobuffer = AudioBufferProcessor()
 
     context_aggregator.user().event_handler("on_user_turn_stopped")(
         transcript_handler.on_user_transcript
@@ -241,14 +322,13 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     pipeline = Pipeline(
         [
-            transport.input(),  # Websocket input from client
+            transport.input(),
             stt,  # Speech-To-Text
             user_idle,  # Idle user check-in
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
-            transport.output(),  # Websocket output to client
-            audiobuffer,  # Used to buffer the audio in the pipeline
+            transport.output(),
             context_aggregator.assistant(),
         ]
     )
@@ -272,7 +352,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
-        idle_timeout_secs=None,  # Disable idle timeout; Twilio's on_session_timeout handles timeouts
+        idle_timeout_secs=None,
         observers=observers,
     )
 
@@ -287,19 +367,14 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         ],
     )
 
-    # Add flow manager state from Twilio's call_data
-    flow_manager.state["call_id"] = call_data["call_id"]
-    flow_manager.state["phone"] = call_data["body"].get("caller_phone_number")
+    flow_manager.state["call_id"] = call_id
+    flow_manager.state["phone"] = caller_phone_number
 
-    @transport.event_handler("on_client_connected")
-    async def on_client_connected(transport, client):
-        # Start recording.
-        await audiobuffer.start_recording()
-        # Kick off the conversation.
-        await flow_manager.initialize(node_initial())
+    if configure_transport is not None:
+        await configure_transport(transport, task, flow_manager, call_id)
 
     @transport.event_handler("on_session_timeout")
-    async def handle_timeout(transport, websocket):
+    async def handle_timeout(transport, participant):
         # Play timeout message before ending call
         logger.info("Call timed out; ending.")
         await task.queue_frames(
@@ -313,6 +388,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
 
     @transport.event_handler("on_client_disconnected")
     async def on_client_disconnected(transport, client):
+        logger.info(f"""Client disconnected for call {call_id}""")
         await task.stop_when_done()
 
     @task.event_handler("on_pipeline_finished")
@@ -321,13 +397,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         await save_state_to_json(flow_manager.state)
         await save_intake_legalserver(flow_manager.state)
 
-    @audiobuffer.event_handler("on_audio_data")
-    async def on_audio_data(buffer, audio, sample_rate, num_channels):
-        if ev_is_true("SAVE_AUDIO_RECORDINGS"):
-            await save_audio(audio, sample_rate, num_channels)
-
-    # We use `handle_sigint=False` because `uvicorn` (not sure if this
-    # applies since we're using `granian` now) is controlling keyboard
+    # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
     # interruptions. We use `force_gc=True` to force garbage collection
     # after the runner finishes running a task which could be useful for
     # long running applications with multiple clients connecting.
@@ -342,22 +412,7 @@ async def run_bot(transport: BaseTransport, call_data: dict, handle_sigint: bool
         await runner.run(task)
 
 
-async def save_audio(audio: bytes, sample_rate: int, num_channels: int):
-    if len(audio) > 0:
-        recordings_dir = "recordings"
-        os.makedirs(recordings_dir, exist_ok=True)  # Ensure the folder exists
-        filename = os.path.join(
-            recordings_dir,
-            f"""recording_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.wav""",
-        )
-        with io.BytesIO() as buffer:
-            with wave.open(buffer, "wb") as wf:
-                wf.setsampwidth(2)
-                wf.setnchannels(num_channels)
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio)
-            async with aiofiles.open(filename, "wb") as file:
-                await file.write(buffer.getvalue())
-        logger.info(f"""Merged audio saved to {filename}""")
-    else:
-        logger.info("No audio data to save")
+if __name__ == "__main__":
+    from pipecat.runner.run import main
+
+    main()
