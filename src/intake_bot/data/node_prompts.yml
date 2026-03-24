@@ -358,16 +358,14 @@ confirm_income_over_limit:
 
         If the caller clearly agrees to continue (e.g., "yes"), call `continue_intake("record_assets_receives_benefits")`.
         If the caller clearly declines to continue (e.g., "no", "no thanks", "stop", "I don't want to"), do NOT continue the intake.
-        Instead, provide the website below and then call `end_conversation`.
-        If the caller asks for additional resources, provide the website below and then call `end_conversation`.
+        Instead, ask whether they want the resource information over the phone or sent by text.
+        If they choose phone, call `send_over_limit_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_over_limit_referral_and_end` with delivery_method="text".
+        If the caller asks for additional resources, ask whether they want the resource information over the phone or sent by text, then call `send_over_limit_referral_and_end` with the matching delivery_method.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you?
-
-        If the caller declines to proceed (including saying "no") or asks for resources:
-          - Provide them with Virginia Legal Aid's website for more information (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
-          - Then call the `end_conversation` function.
 
 # Assets
 record_assets_receives_benefits:
@@ -430,16 +428,14 @@ confirm_assets_over_limit:
 
         If the caller clearly agrees to continue (e.g., "yes"), call `continue_intake("record_citizenship")`.
         If the caller clearly declines to continue (e.g., "no", "no thanks", "stop", "I don't want to"), do NOT continue the intake.
-        Instead, provide the website below and then call `end_conversation`.
-        If the caller asks for additional resources, provide the website below and then call `end_conversation`.
+        Instead, ask whether they want the resource information over the phone or sent by text.
+        If they choose phone, call `send_over_limit_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_over_limit_referral_and_end` with delivery_method="text".
+        If the caller asks for additional resources, ask whether they want the resource information over the phone or sent by text, then call `send_over_limit_referral_and_end` with the matching delivery_method.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
         Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably won't be able to help you?
-
-        If the caller declines to proceed (including saying "no") or asks for resources:
-          - Provide them with Virginia Legal Aid's website for more information (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
-          - Then call the `end_conversation` function.
 
 # Citizenship
 record_citizenship:
@@ -603,12 +599,18 @@ complete_intake:
 ineligible:
   task_messages:
     - content: >-
-        Apologize to the caller that Law-Line isn't able to help them. Suggest additional resources.
-        Provide the following websites as resources:
-        - Virginia Legal Aid's website is V A L E G A L A I D dot O R G
-        - Legal Services Corporation's website is L S C dot G O V
-        - Virginia State Bar's website is V S B dot O R G
-        After providing this information, ALWAYS call the `end_conversation` function to end the call.
+        Apologize to the caller that Law-Line isn't able to help them.
+        Ask whether they want the resource information over the phone or sent by text.
+        If they choose phone, call `send_general_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_general_referral_and_end` with delivery_method="text".
+
+case_type_ineligible:
+  task_messages:
+    - content: >-
+        Apologize to the caller that Law-Line isn't able to help with this type of case.
+        Ask whether they want the Virginia State Bar referral information over the phone or sent by text.
+        If they choose phone, call `send_case_type_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_case_type_referral_and_end` with delivery_method="text".
 
 # End the conversation
 end:

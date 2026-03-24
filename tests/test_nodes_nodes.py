@@ -25,8 +25,11 @@ from intake_bot.nodes.nodes import (
     record_phone_number,
     record_service_area,
     record_ssn_last_4,
+    send_case_type_referral_and_end,
+    send_general_referral_and_end,
     system_phone_number,
 )
+from intake_bot.services.dialpad import CASE_TYPE_REFERRAL, GENERAL_REFERRAL
 from intake_bot.utils.node_prompts import NodePrompts
 
 
@@ -333,7 +336,84 @@ async def test_record_case_type_ineligible(flow_manager, patch_validator):
     assert result["status"] == Status.ERROR
     assert "Ineligible case type." in result["error"]
     assert result["is_eligible"] is False
-    assert "ineligible_prompt" in next_node
+    assert "case_type_ineligible_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_send_general_referral_and_end_sends_sms_and_returns_end_node(
+    flow_manager, monkeypatch
+):
+    flow_manager.state["phone"] = "+15096305855"
+    flow_manager.state["language"] = {"language": "English"}
+    sms_mock = MagicMock()
+    sms_mock.is_configured = True
+    sms_mock.send = AsyncMock(return_value={"status": 200, "body": {"id": "1"}})
+    monkeypatch.setattr("intake_bot.nodes.nodes.sms_service", sms_mock)
+
+    result, next_node = await send_general_referral_and_end(flow_manager, "text")
+
+    assert result is None
+    sms_mock.send.assert_awaited_once_with(
+        "+15096305855",
+        GENERAL_REFERRAL.sms_text("English"),
+    )
+    assert flow_manager.state["sms_messages"][0]["category"] == "referral"
+    assert next_node["pre_actions"][0]["text"] == GENERAL_REFERRAL.text_delivery_text(
+        "English"
+    )
+    assert next_node["post_actions"] == [{"type": "end_conversation"}]
+
+
+@pytest.mark.asyncio
+async def test_send_case_type_referral_and_end_phone_does_not_send_sms(
+    flow_manager, monkeypatch
+):
+    flow_manager.state["phone"] = "+15096305855"
+    flow_manager.state["language"] = {"language": "Spanish"}
+    sms_mock = MagicMock()
+    sms_mock.is_configured = True
+    sms_mock.send = AsyncMock(return_value={"status": 200, "body": {"id": "1"}})
+    monkeypatch.setattr("intake_bot.nodes.nodes.sms_service", sms_mock)
+
+    _, next_node = await send_case_type_referral_and_end(flow_manager, "phone")
+
+    sms_mock.send.assert_not_awaited()
+    assert next_node["pre_actions"][0]["text"] == CASE_TYPE_REFERRAL.spoken_text(
+        "Spanish"
+    )
+
+
+@pytest.mark.asyncio
+async def test_send_general_referral_and_end_rejects_invalid_delivery_method(
+    flow_manager,
+):
+    result, next_node = await send_general_referral_and_end(
+        flow_manager, "carrier pigeon"
+    )
+
+    assert result.status == Status.ERROR
+    assert "delivery_method" in result.error
+    assert next_node is None
+
+
+def test_ineligible_prompt_routes_to_referral_end_function_without_urls():
+    prompt = NodePrompts().get("ineligible")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "send_general_referral_and_end" in content
+    assert "over the phone or sent by text" in content
+    assert "V A L E G A L A I D" not in content
+    assert "L S C dot G O V" not in content
+    assert "V S B dot O R G" not in content
+
+
+def test_case_type_ineligible_prompt_routes_to_referral_end_function_without_url():
+    prompt = NodePrompts().get("case_type_ineligible")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "send_case_type_referral_and_end" in content
+    assert "over the phone or sent by text" in content
+    assert "V S B dot O R G" not in content
 
 
 @pytest.mark.asyncio

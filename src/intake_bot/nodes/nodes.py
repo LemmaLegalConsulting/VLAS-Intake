@@ -33,6 +33,13 @@ from intake_bot.nodes.utils import (
     status_helper,
 )
 from intake_bot.nodes.validator import IntakeValidator
+from intake_bot.services.dialpad import (
+    CASE_TYPE_REFERRAL,
+    GENERAL_REFERRAL,
+    OVER_LIMIT_REFERRAL,
+    SMS,
+    ReferralContent,
+)
 from intake_bot.utils.ev import get_ev
 from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
@@ -50,6 +57,7 @@ from pydantic import ValidationError
 # Initialize
 prompts = NodePrompts()
 validator = IntakeValidator()
+sms_service = SMS()
 
 
 ######################################################################
@@ -90,6 +98,80 @@ def node_partial_reset_with_summary() -> NodeConfig:
             summary_prompt=prompts.get("reset_with_summary"),
         ),
     }
+
+
+def _caller_language(flow_manager: FlowManager) -> str:
+    language = flow_manager.state.get("language", {}).get("language", "English")
+    return language.strip().lower()
+
+
+def _caller_phone_number(flow_manager: FlowManager) -> str | None:
+    phone_state = flow_manager.state.get("phone")
+    if isinstance(phone_state, dict):
+        phone_number = phone_state.get("phone_number")
+        return phone_number.strip() if isinstance(phone_number, str) else None
+    if isinstance(phone_state, str):
+        normalized = phone_state.strip()
+        return normalized or None
+    return None
+
+
+def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
+    normalized = delivery_method.strip().lower()
+    if normalized in {"phone", "by phone", "over the phone", "voice", "call"}:
+        return "phone"
+    if normalized in {"text", "sms", "text message", "message", "by text"}:
+        return "text"
+    return None
+
+
+def _node_referral_and_end(
+    flow_manager: FlowManager, content: ReferralContent, delivery_method: str
+) -> NodeConfig:
+    language = _caller_language(flow_manager)
+    spoken_text = (
+        content.spoken_text(language)
+        if delivery_method == "phone"
+        else content.text_delivery_text(language)
+    )
+    return {
+        "pre_actions": [{"type": "tts_say", "text": spoken_text}],
+        "functions": [],
+        "post_actions": [{"type": "end_conversation"}],
+    }
+
+
+async def _send_referral_sms(
+    flow_manager: FlowManager, content: ReferralContent
+) -> None:
+    phone_number = _caller_phone_number(flow_manager)
+    if not phone_number:
+        logger.info(
+            "Skipping referral SMS because no caller phone number is available."
+        )
+        return
+
+    if not sms_service.is_configured:
+        logger.warning("Skipping referral SMS because Dialpad SMS is not configured.")
+        return
+
+    message_text = content.sms_text(_caller_language(flow_manager))
+    try:
+        response = await sms_service.send(phone_number, message_text)
+    except Exception as exc:
+        logger.warning(f"Failed to send referral SMS to {phone_number}: {exc}")
+        return
+
+    sms_log = flow_manager.state.setdefault("sms_messages", [])
+    sms_log.append(
+        {
+            "to": phone_number,
+            "text": message_text,
+            "status": response.get("status"),
+            "category": "referral",
+        }
+    )
+    logger.info(f"Sent referral SMS to {phone_number}")
 
 
 ######################################################################
@@ -283,7 +365,7 @@ async def record_service_area(
                 node_partial_reset_with_summary()
                 | {
                     **prompts.get("ineligible"),
-                    "post_actions": [{"type": "end_conversation"}],
+                    "functions": [send_general_referral_and_end],
                 }
             )
     return result, next_node
@@ -337,8 +419,8 @@ async def record_case_type(
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("ineligible"),
-                "post_actions": [{"type": "end_conversation"}],
+                **prompts.get("case_type_ineligible"),
+                "functions": [send_case_type_referral_and_end],
             }
         )
     return result, next_node
@@ -525,7 +607,7 @@ async def record_income(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_income_over_limit"),
-                "functions": [continue_intake],
+                "functions": [continue_intake, send_over_limit_referral_and_end],
             }
         )
     return result, next_node
@@ -621,7 +703,7 @@ async def record_assets_list(
             node_partial_reset_with_summary()
             | {
                 **prompts.get("confirm_assets_over_limit"),
-                "functions": [continue_intake],
+                "functions": [continue_intake, send_over_limit_referral_and_end],
             }
         )
     return result, next_node
@@ -885,6 +967,66 @@ async def continue_intake(
         }
     )
     return None, next_node
+
+
+async def send_general_referral_and_end(
+    flow_manager: FlowManager,
+    delivery_method: str,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    normalized_method = _normalize_referral_delivery_method(delivery_method)
+    if normalized_method is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="delivery_method must be either 'phone' or 'text'.",
+            ),
+            None,
+        )
+    if normalized_method == "text":
+        await _send_referral_sms(flow_manager, GENERAL_REFERRAL)
+    return None, _node_referral_and_end(
+        flow_manager, GENERAL_REFERRAL, normalized_method
+    )
+
+
+async def send_case_type_referral_and_end(
+    flow_manager: FlowManager,
+    delivery_method: str,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    normalized_method = _normalize_referral_delivery_method(delivery_method)
+    if normalized_method is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="delivery_method must be either 'phone' or 'text'.",
+            ),
+            None,
+        )
+    if normalized_method == "text":
+        await _send_referral_sms(flow_manager, CASE_TYPE_REFERRAL)
+    return None, _node_referral_and_end(
+        flow_manager, CASE_TYPE_REFERRAL, normalized_method
+    )
+
+
+async def send_over_limit_referral_and_end(
+    flow_manager: FlowManager,
+    delivery_method: str,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    normalized_method = _normalize_referral_delivery_method(delivery_method)
+    if normalized_method is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="delivery_method must be either 'phone' or 'text'.",
+            ),
+            None,
+        )
+    if normalized_method == "text":
+        await _send_referral_sms(flow_manager, OVER_LIMIT_REFERRAL)
+    return None, _node_referral_and_end(
+        flow_manager, OVER_LIMIT_REFERRAL, normalized_method
+    )
 
 
 async def end_conversation(

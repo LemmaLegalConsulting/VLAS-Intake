@@ -1,0 +1,49 @@
+general_referral:
+  spoken_en: >-
+    I'm sorry, Law-Line isn't able to help with that.
+    Here is the web address of the Virginia State Bar: V S B dot O R G. Goodbye.
+  spoken_es: >-
+    Lo siento, Law-Line no puede ayudar con eso.
+    Aqui esta la direccion web del Virginia State Bar: V S B punto O R G. Adios.
+  text_en: >-
+    Okay. I will send those resources by text now. Goodbye.
+  text_es: >-
+    Esta bien. Le voy a enviar esos recursos por texto ahora. Adios.
+  sms_en: >-
+    Virginia Legal Aid resources: VA Legal Aid https://www.valegalaid.org,
+    Legal Services Corporation https://www.lsc.gov, Virginia State Bar https://www.vsb.org
+  sms_es: >-
+    Recursos de ayuda legal en Virginia: Virginia Legal Aid https://www.valegalaid.org,
+    Legal Services Corporation https://www.lsc.gov, Virginia State Bar https://www.vsb.org
+
+case_type_referral:
+  spoken_en: >-
+    I'm sorry, Law-Line isn't able to help with this type of case.
+    Here is the web address of the Virginia State Bar: V S B dot O R G. Goodbye.
+  spoken_es: >-
+    Lo siento, Law-Line no puede ayudar con este tipo de caso.
+    Aqui esta la direccion web del Virginia State Bar: V S B punto O R G. Adios.
+  text_en: >-
+    Okay. I will send the Virginia State Bar referral information by text now. Goodbye.
+  text_es: >-
+    Esta bien. Le voy a enviar la informacion del Virginia State Bar por texto ahora. Adios.
+  sms_en: >-
+    Virginia State Bar referral information: https://www.vsb.org
+  sms_es: >-
+    Informacion de referencia del Virginia State Bar: https://www.vsb.org
+
+over_limit_referral:
+  spoken_en: >-
+    I'm sorry, your household appears to be above our limit.
+    Here is the web address of Virginia Legal Aid: V A L E G A L A I D dot O R G. Goodbye.
+  spoken_es: >-
+    Lo siento, parece que su hogar esta por encima de nuestro limite.
+    Aqui esta la direccion web de Virginia Legal Aid: V A L E G A L A I D punto O R G. Adios.
+  text_en: >-
+    Okay. I will send the Virginia Legal Aid information by text now. Goodbye.
+  text_es: >-
+    Esta bien. Le voy a enviar la informacion de Virginia Legal Aid por texto ahora. Adios.
+  sms_en: >-
+    Virginia Legal Aid information: https://www.valegalaid.org
+  sms_es: >-
+    Informacion de Virginia Legal Aid: https://www.valegalaid.org
