@@ -1,5 +1,6 @@
 [project]
 dependencies = [
+    "aiohttp>=3.13.3",
     "loguru>=0.7.3",
     "phonenumberslite>=9.0.26",
     "pipecat-ai-flows>=0.0.24",

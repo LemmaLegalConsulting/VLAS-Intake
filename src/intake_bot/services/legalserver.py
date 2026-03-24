@@ -5,7 +5,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import httpx
+import aiohttp
 from intake_bot.models.legalserver import (
     AdditionalNamePayload,
     AdversePartyPayload,
@@ -29,6 +29,28 @@ LEGALSERVER_HEADERS = {
 }
 
 
+def _finalize_response(response: aiohttp.ClientResponse) -> None:
+    """Release responses whose bodies are not otherwise consumed."""
+    response.release()
+
+
+def _log_child_write_failure(message: str, status: int, response_body: str) -> None:
+    """Use error severity for downstream configuration/server failures."""
+    response_body_lower = response_body.lower()
+    is_server_or_config_error = status >= 500 or any(
+        marker in response_body_lower
+        for marker in (
+            "contact your administrator",
+            "could not get poverty scale",
+        )
+    )
+    log_message = f"""{message}: {status} - {response_body}"""
+    if is_server_or_config_error:
+        logger.error(log_message)
+    else:
+        logger.warning(log_message)
+
+
 async def save_intake_legalserver(state: dict):
     """
     Save the intake state (flow_manager.state) in LegalServer.
@@ -39,7 +61,8 @@ async def save_intake_legalserver(state: dict):
         return
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             payload = _build_matter_payload(state)
             if payload is None:
                 logger.warning("Skipping LegalServer save: required fields missing")
@@ -53,24 +76,25 @@ async def save_intake_legalserver(state: dict):
 
             logger.debug(f"""Matter payload: {payload}""")
 
-            matter_response = await client.post(
+            matter_response = await session.post(
                 f"""{LEGALSERVER_API_BASE_URL}/matters""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload,
             )
 
-            if matter_response.status_code not in (200, 201):
-                logger.error(
-                    f"""Failed to create matter: {matter_response.status_code}"""
-                )
-                logger.error(f"""Response: {matter_response.text}""")
+            if matter_response.status not in (200, 201):
+                logger.error(f"""Failed to create matter: {matter_response.status}""")
+                logger.error(f"""Response: {await matter_response.text()}""")
                 return
 
-            matter_data = matter_response.json()
+            matter_data = await matter_response.json(content_type=None)
             logger.debug(f"""Matter response data keys: {matter_data.keys()}""")
 
             matter_info = matter_data.get("data", matter_data)
             matter_uuid = matter_info.get("matter_uuid")
+            if not matter_uuid:
+                logger.error("Matter creation response missing matter_uuid")
+                return
 
             if case_id := matter_info.get("case_id"):
                 subdomain = require_ev("LEGAL_SERVER_SUBDOMAIN")
@@ -82,31 +106,31 @@ async def save_intake_legalserver(state: dict):
                 logger.debug(f"""Matter created successfully: {matter_uuid}""")
 
             if "income" in state:
-                await _save_income_records(client, matter_uuid, state["income"])
+                await _save_income_records(session, matter_uuid, state["income"])
 
             if "adverse_parties" in state:
                 await _save_adverse_parties(
-                    client, matter_uuid, state["adverse_parties"]
+                    session, matter_uuid, state["adverse_parties"]
                 )
 
             if "case_type" in state:
                 await _save_case_description_note(
-                    client, matter_uuid, state["case_type"]
+                    session, matter_uuid, state["case_type"]
                 )
 
             if "assets" in state:
-                await _save_assets_note(client, matter_uuid, state["assets"])
+                await _save_assets_note(session, matter_uuid, state["assets"])
 
             if "names" in state and "names" in state["names"]:
                 if len(state["names"]["names"]) > 1:
                     await _save_additional_names(
-                        client, matter_uuid, state["names"]["names"]
+                        session, matter_uuid, state["names"]["names"]
                     )
 
             if rejection_reason_name:
-                await _save_rejection_note(client, matter_uuid, rejection_reason_name)
+                await _save_rejection_note(session, matter_uuid, rejection_reason_name)
 
-    except httpx.RequestError as e:
+    except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed: {e}""")
     except Exception as e:
         logger.error(f"""Unexpected error saving intake to LegalServer: {e}""")
@@ -242,13 +266,13 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
 
 async def _save_income_records(
-    client: httpx.AsyncClient, matter_uuid: str, income_data: Dict[str, Any]
+    session: aiohttp.ClientSession, matter_uuid: str, income_data: Dict[str, Any]
 ) -> None:
     """
     Save income records for a matter via the incomes API endpoint.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         income_data: Dictionary with "listing" of household member income data
             Structure: {person_name: {income_category_name: {amount, period}}}
@@ -277,34 +301,38 @@ async def _save_income_records(
                     )
                     continue
 
-                response = await client.post(
+                response = await session.post(
                     f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes""",
                     headers=LEGALSERVER_HEADERS,
                     json=payload.model_dump(exclude_none=True),
                 )
 
-                if response.status_code not in (200, 201):
-                    logger.warning(
-                        f"""Failed to save income for {person_name} ({income_category_name}): """
-                        f"""{response.status_code} - {response.text}"""
+                if response.status not in (200, 201):
+                    _log_child_write_failure(
+                        f"""Failed to save income for {person_name} ({income_category_name})""",
+                        response.status,
+                        await response.text(),
                     )
                 else:
+                    _finalize_response(response)
                     logger.debug(
                         f"""Income record created for {person_name} ({income_category_name}): ${payload.amount} {payload.period}"""
                     )
 
-    except Exception as e:
-        logger.error(f"""Error saving income records: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving income records: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving income records")
 
 
 async def _save_additional_names(
-    client: httpx.AsyncClient, matter_uuid: str, names_list: list[Dict[str, Any]]
+    session: aiohttp.ClientSession, matter_uuid: str, names_list: list[Dict[str, Any]]
 ) -> None:
     """
     Save additional caller names via the additional_names API endpoint.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         names_list: List of name dictionaries with first, middle, last, suffix fields
     """
@@ -327,34 +355,40 @@ async def _save_additional_names(
                 logger.warning(f"""Failed to validate additional name: {e}""")
                 continue
 
-            response = await client.post(
+            response = await session.post(
                 f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload.model_dump(exclude_none=True),
             )
 
-            if response.status_code not in (200, 201):
-                logger.warning(
-                    f"""Failed to save additional name {payload.first} {payload.last}: """
-                    f"""{response.status_code} - {response.text}"""
+            if response.status not in (200, 201):
+                _log_child_write_failure(
+                    f"""Failed to save additional name {payload.first} {payload.last}""",
+                    response.status,
+                    await response.text(),
                 )
             else:
+                _finalize_response(response)
                 logger.debug(
                     f"""Additional name created: {payload.first} {payload.last}"""
                 )
 
-    except Exception as e:
-        logger.error(f"""Error saving additional names: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving additional names: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving additional names")
 
 
 async def _save_adverse_parties(
-    client: httpx.AsyncClient, matter_uuid: str, adverse_parties_data: Dict[str, Any]
+    session: aiohttp.ClientSession,
+    matter_uuid: str,
+    adverse_parties_data: Dict[str, Any],
 ) -> None:
     """
     Save adverse parties for a matter via the adverse_parties API endpoint.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         adverse_parties_data: Dictionary with "adverse_parties" list of party data
     """
@@ -395,34 +429,38 @@ async def _save_adverse_parties(
                 logger.warning(f"""Failed to validate adverse party: {e}""")
                 continue
 
-            response = await client.post(
+            response = await session.post(
                 f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties""",
                 headers=LEGALSERVER_HEADERS,
                 json=payload.model_dump(exclude_none=True),
             )
 
-            if response.status_code not in (200, 201):
-                logger.warning(
-                    f"""Failed to save adverse party {payload.first} {payload.last}: """
-                    f"""{response.status_code} - {response.text}"""
+            if response.status not in (200, 201):
+                _log_child_write_failure(
+                    f"""Failed to save adverse party {payload.first} {payload.last}""",
+                    response.status,
+                    await response.text(),
                 )
             else:
+                _finalize_response(response)
                 logger.debug(
                     f"""Adverse party created: {payload.first} {payload.last}"""
                 )
 
-    except Exception as e:
-        logger.error(f"""Error saving adverse parties: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving adverse parties: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving adverse parties")
 
 
 async def _save_case_description_note(
-    client: httpx.AsyncClient, matter_uuid: str, case_type_data: Dict[str, Any]
+    session: aiohttp.ClientSession, matter_uuid: str, case_type_data: Dict[str, Any]
 ) -> None:
     """
     Save case description as a matter note.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         case_type_data: Dictionary with "case_description"
     """
@@ -446,31 +484,36 @@ async def _save_case_description_note(
             logger.warning(f"""Failed to validate case description note: {e}""")
             return
 
-        response = await client.post(
+        response = await session.post(
             f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
             headers=LEGALSERVER_HEADERS,
             json=payload.model_dump(exclude_none=True),
         )
 
-        if response.status_code not in (200, 201):
-            logger.warning(
-                f"""Failed to save case description note: {response.status_code} - {response.text}"""
+        if response.status not in (200, 201):
+            _log_child_write_failure(
+                "Failed to save case description note",
+                response.status,
+                await response.text(),
             )
         else:
+            _finalize_response(response)
             logger.debug("Case description note created")
 
-    except Exception as e:
-        logger.error(f"""Error saving case description note: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving case description note: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving case description note")
 
 
 async def _save_assets_note(
-    client: httpx.AsyncClient, matter_uuid: str, assets_data: Dict[str, Any]
+    session: aiohttp.ClientSession, matter_uuid: str, assets_data: Dict[str, Any]
 ) -> None:
     """
     Save assets as a matter note.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         assets_data: Dictionary with "listing" and "total_value" of assets
     """
@@ -493,17 +536,20 @@ async def _save_assets_note(
             logger.warning(f"""Failed to validate assets note: {e}""")
             return
 
-        response = await client.post(
+        response = await session.post(
             f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
             headers=LEGALSERVER_HEADERS,
             json=payload.model_dump(exclude_none=True),
         )
 
-        if response.status_code not in (200, 201):
-            logger.warning(
-                f"""Failed to save assets note: {response.status_code} - {response.text}"""
+        if response.status not in (200, 201):
+            _log_child_write_failure(
+                "Failed to save assets note",
+                response.status,
+                await response.text(),
             )
         else:
+            _finalize_response(response)
             logger.debug("Assets note created: no assets recorded")
         return
 
@@ -533,33 +579,38 @@ async def _save_assets_note(
             logger.warning(f"""Failed to validate assets note: {e}""")
             return
 
-        response = await client.post(
+        response = await session.post(
             f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
             headers=LEGALSERVER_HEADERS,
             json=payload.model_dump(exclude_none=True),
         )
 
-        if response.status_code not in (200, 201):
-            logger.warning(
-                f"""Failed to save assets note: {response.status_code} - {response.text}"""
+        if response.status not in (200, 201):
+            _log_child_write_failure(
+                "Failed to save assets note",
+                response.status,
+                await response.text(),
             )
         else:
+            _finalize_response(response)
             logger.debug(
                 f"""Assets note created with total value: ${total_value:,.2f}"""
             )
 
-    except Exception as e:
-        logger.error(f"""Error saving assets note: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving assets note: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving assets note")
 
 
 async def _save_rejection_note(
-    client: httpx.AsyncClient, matter_uuid: str, rejection_reason_name: str
+    session: aiohttp.ClientSession, matter_uuid: str, rejection_reason_name: str
 ) -> None:
     """
     Save a note explaining the automatic rejection.
 
     Args:
-        client: AsyncClient for making HTTP requests
+        session: ClientSession for making HTTP requests
         matter_uuid: The matter UUID from the matter creation response
         rejection_reason_name: The human-readable rejection reason
     """
@@ -570,21 +621,24 @@ async def _save_rejection_note(
             note_type={"lookup_value_name": "General Notes"},
         )
 
-        response = await client.post(
+        response = await session.post(
             f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
             headers=LEGALSERVER_HEADERS,
             json=payload.model_dump(exclude_none=True),
         )
 
-        if response.status_code not in (200, 201):
+        if response.status not in (200, 201):
             logger.error(
-                f"""Failed to save rejection note: {response.status_code} - {response.text}"""
+                f"""Failed to save rejection note: {response.status} - {await response.text()}"""
             )
         else:
+            _finalize_response(response)
             logger.debug("Rejection note saved successfully")
 
-    except Exception as e:
-        logger.error(f"""Error saving rejection note: {e}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving rejection note: {e}""")
+    except Exception:
+        logger.exception("Unexpected error saving rejection note")
 
 
 async def get_common_lookup_types() -> list[str] | None:
@@ -632,26 +686,27 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
         Dictionary with custom lookups data including all pages, or None if query fails
     """
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             all_lookups = []
             page_number = 1
             total_pages = None
 
             while total_pages is None or page_number <= total_pages:
                 # Query custom lookups endpoint with pagination
-                response = await client.get(
+                response = await session.get(
                     f"""{LEGALSERVER_API_BASE_URL}/custom_lookups?page_number={page_number}""",
                     headers=LEGALSERVER_HEADERS,
                 )
 
-                if response.status_code not in (200, 201):
+                if response.status not in (200, 201):
                     logger.error(
-                        f"""Failed to query custom lookups page {page_number}: {response.status_code}"""
+                        f"""Failed to query custom lookups page {page_number}: {response.status}"""
                     )
-                    logger.error(f"""Response: {response.text}""")
+                    logger.error(f"""Response: {await response.text()}""")
                     return None
 
-                data = response.json()
+                data = await response.json(content_type=None)
                 logger.debug(
                     f"""Custom lookups page {page_number} response keys: {data.keys()}"""
                 )
@@ -679,7 +734,7 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
                 "data": all_lookups,
             }
 
-    except httpx.RequestError as e:
+    except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed: {e}""")
         return None
     except Exception as e:
@@ -703,7 +758,8 @@ async def query_lookup_values(
         Dictionary of lookup values with their IDs and names, or None if query fails
     """
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             # Construct URL based on lookup type
             if is_custom:
                 base_url = (
@@ -720,21 +776,21 @@ async def query_lookup_values(
             final_data = None
 
             while total_pages is None or page_number <= total_pages:
-                response = await client.get(
+                response = await session.get(
                     base_url,
                     headers=LEGALSERVER_HEADERS,
                     params={"page_number": page_number},
                 )
 
-                if response.status_code not in (200, 201):
+                if response.status not in (200, 201):
                     lookup_type = "custom lookup" if is_custom else "lookup table"
                     logger.error(
-                        f"""Failed to query {lookup_type} '{lookup_identifier}' page {page_number}: {response.status_code}"""
+                        f"""Failed to query {lookup_type} '{lookup_identifier}' page {page_number}: {response.status}"""
                     )
-                    logger.error(f"""Response: {response.text}""")
+                    logger.error(f"""Response: {await response.text()}""")
                     return None
 
-                data = response.json()
+                data = await response.json(content_type=None)
                 final_data = data
 
                 # Check if response is paginated
@@ -776,7 +832,7 @@ async def query_lookup_values(
                 "raw_response": final_data,
             }
 
-    except httpx.RequestError as e:
+    except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed: {e}""")
         return None
     except Exception as e:
@@ -803,20 +859,24 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
         return None
 
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
             # Query each lookup type to find the ID
             for lookup_type in common_types:
                 url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"""
 
                 try:
-                    response = await client.get(
-                        url, headers=LEGALSERVER_HEADERS, timeout=10
+                    response = await session.get(
+                        url,
+                        headers=LEGALSERVER_HEADERS,
+                        timeout=aiohttp.ClientTimeout(total=10),
                     )
 
-                    if response.status_code not in (200, 201):
+                    if response.status not in (200, 201):
+                        _finalize_response(response)
                         continue
 
-                    data = response.json()
+                    data = await response.json(content_type=None)
                     values = data.get("data", [])
 
                     # Handle both list and dict responses

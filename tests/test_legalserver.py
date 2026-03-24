@@ -1,6 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
+import aiohttp
 import pytest
 from intake_bot.models.validator import NameTypeValue
 from intake_bot.services.legalserver import (
@@ -630,9 +630,8 @@ class TestSaveIncomeRecords:
     async def test_save_single_income_record(self):
         """Test saving a single income record."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(status_code=201, json=MagicMock(return_value={}))
-        )
+        mock_response = MagicMock(status=201, json=AsyncMock(return_value={}))
+        mock_client.post = AsyncMock(return_value=mock_response)
 
         income_data = {
             "is_eligible": True,
@@ -649,11 +648,12 @@ class TestSaveIncomeRecords:
         assert call_args[1]["json"]["type"] == {"lookup_value_name": "Employment"}
         assert call_args[1]["json"]["amount"] == 50000
         assert call_args[1]["json"]["period"] == "Annually"
+        mock_response.release.assert_called_once()
 
     async def test_save_multiple_income_records(self):
         """Test saving multiple income records for different household members."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "is_eligible": True,
@@ -670,7 +670,7 @@ class TestSaveIncomeRecords:
     async def test_save_income_with_different_periods(self):
         """Test that different period formats are valid LegalServer values."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "listing": {
@@ -697,7 +697,7 @@ class TestSaveIncomeRecords:
     async def test_skip_empty_household_member_records(self):
         """Test that empty income records are skipped."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "listing": {
@@ -715,7 +715,7 @@ class TestSaveIncomeRecords:
     async def test_skip_records_with_missing_amount(self):
         """Test that records without amount are skipped."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "listing": {
@@ -736,7 +736,7 @@ class TestSaveIncomeRecords:
     async def test_accept_zero_income_with_period(self):
         """Test that amount=0 is accepted (not treated as missing)."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "listing": {
@@ -782,7 +782,9 @@ class TestSaveIncomeRecords:
         """Test that failed income record creation is logged."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(
-            return_value=MagicMock(status_code=400, reason="Bad Request")
+            return_value=MagicMock(
+                status=400, text=AsyncMock(return_value="Bad Request")
+            )
         )
 
         income_data = {
@@ -795,10 +797,33 @@ class TestSaveIncomeRecords:
             await _save_income_records(mock_client, "test-uuid", income_data)
             mock_logger.warning.assert_called()
 
+    async def test_log_income_configuration_failure_as_error(self):
+        """Test that downstream configuration failures are logged as errors."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(
+            return_value=MagicMock(
+                status=404,
+                text=AsyncMock(
+                    return_value='{"error_message":"Could not get poverty scale for 2026-03-24 and size 4. Contact your administrator."}'
+                ),
+            )
+        )
+
+        income_data = {
+            "listing": {
+                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
+            }
+        }
+
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await _save_income_records(mock_client, "test-uuid", income_data)
+            mock_logger.error.assert_called()
+            mock_logger.warning.assert_not_called()
+
     async def test_capitalize_income_type(self):
         """Test that income category IDs are properly handled."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         income_data = {
             "listing": {
@@ -830,7 +855,7 @@ class TestSaveIncomeRecords:
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             # Should not raise
             await _save_income_records(mock_client, "test-uuid", income_data)
-            mock_logger.error.assert_called()
+            mock_logger.exception.assert_called()
 
 
 @pytest.mark.asyncio
@@ -840,7 +865,8 @@ class TestSaveAdditionalNames:
     async def test_save_single_additional_name(self):
         """Test saving a single additional name via API."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_response = MagicMock(status=201)
+        mock_client.post = AsyncMock(return_value=mock_response)
 
         names_list = [
             {
@@ -872,11 +898,12 @@ class TestSaveAdditionalNames:
             call_args[1]["json"]["type"]["lookup_value_name"]
             == NameTypeValue.MAIDEN_NAME.value
         )
+        mock_response.release.assert_called_once()
 
     async def test_save_additional_name_with_default_type(self):
         """Test that type defaults to Former Name when not specified."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe"},
@@ -898,7 +925,7 @@ class TestSaveAdditionalNames:
     async def test_save_multiple_additional_names(self):
         """Test saving multiple additional names via API with different types."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
@@ -958,7 +985,7 @@ class TestSaveAdditionalNames:
     async def test_skip_additional_names_with_no_first_and_last(self):
         """Test that additional names without first and last name are skipped."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
@@ -977,7 +1004,7 @@ class TestSaveAdditionalNames:
     async def test_format_name_with_all_components(self):
         """Test that all name components are included in payload."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
@@ -1003,7 +1030,7 @@ class TestSaveAdditionalNames:
     async def test_format_name_with_partial_components(self):
         """Test that names with missing components are handled correctly."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
@@ -1028,7 +1055,9 @@ class TestSaveAdditionalNames:
         """Test that failed name creation is logged as warning."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(
-            return_value=MagicMock(status_code=400, text="Bad Request")
+            return_value=MagicMock(
+                status=400, text=AsyncMock(return_value="Bad Request")
+            )
         )
 
         names_list = [
@@ -1052,12 +1081,12 @@ class TestSaveAdditionalNames:
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_additional_names(mock_client, "test-uuid", names_list)
-            mock_logger.error.assert_called()
+            mock_logger.exception.assert_called()
 
     async def test_successful_name_creation_logs_debug_with_type(self):
         """Test that successful name creation is logged with type."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         names_list = [
             {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
@@ -1083,7 +1112,8 @@ class TestSaveAdverseParties:
     async def test_save_single_adverse_party(self):
         """Test saving a single adverse party via API."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_response = MagicMock(status=201)
+        mock_client.post = AsyncMock(return_value=mock_response)
 
         adverse_parties_data = {
             "adverse_parties": [
@@ -1100,11 +1130,12 @@ class TestSaveAdverseParties:
         assert call_args[1]["json"]["middle"] == "Michael"
         assert call_args[1]["json"]["last"] == "Chen"
         assert "dob" not in call_args[1]["json"]  # None values excluded
+        mock_response.release.assert_called_once()
 
     async def test_save_multiple_adverse_parties(self):
         """Test saving multiple adverse parties via API."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         adverse_parties_data = {
             "adverse_parties": [
@@ -1121,7 +1152,7 @@ class TestSaveAdverseParties:
     async def test_adverse_party_with_dob(self):
         """Test that adverse party with DOB is included in payload."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         adverse_parties_data = {
             "adverse_parties": [{"first": "John", "last": "Doe", "dob": "1990-01-15"}]
@@ -1135,7 +1166,7 @@ class TestSaveAdverseParties:
     async def test_adverse_party_with_all_name_components(self):
         """Test adverse party with all name components."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         adverse_parties_data = {
             "adverse_parties": [
@@ -1180,7 +1211,7 @@ class TestSaveAdverseParties:
     async def test_skip_adverse_party_without_first_and_last_name(self):
         """Test that adverse parties without first and last name are skipped."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         adverse_parties_data = {
             "adverse_parties": [
@@ -1198,7 +1229,9 @@ class TestSaveAdverseParties:
         """Test that failed adverse party creation is logged as warning."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(
-            return_value=MagicMock(status_code=400, text="Bad Request")
+            return_value=MagicMock(
+                status=400, text=AsyncMock(return_value="Bad Request")
+            )
         )
 
         adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
@@ -1216,12 +1249,12 @@ class TestSaveAdverseParties:
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-            mock_logger.error.assert_called()
+            mock_logger.exception.assert_called()
 
     async def test_successful_adverse_party_creation_logs_debug(self):
         """Test that successful adverse party creation is logged."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         adverse_parties_data = {
             "adverse_parties": [
@@ -1248,7 +1281,8 @@ class TestSaveAssetsNote:
     async def test_save_single_asset(self):
         """Test saving a single asset as a note."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_response = MagicMock(status=201)
+        mock_client.post = AsyncMock(return_value=mock_response)
 
         assets_data = {
             "listing": [{"savings account": 2100}],
@@ -1266,11 +1300,12 @@ class TestSaveAssetsNote:
         assert call_args[1]["json"]["note_type"] == {
             "lookup_value_name": "General Notes"
         }
+        mock_response.release.assert_called_once()
 
     async def test_save_multiple_assets(self):
         """Test saving multiple assets as a single note."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {
             "listing": [
@@ -1293,7 +1328,7 @@ class TestSaveAssetsNote:
     async def test_asset_formatting_with_currency(self):
         """Test that assets are formatted as currency with proper formatting."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {
             "listing": [{"real property": 250000}],
@@ -1308,7 +1343,7 @@ class TestSaveAssetsNote:
     async def test_save_empty_assets_listing_creates_no_assets_recorded_note(self):
         """Test that a note is created when assets listing is empty and total is 0."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {"listing": [], "total_value": 0}
 
@@ -1334,7 +1369,7 @@ class TestSaveAssetsNote:
     async def test_save_assets_with_no_listing_and_zero_value(self):
         """Test that a note is created when no assets and total value is 0."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {"listing": [], "total_value": 0}
 
@@ -1347,7 +1382,7 @@ class TestSaveAssetsNote:
     async def test_save_assets_with_only_total_value(self):
         """Test saving assets when only total value is present."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {"listing": [], "total_value": 5000}
 
@@ -1360,7 +1395,9 @@ class TestSaveAssetsNote:
         """Test that failed note creation is logged as warning."""
         mock_client = AsyncMock()
         mock_client.post = AsyncMock(
-            return_value=MagicMock(status_code=400, text="Bad Request")
+            return_value=MagicMock(
+                status=400, text=AsyncMock(return_value="Bad Request")
+            )
         )
 
         assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
@@ -1378,12 +1415,12 @@ class TestSaveAssetsNote:
 
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
             await _save_assets_note(mock_client, "test-uuid", assets_data)
-            mock_logger.error.assert_called()
+            mock_logger.exception.assert_called()
 
     async def test_successful_assets_note_creation_logs_debug(self):
         """Test that successful note creation is logged with total value."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
 
         assets_data = {
             "listing": [{"savings": 1000}, {"jewelry": 500}],
@@ -1403,7 +1440,8 @@ class TestSaveCaseDescriptionNote:
     async def test_save_case_description(self):
         """Test saving case description as a note."""
         mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status_code=201))
+        mock_response = MagicMock(status=201)
+        mock_client.post = AsyncMock(return_value=mock_response)
 
         case_type_data = {"case_description": "I need help with a divorce."}
 
@@ -1417,6 +1455,7 @@ class TestSaveCaseDescriptionNote:
         assert call_args[1]["json"]["note_type"] == {
             "lookup_value_name": "General Notes"
         }
+        mock_response.release.assert_called_once()
 
     async def test_skip_empty_case_description(self):
         """Test that no note is created when case description is missing."""
@@ -1451,12 +1490,12 @@ class TestSaveIntakeLegalserver:
         state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-123", "case_id": 419645}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-123", "case_id": 419645}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1477,16 +1516,48 @@ class TestSaveIntakeLegalserver:
                 all_calls = all_debug_calls + all_info_calls
                 assert any("Matter created successfully" in call for call in all_calls)
 
+    async def test_missing_matter_uuid_stops_follow_up_writes(self):
+        """Test that a successful response without matter_uuid does not write child records."""
+        state = {
+            "names": {"names": [{"first": "Test", "last": "User"}]},
+            "income": {
+                "is_eligible": True,
+                "listing": {
+                    "Test User": {"Employment": {"amount": 1000, "period": "Monthly"}}
+                },
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status = 201
+        mock_response.json = AsyncMock(return_value={"data": {"case_id": 419645}})
+
+        with patch("aiohttp.ClientSession") as mock_client_class:
+            mock_client = AsyncMock()
+            mock_client.__aenter__.return_value = mock_client
+            mock_client.post = AsyncMock(return_value=mock_response)
+            mock_client_class.return_value = mock_client
+
+            with patch("intake_bot.services.legalserver.logger") as mock_logger:
+                from intake_bot.services.legalserver import save_intake_legalserver
+
+                await save_intake_legalserver(state)
+
+                assert mock_client.post.call_count == 1
+                mock_logger.error.assert_any_call(
+                    "Matter creation response missing matter_uuid"
+                )
+
     async def test_failed_matter_creation(self):
         """Test handling of failed matter creation."""
         state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         mock_response = MagicMock()
-        mock_response.status_code = 400
+        mock_response.status = 400
         mock_response.reason = "Bad Request"
-        mock_response.text = "Invalid payload"
+        mock_response.text = AsyncMock(return_value="Invalid payload")
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1508,12 +1579,12 @@ class TestSaveIntakeLegalserver:
         """Test handling of HTTP request exceptions."""
         state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.__aexit__.return_value = None
             mock_client.post = AsyncMock(
-                side_effect=httpx.ConnectError("Connection timeout")
+                side_effect=aiohttp.ServerTimeoutError("Connection timeout")
             )
             mock_client_class.return_value = mock_client
 
@@ -1541,12 +1612,12 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-dob-123", "case_id": 419646}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-dob-123", "case_id": 419646}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1577,12 +1648,14 @@ class TestSaveIntakeLegalserver:
             }
 
             mock_response = MagicMock()
-            mock_response.status_code = 201
-            mock_response.json.return_value = {
-                "data": {"matter_uuid": f"""uuid-{input_date}""", "case_id": 419647}
-            }
+            mock_response.status = 201
+            mock_response.json = AsyncMock(
+                return_value={
+                    "data": {"matter_uuid": f"""uuid-{input_date}""", "case_id": 419647}
+                }
+            )
 
-            with patch("httpx.AsyncClient") as mock_client_class:
+            with patch("aiohttp.ClientSession") as mock_client_class:
                 mock_client = AsyncMock()
                 mock_client.__aenter__.return_value = mock_client
                 mock_client.post = AsyncMock(return_value=mock_response)
@@ -1604,12 +1677,12 @@ class TestSaveIntakeLegalserver:
         state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-no-dob", "case_id": 419648}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-no-dob", "case_id": 419648}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1633,12 +1706,12 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-empty-dob", "case_id": 419649}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-empty-dob", "case_id": 419649}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1695,12 +1768,14 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-complete-dob", "case_id": 419650}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={
+                "data": {"matter_uuid": "uuid-complete-dob", "case_id": 419650}
+            }
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1734,12 +1809,12 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-ssn-123", "case_id": 419651}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-ssn-123", "case_id": 419651}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1767,12 +1842,12 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-case-desc", "case_id": 419652}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={"data": {"matter_uuid": "uuid-case-desc", "case_id": 419652}}
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1808,12 +1883,14 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-ssn-dob-123", "case_id": 419652}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={
+                "data": {"matter_uuid": "uuid-ssn-dob-123", "case_id": 419652}
+            }
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1861,12 +1938,14 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-complete-ssn", "case_id": 419653}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={
+                "data": {"matter_uuid": "uuid-complete-ssn", "case_id": 419653}
+            }
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
@@ -1924,12 +2003,14 @@ class TestSaveIntakeLegalserver:
         }
 
         mock_response = MagicMock()
-        mock_response.status_code = 201
-        mock_response.json.return_value = {
-            "data": {"matter_uuid": "uuid-household-comp", "case_id": 419654}
-        }
+        mock_response.status = 201
+        mock_response.json = AsyncMock(
+            return_value={
+                "data": {"matter_uuid": "uuid-household-comp", "case_id": 419654}
+            }
+        )
 
-        with patch("httpx.AsyncClient") as mock_client_class:
+        with patch("aiohttp.ClientSession") as mock_client_class:
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
             mock_client.post = AsyncMock(return_value=mock_response)
