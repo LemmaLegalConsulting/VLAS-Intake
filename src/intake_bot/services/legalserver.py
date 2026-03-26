@@ -16,7 +16,7 @@ from intake_bot.models.legalserver import (
 from intake_bot.utils.ev import ev_is_true, require_ev
 from intake_bot.utils.globals import PROJECT_ROOT
 from loguru import logger
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 LEGALSERVER_API_BASE_URL = (
     f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2"""
@@ -30,7 +30,13 @@ LEGALSERVER_HEADERS = {
 
 
 def _finalize_response(response: aiohttp.ClientResponse) -> None:
-    """Release responses whose bodies are not otherwise consumed."""
+    """Release the connection back to the pool on success paths where the body is not read.
+
+    Unlike httpx, aiohttp requires explicitly draining or releasing the response
+    to return the underlying connection to the pool. This is only called in the
+    success (else) branch; error branches consume the body via response.text(),
+    which releases the connection automatically.
+    """
     response.release()
 
 
@@ -265,6 +271,46 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
         return None
 
 
+def _api_error_note_body(status: int, response_body: str, payload: BaseModel) -> str:
+    return f"""API Error {status}: {response_body}\n\n""" + json.dumps(
+        payload.model_dump(exclude_none=True), indent=2
+    )
+
+
+async def _post_fallback_note(
+    session: aiohttp.ClientSession,
+    matter_uuid: str,
+    subject: str,
+    body: str,
+) -> None:
+    """Post a fallback note when a child-record API call fails."""
+    try:
+        payload = NotePayload(
+            subject=subject,
+            body=body,
+            note_type={"lookup_value_name": "General Notes"},
+        )
+    except ValidationError as e:
+        logger.warning(f"""Failed to validate fallback note: {e}""")
+        return
+
+    try:
+        response = await session.post(
+            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
+            headers=LEGALSERVER_HEADERS,
+            json=payload.model_dump(exclude_none=True),
+        )
+        if response.status not in (200, 201):
+            logger.error(
+                f"""Fallback note also failed: {response.status} - {await response.text()}"""
+            )
+        else:
+            _finalize_response(response)
+            logger.debug(f"""Fallback note saved: {subject}""")
+    except aiohttp.ClientError as e:
+        logger.error(f"""HTTP Request failed while saving fallback note: {e}""")
+
+
 async def _save_income_records(
     session: aiohttp.ClientSession, matter_uuid: str, income_data: Dict[str, Any]
 ) -> None:
@@ -295,9 +341,9 @@ async def _save_income_records(
                         amount=amount_info.get("amount"),
                         period=amount_info.get("period"),
                     )
-                except Exception as e:
+                except ValidationError as e:
                     logger.warning(
-                        f"""Failed to validate income for {person_name} ({income_category_name}): {e}"""
+                        f"""Failed to validate income record ({income_category_name}) for matter {matter_uuid}: {e}"""
                     )
                     continue
 
@@ -308,15 +354,22 @@ async def _save_income_records(
                 )
 
                 if response.status not in (200, 201):
+                    response_body = await response.text()
                     _log_child_write_failure(
-                        f"""Failed to save income for {person_name} ({income_category_name})""",
+                        f"""Failed to save income record ({income_category_name}) for matter {matter_uuid}""",
                         response.status,
-                        await response.text(),
+                        response_body,
+                    )
+                    await _post_fallback_note(
+                        session,
+                        matter_uuid,
+                        f"""Income Record (API Error): {person_name} - {income_category_name}""",
+                        _api_error_note_body(response.status, response_body, payload),
                     )
                 else:
                     _finalize_response(response)
                     logger.debug(
-                        f"""Income record created for {person_name} ({income_category_name}): ${payload.amount} {payload.period}"""
+                        f"""Income record created ({income_category_name}) for matter {matter_uuid}"""
                     )
 
     except aiohttp.ClientError as e:
@@ -351,8 +404,10 @@ async def _save_additional_names(
                     suffix=name.get("suffix"),
                     type={"lookup_value_name": name.get("type", "Former Name")},
                 )
-            except Exception as e:
-                logger.warning(f"""Failed to validate additional name: {e}""")
+            except ValidationError as e:
+                logger.warning(
+                    f"""Failed to validate additional name for matter {matter_uuid}: {e}"""
+                )
                 continue
 
             response = await session.post(
@@ -362,16 +417,21 @@ async def _save_additional_names(
             )
 
             if response.status not in (200, 201):
+                response_body = await response.text()
                 _log_child_write_failure(
-                    f"""Failed to save additional name {payload.first} {payload.last}""",
+                    f"""Failed to save additional name for matter {matter_uuid}""",
                     response.status,
-                    await response.text(),
+                    response_body,
+                )
+                await _post_fallback_note(
+                    session,
+                    matter_uuid,
+                    f"""Additional Name (API Error): {payload.first} {payload.last}""",
+                    _api_error_note_body(response.status, response_body, payload),
                 )
             else:
                 _finalize_response(response)
-                logger.debug(
-                    f"""Additional name created: {payload.first} {payload.last}"""
-                )
+                logger.debug(f"""Additional name created for matter {matter_uuid}""")
 
     except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed while saving additional names: {e}""")
@@ -425,8 +485,10 @@ async def _save_adverse_parties(
                             payload_data[field_name] = phone_number
 
                 payload = AdversePartyPayload(**payload_data)
-            except Exception as e:
-                logger.warning(f"""Failed to validate adverse party: {e}""")
+            except ValidationError as e:
+                logger.warning(
+                    f"""Failed to validate adverse party for matter {matter_uuid}: {e}"""
+                )
                 continue
 
             response = await session.post(
@@ -436,16 +498,21 @@ async def _save_adverse_parties(
             )
 
             if response.status not in (200, 201):
+                response_body = await response.text()
                 _log_child_write_failure(
-                    f"""Failed to save adverse party {payload.first} {payload.last}""",
+                    f"""Failed to save adverse party for matter {matter_uuid}""",
                     response.status,
-                    await response.text(),
+                    response_body,
+                )
+                await _post_fallback_note(
+                    session,
+                    matter_uuid,
+                    f"""Adverse Party (API Error): {payload.first} {payload.last}""",
+                    _api_error_note_body(response.status, response_body, payload),
                 )
             else:
                 _finalize_response(response)
-                logger.debug(
-                    f"""Adverse party created: {payload.first} {payload.last}"""
-                )
+                logger.debug(f"""Adverse party created for matter {matter_uuid}""")
 
     except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed while saving adverse parties: {e}""")
