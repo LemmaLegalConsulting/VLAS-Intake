@@ -478,7 +478,7 @@ async def _save_adverse_parties(
                 if phones:
                     for phone in phones:
                         phone_number = phone.get("number")
-                        phone_type = phone.get("type", "").lower()
+                        phone_type = (phone.get("type") or "").lower()
                         if phone_number and phone_type:
                             # Map phone type to field name: phone_{type}
                             field_name = f"""phone_{phone_type}"""

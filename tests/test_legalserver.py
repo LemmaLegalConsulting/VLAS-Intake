@@ -1190,6 +1190,32 @@ class TestSaveAdverseParties:
         assert payload["suffix"] == "Jr."
         assert payload["date_of_birth"] == "1985-06-20"
 
+    async def test_adverse_party_phone_without_type_is_ignored_for_payload(self):
+        """Test that an adverse-party phone number without a type does not break payload creation."""
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
+
+        adverse_parties_data = {
+            "adverse_parties": [
+                {
+                    "first": "John",
+                    "last": "Doe",
+                    "phones": [{"number": "(555) 555-1212"}],
+                }
+            ]
+        }
+
+        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
+
+        call_args = mock_client.post.call_args
+        payload = call_args[1]["json"]
+        assert payload["first"] == "John"
+        assert payload["last"] == "Doe"
+        assert "phone_home" not in payload
+        assert "phone_mobile" not in payload
+        assert "phone_business" not in payload
+        assert "phone_fax" not in payload
+
     async def test_skip_empty_adverse_parties_list(self):
         """Test that no API call is made when adverse parties list is empty."""
         mock_client = AsyncMock()
