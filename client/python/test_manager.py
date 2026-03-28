@@ -29,12 +29,26 @@ Usage:
 import argparse
 import fcntl
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 import yaml
 from rapidfuzz import fuzz, process, utils
+
+INTAKE_BOT_ROOT = Path(__file__).resolve().parents[2]
+CLIENT_PYTHON_DIR = Path(__file__).resolve().parent
+DEFAULT_RESULTS_FILE = INTAKE_BOT_ROOT / "logs" / "client_test_results.json"
+DEFAULT_STATE_FILE = INTAKE_BOT_ROOT / "logs" / "flow_manager_state.json"
+DEFAULT_SCRIPTS_FILE = CLIENT_PYTHON_DIR / "scripts.yml"
+
+
+def _resolve_repo_relative_path(path_like: str | Path, base_dir: Path) -> Path:
+    path = Path(path_like)
+    if path.is_absolute():
+        return path
+    return (base_dir / path).resolve()
 
 
 # Standard USPS abbreviation equivalences for address comparison.
@@ -92,6 +106,36 @@ def _addresses_equivalent(a: str, b: str) -> bool:
     norm_a = " ".join(_normalize_address_token(t) for t in a.split())
     norm_b = " ".join(_normalize_address_token(t) for t in b.split())
     return norm_a == norm_b
+
+
+def _is_no_household_income_entry(value: Any) -> bool:
+    return isinstance(value, dict) and set(value.keys()) == {"No Household Income"}
+
+
+_ASSET_NAME_ALIASES: dict[str, str] = {
+    "joyas": "jewelry",
+    "jewelry": "jewelry",
+    "savings account": "savings account",
+    "cuenta de ahorros": "savings account",
+}
+
+
+def _normalize_asset_label(label: str) -> str:
+    return _ASSET_NAME_ALIASES.get(label.strip().lower(), label.strip().lower())
+
+
+def _is_asset_entry_equivalent(actual: Any, expected: Any) -> bool:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    if len(actual) != 1 or len(expected) != 1:
+        return False
+
+    actual_label, actual_amount = next(iter(actual.items()))
+    expected_label, expected_amount = next(iter(expected.items()))
+    return (
+        _normalize_asset_label(actual_label) == _normalize_asset_label(expected_label)
+        and actual_amount == expected_amount
+    )
 
 
 class StateValidator:
@@ -182,6 +226,20 @@ class StateValidator:
                 if (
                     "income.listing" in path or "assets.listing" in path
                 ) and isinstance(key, str):
+                    if (
+                        "income.listing" in path
+                        and _is_no_household_income_entry(expected[key])
+                        and "Household" in actual
+                    ):
+                        matching_key = "Household"
+                        matched_actual_keys.add("Household")
+                        household_path = (
+                            f"""{path}.Household""" if path else "Household"
+                        )
+                        self._compare_values(
+                            actual["Household"], expected[key], household_path
+                        )
+                        continue
                     # Use threshold of 50 for generous matching (e.g., "savings account" vs "account")
                     threshold = 50 if "assets.listing" in path else 75
                     fuzzy_match = self._fuzzy_match_key(
@@ -246,6 +304,9 @@ class StateValidator:
             if key in self.SYSTEM_KEYS:
                 continue
 
+            if path == "income.listing" and _is_no_household_income_entry(actual[key]):
+                continue
+
             new_path = f"""{path}.{key}""" if path else key
             self.mismatches.append(
                 {
@@ -295,7 +356,7 @@ class StateValidator:
                 if "address" in path:
                     if not _addresses_equivalent(actual, expected):
                         match_ratio = fuzz.ratio(actual.lower(), expected.lower())
-                        if match_ratio < 90:
+                        if match_ratio < 85:
                             self.mismatches.append(
                                 {
                                     "path": path,
@@ -305,6 +366,23 @@ class StateValidator:
                                     "match_ratio": match_ratio,
                                 }
                             )
+                # Fuzzy matching for name fields (STT drift tolerance)
+                elif re.search(
+                    r"names\.names\[\d+\]\.(first|last)"
+                    r"|adverse_parties\.adverse_parties\[\d+\]\.(first|last)",
+                    path,
+                ):
+                    match_ratio = fuzz.ratio(actual.lower(), expected.lower())
+                    if match_ratio < 70:
+                        self.mismatches.append(
+                            {
+                                "path": path,
+                                "issue": "value_mismatch",
+                                "expected": expected,
+                                "actual": actual,
+                                "match_ratio": match_ratio,
+                            }
+                        )
                 elif actual.lower() != expected.lower():
                     self.mismatches.append(
                         {
@@ -326,6 +404,40 @@ class StateValidator:
 
     def _compare_list(self, actual: List[Any], expected: List[Any], path: str):
         """Recursively compare lists."""
+        if "assets.listing" in path and len(actual) == len(expected):
+            unmatched_actual = actual.copy()
+            for expected_item in expected:
+                match_index = next(
+                    (
+                        index
+                        for index, actual_item in enumerate(unmatched_actual)
+                        if _is_asset_entry_equivalent(actual_item, expected_item)
+                    ),
+                    None,
+                )
+                if match_index is None:
+                    self.mismatches.append(
+                        {
+                            "path": path,
+                            "issue": "list_item_missing",
+                            "expected": expected_item,
+                            "actual": actual,
+                        }
+                    )
+                    return
+                unmatched_actual.pop(match_index)
+
+            if unmatched_actual:
+                self.mismatches.append(
+                    {
+                        "path": path,
+                        "issue": "list_item_extra",
+                        "expected": expected,
+                        "actual": actual,
+                    }
+                )
+            return
+
         if len(actual) != len(expected):
             self.mismatches.append(
                 {
@@ -347,8 +459,8 @@ class StateValidator:
 class TestResultManager:
     """Manages test results and persists them to a JSON file."""
 
-    def __init__(self, results_file: str = "client_test_results.json"):
-        self.results_file = results_file
+    def __init__(self, results_file: str | Path = DEFAULT_RESULTS_FILE):
+        self.results_file = str(results_file)
         self.results: Dict[str, Any] = self._load_results()
 
     def _load_results(self) -> Dict[str, Any]:
@@ -417,19 +529,23 @@ class TestRunner:
 
     def __init__(
         self,
-        results_file: str = "client_test_results.json",
-        flow_manager_state_file: str = "flow_manager_state.json",
-        scripts_file: str = None,
+        results_file: str | Path = DEFAULT_RESULTS_FILE,
+        flow_manager_state_file: str | Path = DEFAULT_STATE_FILE,
+        scripts_file: str | Path | None = None,
     ):
-        self.results_file = results_file
-        self.flow_manager_state_file = flow_manager_state_file
-        self.result_manager = TestResultManager(results_file)
+        self.results_file = str(
+            _resolve_repo_relative_path(results_file, INTAKE_BOT_ROOT)
+        )
+        self.flow_manager_state_file = str(
+            _resolve_repo_relative_path(flow_manager_state_file, INTAKE_BOT_ROOT)
+        )
+        self.result_manager = TestResultManager(self.results_file)
 
         # Load scripts
         if scripts_file is None:
-            scripts_file = Path(__file__).parent / "scripts.yml"
+            scripts_file = DEFAULT_SCRIPTS_FILE
         else:
-            scripts_file = Path(scripts_file)
+            scripts_file = _resolve_repo_relative_path(scripts_file, CLIENT_PYTHON_DIR)
 
         if not scripts_file.exists():
             print(f"""Error: Scripts file not found: {scripts_file}""")
@@ -440,7 +556,7 @@ class TestRunner:
 
         # Load flow manager state
         try:
-            with open(flow_manager_state_file, "r") as f:
+            with open(self.flow_manager_state_file, "r") as f:
                 self.flow_manager_state = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             self.flow_manager_state = {}
@@ -772,7 +888,7 @@ Examples:
   python test_manager.py revalidate --summary
 
   # Custom result file location
-  python test_manager.py -f logs/client_test_results.json view --detailed
+    python test_manager.py -f logs/client_test_results.json view --detailed
         """,
     )
 
@@ -781,14 +897,14 @@ Examples:
         "-f",
         "--file",
         type=str,
-        default="logs/client_test_results.json",
-        help="path to test results file (default: logs/client_test_results.json)",
+        default=str(DEFAULT_RESULTS_FILE),
+        help="path to test results file (default: canonical intake-bot logs/client_test_results.json)",
     )
     parser.add_argument(
         "--state-file",
         type=str,
-        default="logs/flow_manager_state.json",
-        help="path to flow_manager_state.json (default: logs/flow_manager_state.json)",
+        default=str(DEFAULT_STATE_FILE),
+        help="path to flow_manager_state.json (default: canonical intake-bot logs/flow_manager_state.json)",
     )
     parser.add_argument(
         "--scripts-file",

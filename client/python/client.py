@@ -32,6 +32,7 @@ from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.azure.stt import AzureSTTService
 from pipecat.services.azure.tts import AzureTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
@@ -79,6 +80,40 @@ logger.add(sys.stderr, level="DEBUG")
 scripts_file = Path(__file__).parent / "scripts.yml"
 with open(scripts_file) as file_handle:
     scripts: dict = yaml.safe_load(file_handle)
+
+
+AUTOMATED_CALLER_SYSTEM_PROMPT = """This is an automated intake test caller.
+Your job is to behave like a cooperative human caller while preserving the scenario facts exactly.
+
+Core rules:
+- Never change the spelling of names, streets, cities, counties, or other proper nouns from the scenario.
+- Never invent phonetic spellings, STT-style errors, or alternate spellings unless the scenario explicitly says the value is different.
+- If you are unsure, repeat the exact scenario wording verbatim instead of paraphrasing or guessing.
+- If asked for a phone type, answer with the exact scenario phone type using one short phrase.
+- If the assistant reads back or confirms a name, address, or other value that sounds close to the correct scenario value, confirm it briefly even if the spelling differs slightly. Do not attempt to correct minor differences caused by speech recognition.
+- When asked to spell something, spell it using the exact canonical letters from the scenario.
+- Answer only the question that was asked. Do not volunteer extra facts unless the question requires them.
+- Never combine the answer to the current question with facts from a different intake step.
+- Do not repeat previously answered facts unless the assistant is explicitly confirming or re-asking them.
+- Do not turn answers into questions.
+- Keep responses short, direct, and natural for voice.
+- For numbers, dates, SSN digits, phone numbers, addresses, and money amounts, preserve the exact scenario values.
+- Never drop or substitute parts of a person's legal name. Keep first, middle, and last names exactly as given in the scenario.
+- If asked about household income, include every person in the scenario who has income.
+- Attribute each income source to the person who actually receives it. Child support paid for a child still belongs to the adult who receives it unless the scenario says otherwise.
+- A minor child can still have income. If asked whether a minor is an adult, say no while preserving that child's income.
+- Only provide alternate names that the scenario explicitly says should be included in the legal file.
+- For asset questions, follow the assistant's scope exactly. Do not volunteer exempt assets when the assistant is asking only about countable assets.
+- In Spanish, answer naturally in Spanish, but keep proper nouns and factual values exactly aligned with the scenario.
+"""
+
+
+def build_client_system_prompt(script: str) -> str:
+    return (
+        AUTOMATED_CALLER_SYSTEM_PROMPT
+        + "\n\nScenario:\n"
+        + scripts[script]["system_prompt"]
+    )
 
 
 DEFAULT_USER_TURN_STOP_TIMEOUT_SECS = 0.8
@@ -273,9 +308,20 @@ async def run_client(
         ),
     )
 
+    # Use the script's language for client STT so Spanish callers get es-US recognition
+    script_language = (
+        scripts.get(script, {})
+        .get("expected_state", {})
+        .get("language", {})
+        .get("language", "English")
+    )
+    client_stt_language = (
+        Language.ES_US if script_language == "Spanish" else Language.EN_US
+    )
     stt = AzureSTTService(
         api_key=azure_api_key,
         region=azure_speech_region,
+        settings=AzureSTTService.Settings(language=client_stt_language),
     )
 
     llm = AzureLLMService(
@@ -283,6 +329,7 @@ async def run_client(
         endpoint=azure_llm_endpoint,
         settings=AzureLLMService.Settings(
             model=azure_llm_model,
+            temperature=0.0,
         ),
     )
 
@@ -294,7 +341,8 @@ async def run_client(
         ),
     )
 
-    messages = [{"role": "system", "content": scripts[script]["system_prompt"]}]
+    system_prompt = build_client_system_prompt(script)
+    messages = [{"role": "system", "content": system_prompt}]
     context = LLMContext(messages)
     context_aggregator = LLMContextAggregatorPair(
         context,
@@ -335,6 +383,7 @@ async def run_client(
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
+        enable_rtvi=False,
     )
 
     @transport.event_handler("on_connected")
@@ -384,7 +433,7 @@ async def run_client(
                 summary = response.choices[0].message.content
 
                 new_messages = [
-                    {"role": "system", "content": scripts[script]["system_prompt"]},
+                    {"role": "system", "content": system_prompt},
                     {
                         "role": "system",
                         "content": f"""Previous conversation summary: {summary}""",
