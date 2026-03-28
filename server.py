@@ -8,6 +8,7 @@ from intake_bot.bot import run_bot
 from intake_bot.nodes.nodes import node_initial
 from intake_bot.utils.ev import ev_is_true, get_ev
 from loguru import logger
+from pipecat.audio.mixers.base_audio_mixer import BaseAudioMixer
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketParams,
@@ -40,6 +41,35 @@ if ev_is_true("LOG_TO_FILE"):
 
 def generate_call_id() -> str:
     return datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+
+
+class SilenceMixer(BaseAudioMixer):
+    """Passthrough audio mixer that maintains a continuous WebSocket audio stream.
+
+    The FastAPIWebsocketTransport calls ``mix()`` on every audio output cycle,
+    including cycles where the bot is silent (listening or processing).  Without
+    a mixer the transport only emits frames when TTS audio is present, so the
+    client receives nothing during silence.  Many WebSocket audio clients
+    (browsers, the Python test client) expect a steady byte stream and will
+    stall, mis-time playback, or drop the connection if the stream goes quiet.
+
+    This mixer solves the problem with the simplest possible implementation:
+    pass every audio buffer through unchanged.  No actual mixing is required
+    because only one audio source (TTS) is in play; the mixer is registered
+    purely to opt in to the continuous-output behaviour of the transport.
+    """
+
+    async def start(self, sample_rate: int):
+        pass
+
+    async def stop(self):
+        pass
+
+    async def process_frame(self, frame):
+        pass
+
+    async def mix(self, audio: bytes) -> bytes:
+        return audio
 
 
 def _get_user_idle_timeout_secs(websocket: WebSocket, call_id: str) -> float | None:
@@ -100,6 +130,7 @@ async def websocket_endpoint(websocket: WebSocket):
             audio_out_enabled=True,
             add_wav_header=False,
             serializer=ProtobufFrameSerializer(),
+            audio_out_mixer=SilenceMixer(),
         ),
     )
 

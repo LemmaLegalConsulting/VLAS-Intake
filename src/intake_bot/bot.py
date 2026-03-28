@@ -4,13 +4,14 @@ from collections.abc import Awaitable, Callable
 import aiofiles
 from loguru import logger
 from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
+from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
     EndFrame,
-    LLMMessagesAppendFrame,
     TTSSpeakFrame,
+    UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
@@ -22,7 +23,6 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
 )
-from pipecat.processors.user_idle_processor import UserIdleProcessor
 from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.azure.stt import AzureSTTService
@@ -116,6 +116,62 @@ class TranscriptHandler:
         await self.save_transcript_message(
             "assistant", message.content, message.timestamp
         )
+
+
+class IdleRetryHandler:
+    """Tracks idle reminders and returns the next frames to queue."""
+
+    def __init__(self):
+        self._retry_count = 0
+
+    def reset(self) -> None:
+        self._retry_count = 0
+
+    def next_frames(self, language: str) -> list[TTSSpeakFrame | EndFrame]:
+        self._retry_count += 1
+
+        if self._retry_count == 1:
+            if language == "Spanish":
+                msg = "¿Sigue ahí?"
+            else:
+                msg = "Are you still there?"
+            return [TTSSpeakFrame(msg, append_to_context=False)]
+
+        if self._retry_count == 2:
+            if language == "Spanish":
+                msg = "¿Le gustaría continuar con la entrevista?"
+            else:
+                msg = "Would you like to continue with the interview?"
+            return [TTSSpeakFrame(msg, append_to_context=False)]
+
+        if language == "Spanish":
+            goodbye = "Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!"
+        else:
+            goodbye = "It seems like you're busy right now. Feel free to call back. Have a nice day!"
+
+        return [TTSSpeakFrame(goodbye, append_to_context=False), EndFrame()]
+
+
+class AdaptiveIdleTimeout:
+    """Extends the user idle timeout after longer assistant turns."""
+
+    def __init__(
+        self,
+        base_timeout_secs: float,
+        max_timeout_secs: float,
+        words_per_extra_second: float,
+    ):
+        self.base_timeout_secs = base_timeout_secs
+        self.max_timeout_secs = max(base_timeout_secs, max_timeout_secs)
+        self.words_per_extra_second = max(words_per_extra_second, 1.0)
+
+    def timeout_for_content(self, content: str) -> float:
+        word_count = len(content.split())
+        extra_timeout_secs = min(
+            self.max_timeout_secs - self.base_timeout_secs,
+            float(int(word_count / self.words_per_extra_second)),
+        )
+        return self.base_timeout_secs + extra_timeout_secs
 
 
 async def bot(runner_args: RunnerArguments):
@@ -235,6 +291,7 @@ async def run_bot(
     stt = AzureSTTService(
         api_key=require_ev("AZURE_API_KEY"),
         region=require_ev("AZURE_SPEECH_REGION"),
+        ttfs_p99_latency=float(get_ev("AZURE_STT_TTFS_P99_LATENCY", "1.5")),
     )
 
     llm = AzureLLMService(
@@ -253,70 +310,62 @@ async def run_bot(
         ),
     )
 
+    resolved_user_idle_timeout_secs = user_idle_timeout_secs
+    if resolved_user_idle_timeout_secs is None:
+        resolved_user_idle_timeout_secs = float(
+            get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
+        )
+
     context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
             user_mute_strategies=[FunctionCallUserMuteStrategy()],
+            user_idle_timeout=resolved_user_idle_timeout_secs,
             user_turn_strategies=UserTurnStrategies(
                 start=[
                     MinWordsUserTurnStartStrategy(min_words=2),
                 ],
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=LocalSmartTurnAnalyzerV3()
+                        turn_analyzer=LocalSmartTurnAnalyzerV3(
+                            params=SmartTurnParams(
+                                stop_secs=float(get_ev("SMART_TURN_STOP_SECS", "4.5")),
+                                pre_speech_ms=float(
+                                    get_ev("SMART_TURN_PRE_SPEECH_MS", "700")
+                                ),
+                            )
+                        )
                     )
                 ],
             ),
+            user_turn_stop_timeout=float(get_ev("USER_TURN_STOP_TIMEOUT_SECS", "7.0")),
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
-                    confidence=0.8,
-                    start_secs=0.3,
+                    confidence=float(get_ev("VAD_CONFIDENCE", "0.65")),
+                    start_secs=float(get_ev("VAD_START_SECS", "0.4")),
+                    stop_secs=float(get_ev("VAD_STOP_SECS", "0.2")),
+                    min_volume=float(get_ev("VAD_MIN_VOLUME", "0.55")),
                 )
             ),
         ),
     )
 
-    async def handle_user_idle(user_idle: UserIdleProcessor, retry_count: int) -> bool:
-        if retry_count == 1:
-            # First attempt: Add a gentle prompt to the conversation
-            message = {
-                "role": "system",
-                "content": "The user has been quiet. Politely and briefly ask if they're still there.",
-            }
-            await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-            return True
-        elif retry_count == 2:
-            # Second attempt: More direct prompt
-            message = {
-                "role": "system",
-                "content": "The user is still inactive. Ask if they'd like to continue our conversation.",
-            }
-            await user_idle.push_frame(LLMMessagesAppendFrame([message], run_llm=True))
-            return True
-        else:
-            # Third attempt: End the conversation
-            language = flow_manager.state.get("language", {}).get("language", "English")
-            if language == "Spanish":
-                goodbye = "Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!"
-            else:
-                goodbye = "It seems like you're busy right now. Feel free to call back. Have a nice day!"
-            await user_idle.push_frame(TTSSpeakFrame(goodbye))
-            await task.queue_frame(EndFrame())
-            return False
-
-    resolved_user_idle_timeout_secs = user_idle_timeout_secs
-    if resolved_user_idle_timeout_secs is None:
-        resolved_user_idle_timeout_secs = float(
-            get_ev("USER_IDLE_TIMEOUT_SECS", "10.0")
-        )
-
     logger.info(
         f"""Using user idle timeout of {resolved_user_idle_timeout_secs:.1f}s for call {call_id}"""
     )
-    user_idle = UserIdleProcessor(
-        callback=handle_user_idle,
-        timeout=resolved_user_idle_timeout_secs,
+
+    adaptive_idle_timeout = AdaptiveIdleTimeout(
+        base_timeout_secs=resolved_user_idle_timeout_secs,
+        max_timeout_secs=float(
+            get_ev(
+                "USER_IDLE_TIMEOUT_MAX_SECS",
+                str(max(resolved_user_idle_timeout_secs, 25.0)),
+            )
+        ),
+        words_per_extra_second=float(
+            get_ev("USER_IDLE_TIMEOUT_WORDS_PER_EXTRA_SECOND", "12.0")
+        ),
     )
 
     # Create transcript handler
@@ -330,6 +379,7 @@ async def run_bot(
     context_aggregator.user().event_handler("on_user_turn_stopped")(
         transcript_handler.on_user_transcript
     )
+
     context_aggregator.assistant().event_handler("on_assistant_turn_stopped")(
         transcript_handler.on_assistant_transcript
     )
@@ -338,7 +388,6 @@ async def run_bot(
         [
             transport.input(),
             stt,  # Speech-To-Text
-            user_idle,  # Idle user check-in
             context_aggregator.user(),
             llm,  # LLM
             tts,  # Text-To-Speech
@@ -383,6 +432,28 @@ async def run_bot(
 
     flow_manager.state["call_id"] = call_id
     flow_manager.state["phone"] = caller_phone_number
+
+    idle_retry_handler = IdleRetryHandler()
+
+    @context_aggregator.user().event_handler("on_user_turn_started")
+    async def on_user_turn_started(aggregator, strategy):
+        idle_retry_handler.reset()
+
+    @context_aggregator.user().event_handler("on_user_turn_idle")
+    async def on_user_turn_idle(aggregator):
+        language = flow_manager.state.get("language", {}).get("language", "English")
+        await task.queue_frames(idle_retry_handler.next_frames(language))
+
+    @context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
+    async def on_assistant_turn_stopped(
+        aggregator, message: AssistantTurnStoppedMessage
+    ):
+        timeout_secs = adaptive_idle_timeout.timeout_for_content(message.content)
+        if timeout_secs > resolved_user_idle_timeout_secs:
+            logger.debug(
+                f"""Extending user idle timeout to {timeout_secs:.1f}s after assistant turn with {len(message.content.split())} words"""
+            )
+        await task.queue_frame(UserIdleTimeoutUpdateFrame(timeout=timeout_secs))
 
     if configure_transport is not None:
         await configure_transport(transport, task, flow_manager, call_id)
