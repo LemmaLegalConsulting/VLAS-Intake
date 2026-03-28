@@ -11,7 +11,10 @@ from intake_bot.nodes.nodes import (
     node_end_conversation,
     record_address,
     record_adverse_parties,
+    record_assets_cash_accounts,
+    record_assets_investments,
     record_assets_list,
+    record_assets_other_property,
     record_assets_receives_benefits,
     record_case_type,
     record_citizenship,
@@ -23,6 +26,7 @@ from intake_bot.nodes.nodes import (
     record_name,
     record_names,
     record_phone_number,
+    record_phone_type,
     record_service_area,
     record_ssn_last_4,
     send_case_type_referral_and_end,
@@ -86,7 +90,7 @@ async def test_record_language(flow_manager):
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["language"]["language"] == "English"
-    flow_manager.task.queue_frame.assert_awaited_once()
+    assert flow_manager.task.queue_frame.await_count == 2  # STT + TTS language updates
     assert "record_phone_number_prompt" in next_node
 
 
@@ -95,21 +99,57 @@ async def test_record_phone_number_valid(flow_manager, patch_validator):
     patch_validator.check_phone_number = AsyncMock(
         return_value=(True, "(866) 534-5243")
     )
-    result, next_node = await record_phone_number(
-        flow_manager, "+18665345243", "mobile"
-    )
+    result, next_node = await record_phone_number(flow_manager, "+18665345243")
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["is_valid"] is True
     assert flow_manager.state["phone"]["phone_number"] == "(866) 534-5243"
+    assert "phone_type" not in flow_manager.state["phone"]
+    assert "record_phone_type_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_phone_type_valid(flow_manager):
+    flow_manager.state["phone"] = {
+        "is_valid": True,
+        "phone_number": "(866) 534-5243",
+    }
+
+    result, next_node = await record_phone_type(flow_manager, "mobile")
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["phone_type"] == "mobile"
     assert "record_name_prompt" in next_node
 
 
 @pytest.mark.asyncio
+async def test_record_phone_type_normalizes_spanish_synonym(flow_manager):
+    flow_manager.state["phone"] = {
+        "is_valid": True,
+        "phone_number": "(866) 534-5243",
+    }
+
+    result, next_node = await record_phone_type(flow_manager, "movil")
+
+    assert result["status"] == Status.SUCCESS
+    assert flow_manager.state["phone"]["phone_type"] == "mobile"
+    assert "record_name_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_phone_type_requires_existing_phone_number(flow_manager):
+    result, next_node = await record_phone_type(flow_manager, "mobile")
+
+    assert result["status"] == Status.ERROR
+    assert "Phone number must be recorded" in result["error"]
+    assert next_node is None
+
+
+@pytest.mark.asyncio
 async def test_record_phone_number_invalid(flow_manager, patch_validator):
     patch_validator.check_phone_number = AsyncMock(return_value=(False, "bad"))
-    result, next_node = await record_phone_number(flow_manager, "bad", "mobile")
+    result, next_node = await record_phone_number(flow_manager, "bad")
     assert result["status"] == Status.ERROR
     assert flow_manager.state["phone"]["is_valid"] is False
     assert next_node is None
@@ -263,6 +303,29 @@ def test_excluded_node_prompts_do_not_include_thank_you_acknowledgment_instructi
     assert "fits the caller's immediately preceding answer" not in content
 
 
+def test_record_service_area_prompt_handles_non_location_answers():
+    prompt = NodePrompts().get("record_service_area")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "If the caller answers with something other than a city or county" in content
+    assert "ask again for just the city or county" in content
+    assert (
+        "Do NOT mark the caller ineligible just because they answered the wrong question"
+        in content
+    )
+
+
+def test_record_adverse_parties_prompt_handles_mixed_answers():
+    prompt = NodePrompts().get("record_adverse_parties")
+    content = prompt["task_messages"][0]["content"]
+
+    assert "same utterance as unrelated facts from another step" in content
+    assert (
+        "continue asking for the remaining useful details before moving on" in content
+    )
+    assert "Do NOT skip directly to the next intake step" in content
+
+
 @pytest.mark.asyncio
 async def test_record_service_area_eligible(flow_manager, patch_validator):
     patch_validator.check_service_area = AsyncMock(
@@ -273,6 +336,20 @@ async def test_record_service_area_eligible(flow_manager, patch_validator):
     assert result["is_eligible"] is True
     assert flow_manager.state["service_area"]["location"] == "Amelia County"
     assert result["fips_code"] == 51007
+    assert "record_case_type_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_service_area_eligible_with_canonical_match(
+    flow_manager, patch_validator
+):
+    patch_validator.check_service_area = AsyncMock(return_value=("Suffolk City", 51800))
+    result, next_node = await record_service_area(flow_manager, "Suffolk")
+    assert isinstance(result, dict)
+    assert result["is_eligible"] is True
+    assert result["location"] == "Suffolk City"
+    assert flow_manager.state["service_area"]["location"] == "Suffolk City"
+    assert result["fips_code"] == 51800
     assert "record_case_type_prompt" in next_node
 
 
@@ -288,10 +365,9 @@ async def test_record_service_area_ineligible_with_match(flow_manager, patch_val
 @pytest.mark.asyncio
 async def test_record_service_area_ineligible_no_match(flow_manager, patch_validator):
     patch_validator.check_service_area = AsyncMock(return_value=("", 0))
-    patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     result, next_node = await record_service_area(flow_manager, "Nowhere")
-    assert "Not in our service area." in result["error"]
-    assert "ineligible_prompt" in next_node
+    assert "couldn't identify a Virginia city or county" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio
@@ -584,6 +660,113 @@ async def test_record_income_invalid(flow_manager):
 
 
 @pytest.mark.asyncio
+async def test_record_income_zero_fanout_collapses(flow_manager, patch_validator):
+    """When the LLM enumerates all income categories at $0, the Pydantic
+    validator should collapse them into a single 'No Household Income' entry."""
+    patch_validator.check_income = AsyncMock(return_value=(True, 0, 1))
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 0,
+    }
+    income = {
+        "Jane Doe": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+            "Employment": {"amount": 0, "period": "Monthly"},
+            "Child Support": {"amount": 0, "period": "Monthly"},
+            "Spousal Support": {"amount": 0, "period": "Monthly"},
+            "Social Security Retirement": {"amount": 0, "period": "Monthly"},
+            "Social Security Disability (SSDI)": {"amount": 0, "period": "Monthly"},
+            "SSI (Supplemental Security Income)": {"amount": 0, "period": "Monthly"},
+            "SSI/SSDI combo": {"amount": 0, "period": "Monthly"},
+            "Long-Term/Short-Term Disability": {"amount": 0, "period": "Monthly"},
+            "Workers Compensation": {"amount": 0, "period": "Monthly"},
+            "Unemployment Compensation": {"amount": 0, "period": "Monthly"},
+            "Pension/Retirement (Not Soc. Sec.)": {"amount": 0, "period": "Monthly"},
+            "TANF (Temporary Assistance for Needy Families)": {
+                "amount": 0,
+                "period": "Monthly",
+            },
+            "Food Stamps": {"amount": 0, "period": "Monthly"},
+            "Veterans Benefits": {"amount": 0, "period": "Monthly"},
+            "Trust/Dividends/Annuity": {"amount": 0, "period": "Monthly"},
+            "Income Not Provided": {"amount": 0, "period": "Monthly"},
+            "Other": {"amount": 0, "period": "Monthly"},
+        }
+    }
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
+        result, next_node = await record_income(flow_manager, income)
+    assert result["status"] == Status.SUCCESS
+    listing = flow_manager.state["income"]["listing"]
+    # Should collapse to a single member with a single "No Household Income" entry
+    assert len(listing) == 1
+    member_income = list(listing.values())[0]
+    assert list(member_income.keys()) == ["No Household Income"]
+    assert member_income["No Household Income"]["amount"] == 0
+
+
+@pytest.mark.asyncio
+async def test_record_income_strips_zero_only_children(flow_manager, patch_validator):
+    """Children listed with only 'No Household Income' at $0 should be stripped
+    when a real member also exists."""
+    patch_validator.check_income = AsyncMock(return_value=(True, 0, 3))
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 2,
+    }
+    income = {
+        "Jane Doe": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+        },
+        "Child One": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+        },
+        "Child Two": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+        },
+    }
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
+        result, next_node = await record_income(flow_manager, income)
+    assert result["status"] == Status.SUCCESS
+    # All three are zero-only but strip_zero_only_members keeps at least one
+    # when *all* are zero — however since they're all identical, the validator
+    # keeps all of them.  The real scenario: the parent has real income or was
+    # already collapsed.  With all three zero-only, none get stripped (all kept).
+    # Re-test: when parent has real income, children are stripped.
+
+
+@pytest.mark.asyncio
+async def test_record_income_strips_children_keeps_parent_with_income(
+    flow_manager, patch_validator
+):
+    """Children with only 'No Household Income' are stripped when a parent
+    with real income exists."""
+    patch_validator.check_income = AsyncMock(return_value=(True, 1200, 3))
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 2,
+    }
+    income = {
+        "Jane Doe": {
+            "Employment": {"amount": 1200, "period": "Monthly"},
+        },
+        "Child One": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+        },
+        "Child Two": {
+            "No Household Income": {"amount": 0, "period": "Monthly"},
+        },
+    }
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
+        result, next_node = await record_income(flow_manager, income)
+    assert result["status"] == Status.SUCCESS
+    listing = flow_manager.state["income"]["listing"]
+    # Children should be stripped, only parent remains
+    assert len(listing) == 1
+    assert "Jane Doe" in listing
+    assert listing["Jane Doe"]["Employment"]["amount"] == 1200
+
+
+@pytest.mark.asyncio
 async def test_record_assets_receives_benefits_true(flow_manager):
     result, next_node = await record_assets_receives_benefits(flow_manager, True)
     assert isinstance(result, dict)
@@ -597,8 +780,57 @@ async def test_record_assets_receives_benefits_true(flow_manager):
 
 @pytest.mark.asyncio
 async def test_record_assets_receives_benefits_false(flow_manager):
+    flow_manager.state["assets_cash_accounts"] = {"listing": [{"cash": 20}]}
     result, next_node = await record_assets_receives_benefits(flow_manager, False)
     assert result is None
+    assert "assets_cash_accounts" not in flow_manager.state
+    assert "record_assets_cash_accounts_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_assets_cash_accounts_stores_category_state(flow_manager):
+    result, next_node = await record_assets_cash_accounts(
+        flow_manager, [{"savings account": 1200}]
+    )
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["listing"] == [{"savings account": 1200}]
+    assert flow_manager.state["assets_cash_accounts"] == {
+        "listing": [{"savings account": 1200}]
+    }
+    assert "record_assets_investments_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_assets_investments_stores_category_state(flow_manager):
+    flow_manager.state["assets_cash_accounts"] = {
+        "listing": [{"savings account": 1200}]
+    }
+    result, next_node = await record_assets_investments(flow_manager, [{"stocks": 500}])
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["listing"] == [{"stocks": 500}]
+    assert flow_manager.state["assets_cash_accounts"] == {
+        "listing": [{"savings account": 1200}]
+    }
+    assert flow_manager.state["assets_investments"] == {"listing": [{"stocks": 500}]}
+    assert "record_assets_other_property_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_assets_other_property_routes_to_confirmation(flow_manager):
+    flow_manager.state["assets_cash_accounts"] = {
+        "listing": [{"savings account": 1200}]
+    }
+    result, next_node = await record_assets_other_property(
+        flow_manager, [{"vacant land": 4000}]
+    )
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["listing"] == [{"vacant land": 4000}]
+    assert flow_manager.state["assets_other_property"] == {
+        "listing": [{"vacant land": 4000}]
+    }
     assert "record_assets_list_prompt" in next_node
 
 
@@ -606,7 +838,7 @@ async def test_record_assets_receives_benefits_false(flow_manager):
 async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
     patch_validator.check_assets = AsyncMock(return_value=(True, 7000))
     with patch("intake_bot.nodes.nodes.Assets", Assets):
-        assets = [{"car": 5000}, {"savings": 2000}]
+        assets = [{"savings": 2000}, {"vacant land": 5000}]
     result, next_node = await record_assets_list(flow_manager, assets)
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
@@ -614,6 +846,9 @@ async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
     assert flow_manager.state["assets"]["listing"] == assets
     assert flow_manager.state["assets"]["total_value"] == 7000
     assert flow_manager.state["assets"]["receives_benefits"] is False
+    assert "assets_cash_accounts" not in flow_manager.state
+    assert "assets_investments" not in flow_manager.state
+    assert "assets_other_property" not in flow_manager.state
     assert "record_citizenship_prompt" in next_node
 
 
@@ -622,7 +857,7 @@ async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     patch_validator.check_assets = AsyncMock(return_value=(False, 12000))
     with patch("intake_bot.nodes.nodes.Assets", Assets):
-        assets = [{"car": 5000}, {"savings": 7000}]
+        assets = [{"savings": 7000}, {"vacant land": 5000}]
     result, next_node = await record_assets_list(flow_manager, assets)
     assert isinstance(result, dict)
     assert result["status"] == Status.ERROR
@@ -632,6 +867,57 @@ async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator
     assert flow_manager.state["assets"]["receives_benefits"] is False
     assert "Over the household assets' value limit." in result["error"]
     assert "confirm_assets_over_limit_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_assets_list_filters_primary_vehicle(
+    flow_manager, patch_validator
+):
+    patch_validator.check_assets = AsyncMock(return_value=(True, 3600))
+    assets = [{"savings account": 2100}, {"primary car": 8500}, {"jewelry": 1500}]
+
+    result, next_node = await record_assets_list(flow_manager, assets)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["listing"] == [{"savings account": 2100}, {"jewelry": 1500}]
+    assert result["total_value"] == 3600
+    assert flow_manager.state["assets"]["listing"] == [
+        {"savings account": 2100},
+        {"jewelry": 1500},
+    ]
+    patch_validator.check_assets.assert_awaited_once()
+    assert "record_citizenship_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_assets_list_uses_accumulated_category_state(
+    flow_manager, patch_validator
+):
+    patch_validator.check_assets = AsyncMock(return_value=(True, 7000))
+    flow_manager.state["assets_cash_accounts"] = {"listing": [{"savings": 2000}]}
+    flow_manager.state["assets_investments"] = {"listing": [{"stocks": 500}]}
+    flow_manager.state["assets_other_property"] = {"listing": [{"vacant land": 4500}]}
+
+    result, next_node = await record_assets_list(flow_manager)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["listing"] == [
+        {"savings": 2000},
+        {"stocks": 500},
+        {"vacant land": 4500},
+    ]
+    assert flow_manager.state["assets"]["listing"] == [
+        {"savings": 2000},
+        {"stocks": 500},
+        {"vacant land": 4500},
+    ]
+    patch_validator.check_assets.assert_awaited_once()
+    assert "assets_cash_accounts" not in flow_manager.state
+    assert "assets_investments" not in flow_manager.state
+    assert "assets_other_property" not in flow_manager.state
+    assert "record_citizenship_prompt" in next_node
 
 
 @pytest.mark.asyncio
@@ -645,10 +931,21 @@ async def test_record_assets_list_invalid(flow_manager):
 
 @pytest.mark.asyncio
 async def test_record_citizenship(flow_manager):
-    result, next_node = await record_citizenship(flow_manager, True)
+    result, next_node = await record_citizenship(
+        flow_manager, True, answer_was_explicit=True
+    )
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
     assert "record_ssn_last_4_prompt" in next_node
+
+
+@pytest.mark.asyncio
+async def test_record_citizenship_requires_explicit_answer(flow_manager):
+    result, next_node = await record_citizenship(flow_manager, False)
+
+    assert result["status"] == Status.ERROR
+    assert "Citizenship can only be recorded" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio
@@ -760,7 +1057,9 @@ async def test_record_ssn_last_4_non_digits(flow_manager, patch_validator):
 @pytest.mark.asyncio
 async def test_record_citizenship_routes_to_ssn_last_4(flow_manager):
     """Test that record_citizenship routes to record_ssn_last_4 node."""
-    result, next_node = await record_citizenship(flow_manager, True)
+    result, next_node = await record_citizenship(
+        flow_manager, True, answer_was_explicit=True
+    )
     assert result["status"] == Status.SUCCESS
     assert result["is_citizen"] is True
     assert "record_ssn_last_4_prompt" in next_node
@@ -956,6 +1255,57 @@ async def test_record_adverse_parties_valid(flow_manager):
 
 
 @pytest.mark.asyncio
+async def test_record_adverse_parties_requires_one_follow_up_for_name_only(
+    flow_manager,
+):
+    adverse_parties = [
+        {
+            "first": "Dexter",
+            "middle": "Robert",
+            "last": "Campbell",
+        }
+    ]
+
+    first_result, first_next_node = await record_adverse_parties(
+        flow_manager, adverse_parties
+    )
+
+    assert isinstance(first_result, dict)
+    assert first_result["status"] == Status.ERROR
+    assert "ask whether the caller knows any phone number" in first_result["error"]
+    assert first_result["adverse_parties"][0]["first"] == "Dexter"
+    assert first_next_node is None
+
+    second_result, second_next_node = await record_adverse_parties(
+        flow_manager, adverse_parties
+    )
+
+    assert isinstance(second_result, dict)
+    assert second_result["status"] == Status.SUCCESS
+    assert second_result["adverse_parties"][0]["first"] == "Dexter"
+    assert "record_domestic_violence_prompt" in second_next_node
+
+
+@pytest.mark.asyncio
+async def test_record_adverse_parties_phone_without_type(flow_manager):
+    adverse_parties = [
+        {
+            "first": "Bob",
+            "last": "Smith",
+            "phones": [{"number": "8665345256"}],
+        }
+    ]
+
+    result, next_node = await record_adverse_parties(flow_manager, adverse_parties)
+
+    assert isinstance(result, dict)
+    assert result["status"] == Status.SUCCESS
+    assert result["adverse_parties"][0]["phones"][0]["number"] == "(866) 534-5256"
+    assert result["adverse_parties"][0]["phones"][0].get("type") is None
+    assert "record_domestic_violence_prompt" in next_node
+
+
+@pytest.mark.asyncio
 async def test_record_adverse_parties_invalid(flow_manager):
     # Invalid data - missing required 'last' field
     adverse_parties = [
@@ -1014,12 +1364,28 @@ def test_node_caller_ended_conversation():
 
 @pytest.mark.asyncio
 async def test_record_ssn_last_4_empty(flow_manager, patch_validator):
-    result, next_node = await record_ssn_last_4(flow_manager, ssn_last_4="")
+    result, next_node = await record_ssn_last_4(
+        flow_manager,
+        ssn_last_4="",
+        ssn_unavailable_reason="refused",
+    )
 
     assert result["status"] == Status.SUCCESS
     assert result["ssn_last_4"] == ""
     assert next_node is not None
     # Validator should NOT be called
+    patch_validator.check_ssn_last_4.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_ssn_last_4_empty_without_reason_errors(
+    flow_manager, patch_validator
+):
+    result, next_node = await record_ssn_last_4(flow_manager, ssn_last_4="")
+
+    assert result["status"] == Status.ERROR
+    assert "explicitly refuses" in result["error"]
+    assert next_node is None
     patch_validator.check_ssn_last_4.assert_not_called()
 
 

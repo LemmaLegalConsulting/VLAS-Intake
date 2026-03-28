@@ -96,20 +96,17 @@ record_phone_number:
           - If the phone number is not available, ask the caller to provide their phone number.
         2. After receiving the phone number, ALWAYS read it back to the caller to confirm its accuracy.
           - IMPORTANT: After reading the number back, ask only whether the number is correct, and then wait for the caller's answer.
-          - IMPORTANT: Do NOT ask for the phone type in the same utterance as the confirmation question.
           - IMPORTANT: Read the phone number digit-by-digit (one digit at a time), not as a whole number.
           - IMPORTANT: Read the phone number in normal groupings of 3 digits, 3 digits, 4 digits.
           - IMPORTANT: Pronounce the digit 0 as "zero", not "O".
-          - Example: For 8665345243, say "eight six six, five three four, five two four three".
-          - Ask the confirmation as a direct question, for example: "I heard eight six six, five three four, five two four three. Is that correct?"
-          - If the caller confirms the number is correct, THEN ask for the phone type in a new question.
-          - If the caller indicates the number is incorrect, do NOT ask for the phone type. Wait and see if they provide the correct number; if not, ask them to provide the correct number again, and then repeat the confirmation process.
+          - Example (English): For 8665345243, say "eight six six, five three four, five two four three".
+          - Example (Spanish): For 8665345243, say "ocho seis seis, cinco tres cuatro, cinco dos cuatro tres".
+          - Ask the confirmation as a direct question, for example: "I heard eight six six, five three four, five two four three. Is that correct?" (or in Spanish: "Escuché ocho seis seis, cinco tres cuatro, cinco dos cuatro tres. ¿Es correcto?")
+          - If the caller indicates the number is incorrect, wait and see if they provide the correct number; if not, ask them to provide the correct number again, and then repeat the confirmation process.
           - If the caller gives an unclear answer to the confirmation question, repeat the confirmation question and wait for a clear yes-or-no answer.
         3. If the phone number provided is invalid, explain that you need a valid 10-digit US phone number and ask them to try again.
-        4. Only after the caller explicitly confirms that the phone number is correct, ask the caller what type of phone number this is: mobile, home, work, or other.
-        5. ONLY use the `record_phone_number` function after both of these have happened:
-          - The caller has explicitly confirmed that the phone number is correct.
-          - The caller has specified the phone type.
+        4. ONLY use the `record_phone_number` function after the caller explicitly confirms that the phone number is correct.
+        5. Do NOT ask for the phone type in this step. The next step will ask for it after the confirmed phone number has been saved.
 
         [System]
         Phone number: {phone_number}
@@ -117,6 +114,23 @@ record_phone_number:
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
         Please provide your phone number.
+
+record_phone_type:
+  task_messages:
+    - content: >-
+        [Instructions]
+        1. The caller's phone number has already been confirmed. Do NOT ask for the phone number again unless the caller volunteers a correction.
+        2. Ask one short question: "What type of phone number is this: mobile, home, work, or other?"
+        3. If the caller gives a synonym, normalize it when calling the function. Examples: cellular or movil -> mobile, casa -> home, trabajo -> work, otro -> other.
+        4. If the caller gives an unclear or unrelated answer, ask again and wait for a clear phone type.
+        5. ONLY use the `record_phone_type` function after the caller explicitly identifies the phone type.
+
+        [System]
+        Confirmed phone number: {phone_number}
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        What type of phone number is this: mobile, home, work, or other?
 
 # Name
 record_name:
@@ -132,7 +146,7 @@ record_name:
         3. If the caller says the spelling is wrong, ask them to spell only the incorrect or unclear part when possible, rather than asking for the whole name again.
         4. If the caller confirms some parts of the name but corrects or spells another part in the same response, keep the confirmed parts and update only the corrected part.
         5. If the caller gives a pronunciation-based correction such as "It's Adamson" or "The last name is Damson," repeat back your best spelling guess and ask them to confirm or spell only that part.
-        6. IMPORTANT: If the caller says "correct" or "yes" but then provides a spelling that does NOT match what you just spelled out, treat the caller's spelling as the authoritative version. Do NOT accept it as confirmed until you have reconciled the contradiction (e.g., "You said that's correct, but the spelling you gave for the first name looks different from what I had. Let me confirm — is it spelled C E L E S T E or C L E S D?").
+        6. IMPORTANT: If the caller says "correct" or "yes" but then provides a spelling that does NOT match what you just spelled out, treat the caller's spelling as the authoritative version. Do NOT accept it as confirmed until you have reconciled the contradiction (e.g., "You said that's correct, but the spelling you gave for the first name looks different from what I had. Let me confirm -- is it spelled C E L E S T E or C L E S D?").
         7. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
 
         [User Prompt]
@@ -145,8 +159,9 @@ record_service_area:
     - content: >-
         [Instructions]
         1. Ask the caller where the legal incident occurred.
-        2. Once the caller provides a location, IMMEDIATELY call the `record_service_area` function with that location.
-        3. Do NOT ask the caller to confirm the location before calling the function. The function will handle validation and matching.
+        2. If the caller gives a city or county, IMMEDIATELY call the `record_service_area` function with that location.
+        3. If the caller answers with something other than a city or county, or mixes a location with unrelated facts, acknowledge briefly, keep only the city or county if one was actually provided, and otherwise ask again for just the city or county.
+        4. Do NOT ask the caller to confirm the location before calling the function. The function will handle validation and matching.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -157,7 +172,8 @@ record_service_area:
           - If the caller confirms the match is correct, re-check that service area and continue intake.
           - If the caller says the match is incorrect (e.g., "No", "That's not it"), ask them to provide the correct city or county again.
           - If the caller provides a new location, IMMEDIATELY call the `record_service_area` function with that location.
-          - Only if the caller explicitly indicates they are not in Virginia or refuses to provide a location, inform them that they are ineligible for our services.
+          - If the function error says you could not identify a Virginia city or county from the caller's response, ask again for only the city or county. Do NOT mark the caller ineligible just because they answered the wrong question.
+          - Only if the location is outside of Virginia or the caller refuses to provide a location, inform them that they are ineligible for our services.
             - If the location is outside of Virginia, provide them with Legal Services Corporation's website (spell it letter-by-letter, and say it only once): L S C dot G O V.
             - If the location is inside Virginia but outside our service area, provide them with Virginia Legal Aid's website (spell it letter-by-letter, and say it only once): V A L E G A L A I D dot O R G.
             - Then end the conversation.
@@ -189,9 +205,13 @@ record_adverse_parties:
         1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
         2. Ask the caller if there are any individuals who are adverse (opposing) parties in their legal case.
         3. IF the caller indicates there ARE adverse parties:
+            - If the caller names an adverse party in the same utterance as unrelated facts from another step, keep the adverse-party details and ignore the unrelated facts for now.
+            - If the caller gives only part of the adverse-party information at first, keep what they gave and continue asking for the remaining useful details before moving on.
            - Ask for the full names of all individuals.
            - For each person, request their `first`, `middle`, and `last` name, and any suffix (for example Jr., Sr., II, III).
-           - Also ask for any phone numbers `phones` they may have for the adverse party (specify type: mobile, home, business, or fax).
+            - Also ask for any phone numbers `phones` they may have for the adverse party.
+            - If the caller knows the phone type, include `type` as mobile, home, business, or fax.
+            - If the caller only knows the number, keep the `number` and omit `type`. Do NOT guess the phone type and do NOT force a re-ask just to get the type.
            - If available, ask for their date of birth `dob`.
            - Read back the complete list to confirm accuracy.
         4. IF the caller indicates there are NO adverse parties (e.g., bankruptcy, name change):
@@ -208,7 +228,8 @@ record_adverse_parties:
         - "suffix" (optional, e.g., "Jr.", "Sr.", "II", "III")
         - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
         - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
-          - Each phone object must have: "number" (str) and "type" (str: mobile, home, business, or fax)
+          - Each phone object must have: "number" (str)
+          - Each phone object may also include: "type" (str: mobile, home, business, or fax) if the caller actually provides it
 
         [Examples - ALWAYS pass the adverse_parties argument]
         Example 1 - One adverse party with complete information:
@@ -231,6 +252,8 @@ record_adverse_parties:
         Do NOT call the function without specifying the adverse_parties argument.
         Omit any fields that you don't have a value for.
         If the opposing party's `dob` or `phone` isn't valid, ask the caller to clarify, and try again, omitting it if necessary.
+        A phone number without a type is still acceptable. Save the number and leave out the type.
+        Do NOT skip directly to the next intake step if you already know there is an adverse party but have not finished gathering or confirming the adverse-party details.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -241,13 +264,13 @@ record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller if they are experiencing or have experienced domestic violence.
-        2. Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation.
-        3. Once the caller confirms whether they are experiencing or have experienced domestic violence, call the `record_domestic_violence` function with the boolean value.
+        Ask one short eligibility question about domestic violence.
+        If helpful, clarify that it can include physical violence, threats, yelling, throwing things, or controlling behavior.
+        Once the caller answers yes or no, call the `record_domestic_violence` function with the boolean value.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        For funding and eligibility purposes, I need to ask you one more question. Are you experiencing or have you experienced domestic violence? Domestic violence includes physical violence, threats, yelling, throwing things, controlling behavior, or any form of abuse or intimidation.
+        One more eligibility question: are you experiencing or have you experienced domestic violence, such as threats, yelling, throwing things, controlling behavior, or physical abuse?
 
         [Additional Notes]
         - Domestic violence includes but is not limited to: hitting, pushing, yelling, throwing objects, threats, controlling behavior, and emotional abuse.
@@ -259,15 +282,14 @@ record_household_composition:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller a single question to determine how many adults (age 18 and older) and how many children (under age 18) live in their household.
-        2. Remind them to INCLUDE themselves in the adult count.
-        3. IF the caller previously stated they are experiencing domestic violence, explicitly tell them to EXCLUDE anyone who has perpetrated domestic violence against them. Otherwise, do not mention this exclusion.
-        4. Confirm the total number of people in the household by adding the adults and children.
-        5. Once confirmed, ALWAYS call the `record_household_composition` function with both numbers.
+        1. Ask for two numbers only: adults age 18 and older, and children under 18.
+        2. Remind the caller to include themselves in the adult count.
+        3. If the caller previously reported domestic violence, tell them not to count the person who harmed them.
+        4. Read back the two numbers in a short confirmation before calling the function.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        To help us understand your household situation, how many adults (18 and older, including yourself) and how many children (under 18) live in your household?
+        How many adults, including you, and how many children under 18 live in your household?
         (Only if the caller reported domestic violence: "Do not count anyone who has perpetrated domestic violence against you.")
 
         [Additional Notes]
@@ -283,13 +305,14 @@ record_income:
   task_messages:
     - content: >-
         [Instructions]
-        1. You have already collected the total number of adults and children in the household. Only ask for income from adult household members who HAVE income - there is no need to list all household members.
-        2. For each household member with income (excluding anyone who has perpetrated domestic violence against the caller), collect:
+        1. You have already collected the household counts. Ask only about household members who have income.
+        2. This includes adults and children with income, but still excludes anyone who has perpetrated domestic violence against the caller.
+        3. For each household member with income, collect:
            - The actual person's name
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
-        3. If the caller indicates that some household members have no income, ask them how they manage essential expenses like housing, utilities, and food.
-        4. After collecting all income information for those with income, read back a summary that includes each person's name and their total income, and ask the caller to confirm accuracy.
+        4. If the caller says they have no income, ask briefly how essential expenses like housing, utilities, and food are paid.
+        5. After collecting the income details, read back a short summary and ask the caller to confirm it.
 
         IMPORTANT: Do NOT collect income information for anyone who has perpetrated domestic violence against the caller.
 
@@ -328,16 +351,7 @@ record_income:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Now I need to know about income. Please tell me about the income for any household members who have income from any sources. For each person with income, provide their first and last name and their income from each source. Common sources of income include:
-        - Wages or salary
-        - Spousal support or alimony
-        - Child support
-        - Unemployment benefits
-        - Disability payments
-        - Social Security
-        - TANF
-        - Veterans benefits
-        - Pension or retirement income
+        Tell me the income for each household member who has income. Include the person's name, the source, the amount, and how often they receive it.
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who has perpetrated domestic violence against you. These individuals should be completely excluded from the income calculation.
@@ -346,6 +360,8 @@ record_income:
         - When recording income, use the income category names as keys to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
+        - If a household member has NO income at all, submit ONLY "No Household Income" as their single income category. Do NOT enumerate every category at $0.
+        - Do NOT include children or other household members who have no income. Only include members who actually receive income.
 
         Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the income category names in the function call.
 
@@ -388,36 +404,81 @@ record_assets_receives_benefits:
         (Translate to the caller's language if they are not speaking English)
         Are you receiving Medicaid, SSI, or TANF benefits?
 
+record_assets_cash_accounts:
+  task_messages:
+    - content: >-
+        [Instructions]
+        Ask one short question about cash, checking, or savings, then wait for the caller's answer.
+
+        Do NOT call the function until the caller answers this question.
+        Do NOT infer a no from silence or from answers about other asset categories.
+
+        If the caller says they have none, call `record_assets_cash_accounts` with `assets=[]`.
+        If the caller reports any of these assets, call `record_assets_cash_accounts` with `assets` as a list of one-key objects, for example `[{"checking account": 250}, {"cash": 40}]`.
+
+        Only include cash, checking, and savings here.
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Do you have any money in cash, checking, or savings?
+
+record_assets_investments:
+  task_messages:
+    - content: >-
+        [Instructions]
+        Ask one short question about countable investments such as stocks, bonds, or crypto, then wait for the caller's answer.
+
+        Do NOT call the function until the caller answers this question.
+        Do NOT infer a no from earlier answers about cash or other property.
+
+        If the caller says they have none, call `record_assets_investments` with `assets=[]`.
+        If the caller reports any investments, call `record_assets_investments` with `assets` as a list of one-key objects, for example `[{"stocks": 1200}, {"bonds": 800}]`.
+
+        Do NOT include retirement accounts or pension funds here.
+        Only include countable non-retirement investments here.
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Do you have any non-retirement investments, like stocks, bonds, or crypto?
+
+record_assets_other_property:
+  task_messages:
+    - content: >-
+        [Instructions]
+        Ask one short question about other countable property, then wait for the caller's answer.
+
+        Do NOT call the function until the caller answers this question.
+        Do NOT infer a no from earlier answers about cash or investments.
+
+        If the caller says they have none, call `record_assets_other_property` with `assets=[]`.
+        If the caller reports any countable property, call `record_assets_other_property` with `assets` as a list of one-key objects, for example `[{"jewelry": 1500}, {"vacant land": 4000}]`.
+
+        Do NOT include the caller's primary mode of transportation, the home they live in, or retirement funds.
+        If the caller mentions an additional vehicle that is not their primary transportation, you may include it if it is otherwise countable.
+        Only include countable property such as jewelry, business assets, collectibles, extra vehicles, or land other than the home they live in.
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Do you own any other countable property, like jewelry, business assets, an extra vehicle that is not your main transportation, or land other than the home you live in?
+
 record_assets_list:
   task_messages:
     - content: >-
         [Instructions]
-        Ask the caller what assets they have and the value of each asset. Use the following guidelines:
-        To determine your eligibility, we need to know what assets you have. Examples of assets include:
-        - Bank accounts
-        - Stocks or bonds
-        - Insurance policies with a net cash value
+        Briefly confirm the countable assets collected so far, then ask if that sounds right.
 
-        Some assets are exempt and should NOT be included. Exempt assets include:
-        - Your principal residence (home you live in)
-        - Cars or vehicles used for transportation (even if they have value or a loan)
-        - The first $2,000 of the net value of insurance policies
-        - Funds in retirement plans
-        - Funds not available to you or that would take a long time to convert to cash
-        - Assets held by a perpetrator of domestic violence against you
-        - Assets with no equity value (e.g., property with a loan exceeding its value)
+        Assets collected so far:
+        {current_assets_summary}
 
-        IMPORTANT: If the caller mentions an exempt asset (such as a car, their home, or a retirement account), you MUST tell them that asset is exempt and exclude it from the list. Do NOT record exempt assets. For example, if a caller says "I have a car worth $8,000", respond with something like "Cars used for transportation are exempt, so we won't count that."
+        If the caller confirms and no changes are needed, call `record_assets_list` without arguments.
+        If the caller corrects the list, call `record_assets_list` with the corrected `assets` list using the same list-of-one-key-objects format.
 
-        If the caller reports that they do not have any assets, or only has exempt assets, this is a valid response. If all assets are held by a perpetrator of domestic violence, exclude those assets and proceed as usual.
+        Do not invent assets or rename fields.
+        Do not include the caller's primary transportation vehicle, the home the caller lives in, or retirement funds in the confirmed list.
 
-        After the caller provides their list of assets and the value of each (including if the list is empty), clearly read back the entire list, specifying each asset and its value. Ask the caller to confirm that this list is complete and accurate. If the caller indicates any corrections or additions, update the list and repeat the confirmation process.
-
-        [Translation Requirement]
-        If the caller provides asset names in a language other than English, you MUST translate the asset names into English before calling the `record_assets_list` function. The values should remain as numbers.
-        For example, if the caller says "cuenta de ahorros", you must record it as "savings account".
-
-        Once the caller confirms the list is correct and complete, ALWAYS call the `record_assets_list` function to record the assets, and ALWAYS pass the argument assets as a list (for example, assets: [] if the list is empty, or assets: [{"bank account": 0}] if not). Never call the function without the `assets` argument.
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Let me confirm your assets. Does that sound right?
 
 # Assets over limit
 confirm_assets_over_limit:
@@ -441,7 +502,17 @@ confirm_assets_over_limit:
 record_citizenship:
   task_messages:
     - content: >-
-        Explain that US citizenship is only one part of determining eligibility for Law-Line assistance, and then ask if the caller is a US citizen. If the caller refuses to answer or avoids answering, treat that as a "no".
+        [Instructions]
+        1. Ask one short question about whether the caller is a US citizen.
+        2. If the caller clearly says yes, call `record_citizenship(is_a_us_citizen=true, answer_was_explicit=true)`.
+        3. If the caller clearly says no, call `record_citizenship(is_a_us_citizen=false, answer_was_explicit=true)`.
+        4. If the caller explicitly refuses to answer, call `record_citizenship(is_a_us_citizen=false, answer_was_explicit=true)`.
+        5. Do NOT treat silence, an unrelated answer, or a skipped turn as "no". Ask again until you get a clear yes, no, or explicit refusal.
+        6. NEVER call `record_citizenship` without `answer_was_explicit=true`.
+
+        [User Prompt]
+        (Translate this to the caller's language if they are not speaking English)
+        Are you a U.S. citizen?
 
 # SSN Last 4
 record_ssn_last_4:
@@ -456,8 +527,10 @@ record_ssn_last_4:
             - If the caller indicates the digits are incorrect, ask them to correct only the wrong digit or digits when possible, then repeat the confirmation.
             - If the caller corrects part of the sequence in the same response where they confirm the rest, keep the confirmed digits and update only the corrected digits.
         4. If the caller refuses to provide this information or provides a value that is not exactly 4 digits, explain that you need exactly 4 digits and ask them to try again.
-           - Exception: If the caller explicitly refuses to provide their SSN or does not know it, you may proceed by calling the function with an empty string: ssn_last_4=""
-        5. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct (or if you are skipping as per the exception).
+            - Exception: If the caller explicitly refuses to provide their SSN, call the function with `ssn_last_4=""` and `ssn_unavailable_reason="refused"`.
+            - Exception: If the caller explicitly says they do not know the last 4 digits, call the function with `ssn_last_4=""` and `ssn_unavailable_reason="does_not_know"`.
+          5. NEVER call `record_ssn_last_4` with an empty string unless the caller explicitly refuses or explicitly says they do not know it.
+          6. ONLY use the `record_ssn_last_4` function if the caller confirms their last 4 digits are correct (or if you are skipping as per the explicit exception).
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
@@ -517,7 +590,7 @@ record_address:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please provide your residential address. I'll need your street address, city, state, ZIP code, and county. If you have an apartment or suite number, please include that as well.
+        What is your residential address, including street, city, state, ZIP code, and county? Include any apartment or suite number if you have one.
 
 # Names
 record_names:
@@ -587,7 +660,7 @@ record_names:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Do you have any other names that should be included in your legal file? This might include a maiden name, a name from a previous marriage, a legally changed name, or any other name you have been known by that might appear in court documents or legal records.
+        Do you have any other names to include in your legal file, such as a maiden name, former name, or nickname used in legal records?
 
 # Intake complete
 complete_intake:

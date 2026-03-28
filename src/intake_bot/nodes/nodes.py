@@ -1,8 +1,10 @@
 import sys
+import unicodedata
 
 from intake_bot.models.intake_flow_result import (
     AddressResult,
     AdversePartiesResult,
+    AssetCategoryResult,
     AssetsResult,
     CallerNamesResult,
     CaseTypeResult,
@@ -21,6 +23,7 @@ from intake_bot.models.intake_flow_result import (
 from intake_bot.models.validator import (
     Address,
     AdverseParties,
+    AdverseParty,
     Assets,
     CallerName,
     CallerNames,
@@ -43,8 +46,9 @@ from intake_bot.services.dialpad import (
 from intake_bot.utils.ev import get_ev
 from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
-from pipecat.frames.frames import STTUpdateSettingsFrame
+from pipecat.frames.frames import STTUpdateSettingsFrame, TTSUpdateSettingsFrame
 from pipecat.services.azure.stt import AzureSTTService
+from pipecat.services.azure.tts import AzureTTSService
 from pipecat.transcriptions.language import Language
 from pipecat_flows import (
     ContextStrategy,
@@ -58,6 +62,7 @@ from pydantic import ValidationError
 prompts = NodePrompts()
 validator = IntakeValidator()
 sms_service = SMS()
+_ADVERSE_PARTIES_FOLLOW_UP_KEY = "_adverse_parties_follow_up_requested"
 
 
 ######################################################################
@@ -116,6 +121,40 @@ def _caller_phone_number(flow_manager: FlowManager) -> str | None:
     return None
 
 
+def _normalize_phone_type_value(phone_type: str) -> PhoneTypeCaller | None:
+    normalized = (
+        unicodedata.normalize("NFKD", phone_type)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .strip()
+        .lower()
+    )
+
+    aliases = {
+        "mobile": PhoneTypeCaller.MOBILE,
+        "cell": PhoneTypeCaller.MOBILE,
+        "cell phone": PhoneTypeCaller.MOBILE,
+        "cellphone": PhoneTypeCaller.MOBILE,
+        "cellular": PhoneTypeCaller.MOBILE,
+        "celular": PhoneTypeCaller.MOBILE,
+        "movil": PhoneTypeCaller.MOBILE,
+        "home": PhoneTypeCaller.HOME,
+        "home phone": PhoneTypeCaller.HOME,
+        "house": PhoneTypeCaller.HOME,
+        "casa": PhoneTypeCaller.HOME,
+        "work": PhoneTypeCaller.WORK,
+        "work phone": PhoneTypeCaller.WORK,
+        "business": PhoneTypeCaller.WORK,
+        "business phone": PhoneTypeCaller.WORK,
+        "office": PhoneTypeCaller.WORK,
+        "trabajo": PhoneTypeCaller.WORK,
+        "other": PhoneTypeCaller.OTHER,
+        "otro": PhoneTypeCaller.OTHER,
+        "fax": PhoneTypeCaller.FAX,
+    }
+    return aliases.get(normalized)
+
+
 def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
     normalized = delivery_method.strip().lower()
     if normalized in {"phone", "by phone", "over the phone", "voice", "call"}:
@@ -123,6 +162,62 @@ def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
     if normalized in {"text", "sms", "text message", "message", "by text"}:
         return "text"
     return None
+
+
+def _adverse_party_has_optional_details(party: AdverseParty) -> bool:
+    return bool(party.suffix or party.dob or party.phones)
+
+
+def _format_adverse_party_name(party: AdverseParty) -> str:
+    parts = [party.first]
+    if party.middle:
+        parts.append(party.middle)
+    parts.append(party.last)
+    if party.suffix:
+        parts.append(party.suffix)
+    return " ".join(parts)
+
+
+def _adverse_party_follow_up_error(
+    adverse_parties: AdverseParties,
+) -> AdversePartiesResult:
+    parties_missing_details = [
+        party
+        for party in adverse_parties.root
+        if not _adverse_party_has_optional_details(party)
+    ]
+    party_names = ", ".join(
+        _format_adverse_party_name(party) for party in parties_missing_details
+    )
+    return AdversePartiesResult(
+        status=Status.ERROR,
+        error=(
+            "Before moving on, ask whether the caller knows any phone number, date of birth, "
+            f"or suffix for {party_names}. If they do not know, confirm that and then call "
+            "`record_adverse_parties` again with the best available information, omitting unknown fields."
+        ),
+        adverse_parties=adverse_parties,
+    )
+
+
+def _asset_validation_error_result(error: ValidationError) -> IntakeFlowResult:
+    logger.debug(error)
+    cleaned_error = clean_pydantic_error_message(error)
+    return IntakeFlowResult(
+        status=Status.ERROR,
+        error=f"""There was an error validating the `assets`: {cleaned_error}.""",
+    )
+
+
+def _validated_countable_assets(
+    assets: list[dict] | None,
+    category: IntakeValidator.AssetCategory,
+) -> Assets:
+    assets_validated = IntakeValidator.assets_validate(assets, category)
+    countable_assets = IntakeValidator.assets_filter_countable_entries(
+        [entry.root for entry in assets_validated.root]
+    )
+    return IntakeValidator.assets_validate(countable_assets, category)
 
 
 def _node_referral_and_end(
@@ -223,6 +318,9 @@ async def record_language(
     await flow_manager.task.queue_frame(
         STTUpdateSettingsFrame(delta=AzureSTTService.Settings(language=stt_language))
     )
+    await flow_manager.task.queue_frame(
+        TTSUpdateSettingsFrame(delta=AzureTTSService.Settings(language=stt_language))
+    )
 
     result = LanguageResult(status=Status.SUCCESS, language=language)
     next_node = NodeConfig(
@@ -239,14 +337,13 @@ async def record_language(
 
 @convert_and_log_result("phone")
 async def record_phone_number(
-    flow_manager: FlowManager, phone_number: str, phone_type: str
+    flow_manager: FlowManager, phone_number: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect the caller's US phone number and type.
 
     Args:
         phone_number (str): The caller's 10 digit US phone number.
-        phone_type (str): The type of phone (mobile, home, work, or other).
     """
     is_valid, validated_phone_number = await validator.check_phone_number(
         phone_number=phone_number
@@ -254,35 +351,73 @@ async def record_phone_number(
 
     status = status_helper(is_valid)
 
-    try:
-        validated_phone_type = PhoneTypeCaller(phone_type.lower())
-    except ValueError:
-        status = Status.ERROR
-        validated_phone_type = None
-
     result = PhoneNumberResult(
         status=status,
         is_valid=is_valid,
         phone_number=validated_phone_number,
-        phone_type=validated_phone_type,
     )
 
     if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_name"),
-                "functions": [record_name],
+                **prompts.get(
+                    "record_phone_type",
+                    phone_number=validated_phone_number,
+                ),
+                "functions": [record_phone_type],
             }
         )
     else:
         if not is_valid:
             result.error = "Not a valid US phone number"
-        else:
-            result.error = (
-                "Invalid phone type. Please choose from: mobile, home, work, or other"
-            )
         next_node = None
+    return result, next_node
+
+
+@convert_and_log_result("phone")
+async def record_phone_type(
+    flow_manager: FlowManager, phone_type: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    """
+    Record the caller's phone type after the phone number has been confirmed.
+
+    Args:
+        phone_type (str): The type of phone (mobile, home, work, other, or fax).
+    """
+    phone_number = _caller_phone_number(flow_manager) or ""
+    if not phone_number:
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error="Phone number must be recorded before phone type.",
+        )
+        return result, None
+
+    validated_phone_type = _normalize_phone_type_value(phone_type)
+    if validated_phone_type is None:
+        result = PhoneNumberResult(
+            status=Status.ERROR,
+            is_valid=True,
+            phone_number=phone_number,
+            error=(
+                "Invalid phone type. Please choose from: mobile, home, work, or other"
+            ),
+        )
+        return result, None
+
+    result = PhoneNumberResult(
+        status=Status.SUCCESS,
+        is_valid=True,
+        phone_number=phone_number,
+        phone_type=validated_phone_type,
+    )
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_name"),
+            "functions": [record_name],
+        }
+    )
     return result, next_node
 
 
@@ -340,11 +475,15 @@ async def record_service_area(
         location (str): The location of the caller's home or the legal incident. Must be a city or county.
     """
     match, fips_code = await validator.check_service_area(location=location)
-    is_eligible = match == location
+    canonical_location = match or ""
+    is_eligible = fips_code != 0
 
     status = status_helper(is_eligible)
     result = ServiceAreaResult(
-        status=status, is_eligible=is_eligible, location=location, fips_code=fips_code
+        status=status,
+        is_eligible=is_eligible,
+        location=canonical_location,
+        fips_code=fips_code,
     )
 
     if status == Status.SUCCESS:
@@ -360,14 +499,11 @@ async def record_service_area(
             result.error = f"""No exact match found. Maybe you meant {match}?"""
             next_node = None
         else:
-            result.error = "Not in our service area."
-            next_node = NodeConfig(
-                node_partial_reset_with_summary()
-                | {
-                    **prompts.get("ineligible"),
-                    "functions": [send_general_referral_and_end],
-                }
+            result.error = (
+                "I couldn't identify a Virginia city or county from that response. "
+                "Ask the caller again for only the city or county where the legal incident occurred."
             )
+            next_node = None
     return result, next_node
 
 
@@ -467,6 +603,20 @@ async def record_adverse_parties(
             error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
         )
         return result, None
+
+    should_request_follow_up = (
+        bool(adverse_parties_validated.root)
+        and any(
+            not _adverse_party_has_optional_details(party)
+            for party in adverse_parties_validated.root
+        )
+        and not flow_manager.state.get(_ADVERSE_PARTIES_FOLLOW_UP_KEY, False)
+    )
+    if should_request_follow_up:
+        flow_manager.state[_ADVERSE_PARTIES_FOLLOW_UP_KEY] = True
+        return _adverse_party_follow_up_error(adverse_parties_validated), None
+
+    flow_manager.state.pop(_ADVERSE_PARTIES_FOLLOW_UP_KEY, None)
 
     result = AdversePartiesResult(
         status=Status.SUCCESS,
@@ -624,6 +774,7 @@ async def record_assets_receives_benefits(
         receives_benefits (bool): The caller has receives government benefits.
     """
     if receives_benefits:
+        IntakeValidator.assets_clear_partial_state(flow_manager.state)
         result = AssetsResult(
             status=Status.SUCCESS,
             is_eligible=True,
@@ -639,28 +790,111 @@ async def record_assets_receives_benefits(
             }
         )
     else:
+        IntakeValidator.assets_clear_partial_state(flow_manager.state)
         result = None
         next_node = NodeConfig(
             node_partial_reset_with_summary()
             | {
-                **prompts.get("record_assets_list"),
-                "functions": [record_assets_list],
+                **prompts.get("record_assets_cash_accounts"),
+                "functions": [record_assets_cash_accounts],
             }
         )
     return result, next_node
 
 
+@convert_and_log_result("assets_cash_accounts")
+async def record_assets_cash_accounts(
+    flow_manager: FlowManager, assets: list[dict] | None = None
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    try:
+        assets_validated = _validated_countable_assets(
+            assets, IntakeValidator.AssetCategory.CASH
+        )
+    except ValidationError as e:
+        return _asset_validation_error_result(e), None
+
+    result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_assets_investments"),
+            "functions": [record_assets_investments],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("assets_investments")
+async def record_assets_investments(
+    flow_manager: FlowManager, assets: list[dict] | None = None
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    try:
+        assets_validated = _validated_countable_assets(
+            assets, IntakeValidator.AssetCategory.INVESTMENTS
+        )
+    except ValidationError as e:
+        return _asset_validation_error_result(e), None
+
+    result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get("record_assets_other_property"),
+            "functions": [record_assets_other_property],
+        }
+    )
+    return result, next_node
+
+
+@convert_and_log_result("assets_other_property")
+async def record_assets_other_property(
+    flow_manager: FlowManager, assets: list[dict] | None = None
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    try:
+        assets_validated = _validated_countable_assets(
+            assets, IntakeValidator.AssetCategory.OTHER_PROPERTY
+        )
+    except ValidationError as e:
+        return _asset_validation_error_result(e), None
+
+    current_assets = [entry.root for entry in assets_validated.root]
+    merged_assets = IntakeValidator.assets_combine_partial(
+        flow_manager.state,
+        overrides={"assets_other_property": current_assets},
+    )
+    result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
+    next_node = NodeConfig(
+        node_partial_reset_with_summary()
+        | {
+            **prompts.get(
+                "record_assets_list",
+                current_assets_summary=IntakeValidator.assets_prompt_text(
+                    merged_assets
+                ),
+            ),
+            "functions": [record_assets_list],
+        }
+    )
+    return result, next_node
+
+
 @convert_and_log_result("assets")
 async def record_assets_list(
-    flow_manager: FlowManager, assets: list[dict]
+    flow_manager: FlowManager, assets: list[dict] | None = None
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect assets' value and determine eligibility of caller.
 
     Args:
-        assets (Assets):
-            A Pydantic RootModel where the value is a list of AssetEntry objects.
-            Each AssetEntry maps a single asset name (str) to an integer net present value.
+        assets (list[dict] | None):
+            Optional list of asset entries to validate and total.
+            If omitted or None, the function combines the previously collected
+            partial asset categories from flow_manager.state before validating
+            eligibility.
+
+            Each entry maps a single asset name (str) to an integer net present
+            value.
+
             Example:
                 [
                     {"car": 5000},
@@ -668,18 +902,18 @@ async def record_assets_list(
                 ]
     """
     try:
-        assets_validated = Assets.model_validate(assets)
+        assets_input = assets
+        if assets_input is None:
+            assets_input = IntakeValidator.assets_combine_partial(flow_manager.state)
+
+        assets_input = IntakeValidator.assets_filter_countable_entries(assets_input)
+
+        assets_validated = Assets.model_validate(assets_input)
         is_eligible, assets_value = await validator.check_assets(
             assets=assets_validated
         )
     except ValidationError as e:
-        logger.debug(e)
-        cleaned_error = clean_pydantic_error_message(e)
-        result = IntakeFlowResult(
-            status=Status.ERROR,
-            error=f"""There was an error validating the `assets`: {cleaned_error}.""",
-        )
-        return result, None
+        return _asset_validation_error_result(e), None
 
     status = status_helper(is_eligible)
     result = AssetsResult(
@@ -689,6 +923,7 @@ async def record_assets_list(
         total_value=assets_value,
         receives_benefits=False,
     )
+    IntakeValidator.assets_clear_partial_state(flow_manager.state)
     if status == Status.SUCCESS:
         next_node = NodeConfig(
             node_partial_reset_with_summary()
@@ -711,7 +946,9 @@ async def record_assets_list(
 
 @convert_and_log_result("citizenship")
 async def record_citizenship(
-    flow_manager: FlowManager, is_a_us_citizen: bool
+    flow_manager: FlowManager,
+    is_a_us_citizen: bool,
+    answer_was_explicit: bool = False,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Record if the caller is a US citizen.
@@ -719,6 +956,16 @@ async def record_citizenship(
     Args:
         has_citizenship (bool): The caller's answer that they are or are not a US citizen.
     """
+    if not answer_was_explicit:
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=(
+                "Citizenship can only be recorded after the caller explicitly says yes, "
+                "no, or refuses to answer."
+            ),
+        )
+        return result, None
+
     result = CitizenshipResult(status=Status.SUCCESS, is_citizen=is_a_us_citizen)
     next_node = NodeConfig(
         node_partial_reset_with_summary()
@@ -732,7 +979,9 @@ async def record_citizenship(
 
 @convert_and_log_result("ssn_last_4")
 async def record_ssn_last_4(
-    flow_manager: FlowManager, ssn_last_4: str = ""
+    flow_manager: FlowManager,
+    ssn_last_4: str = "",
+    ssn_unavailable_reason: str = "",
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     """
     Collect the last 4 digits of the caller's social security number.
@@ -740,8 +989,29 @@ async def record_ssn_last_4(
     Args:
         ssn_last_4 (str): The last 4 digits of the caller's SSN (accepts various formats like XXXX, XXX-X, etc.)
                           Can be empty if the caller refuses or does not know.
+        ssn_unavailable_reason (str): Required only when ssn_last_4 is empty. Must reflect
+                                      an explicit caller response such as refusing to provide
+                                      the SSN or not knowing it.
     """
     if not ssn_last_4:
+        normalized_reason = ssn_unavailable_reason.strip().lower()
+        allowed_skip_reasons = {
+            "refused",
+            "does_not_know",
+            "does not know",
+            "unknown",
+            "prefer_not_to_say",
+            "prefer not to say",
+        }
+        if normalized_reason not in allowed_skip_reasons:
+            result = IntakeFlowResult(
+                status=Status.ERROR,
+                error=(
+                    "SSN last 4 can only be skipped if the caller explicitly refuses "
+                    "to provide it or says they do not know it."
+                ),
+            )
+            return result, None
         status = Status.SUCCESS
         formatted_ssn = ""
     else:
