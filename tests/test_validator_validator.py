@@ -16,6 +16,11 @@ from intake_bot.nodes.validator import IntakeValidator
     [
         ("Amelia County", "Amelia County", 51007),  # exact match
         ("Amelia", "Amelia County", 51007),  # partial match
+        (
+            "The legal incident happened in Amelia County.",
+            "Amelia County",
+            51007,
+        ),  # embedded canonical match
         ("amalea", "Amelia County", 51007),  # WRatio partial match
         ("AMILYA", "Amelia County", 51007),  # WRatio partial match
         ("aml", "Amelia County", 51007),  # WRatio partial match
@@ -24,6 +29,7 @@ from intake_bot.nodes.validator import IntakeValidator
         ("Amelia County City", "Amelia County", 51007),  # extra words
         ("Buckingham", "Buckingham County", 51029),  # another partial match
         ("Danville", "Danville City", 51595),  # city match
+        ("Suffolk", "Suffolk City", 51800),  # city match without suffix
         ("South Boston", "South Boston", 51083),  # exact city
         ("Emporia", "Emporia City", 51600),  # city match
         ("lynchburg", "Lynchburg City", 51680),  # lowercase city
@@ -273,36 +279,49 @@ async def test_check_income_semi_monthly_ineligible():
     "assets_data,expected_eligible,expected_value",
     [
         ([], True, 0),  # no assets
-        ([{"car": 5000}], True, 5000),  # single asset below limit
-        ([{"car": 5000}, {"savings": 2000}], True, 7000),  # multiple assets below limit
-        ([{"house": 10000}], True, 10000),  # exactly at limit
-        ([{"house": 10001}], False, 10001),  # just over limit
+        ([{"primary car": 5000}], True, 0),  # explicit primary transportation is exempt
+        ([{"car": 5000}], True, 5000),  # not all vehicles are exempt
+        ([{"house": 10000}], True, 0),  # primary residence is exempt
+        ([{"401k": 12000}], True, 0),  # retirement funds are exempt
         (
-            [{"car": 8000}, {"savings": 3000}],
-            False,
-            11000,
-        ),  # multiple assets over limit
-        ([{"car": 0}], True, 0),  # zero value asset
-        (
-            [{"car": 5000}, {"boat": 0}, {"savings": 4999}],
+            [{"savings": 2000}, {"jewelry": 1500}],
             True,
-            9999,
+            3500,
+        ),  # countable assets below limit
+        (
+            [{"primary vehicle": 8000}, {"savings": 3000}, {"jewelry": 1500}],
+            True,
+            4500,
+        ),  # explicit primary vehicle ignored
+        ([{"car": 0}], True, 0),  # zero value countable asset
+        (
+            [{"boat": 0}, {"savings": 4999}],
+            True,
+            4999,
         ),  # just under limit with zero asset
-        ([{"expensive_car": 15000}], False, 15000),  # single high-value asset
+        (
+            [{"expensive_car": 15000}],
+            False,
+            15000,
+        ),  # non-exempt asset name still counts
         (
             [
-                {"car": 2500},
                 {"savings": 2500},
                 {"investments": 2500},
                 {"jewelry": 2500},
+                {"vacant land": 2500},
             ],
             True,
             10000,
         ),  # multiple assets exactly at limit
-        ([{"car": 10000}], True, 10000),  # single asset at limit
-        ([{"car": 9999}, {"cash": 1}], True, 10000),  # just at limit
-        ([{"car": 9999}, {"cash": 2}], False, 10001),  # just over limit
-        ([{"car": -1000}, {"savings": 2000}], True, 1000),  # negative asset value
+        ([{"vacant land": 10000}], True, 10000),  # single countable asset at limit
+        ([{"vacant land": 9999}, {"cash": 1}], True, 10000),  # just at limit
+        ([{"vacant land": 9999}, {"cash": 2}], False, 10001),  # just over limit
+        (
+            [{"car": -1000}, {"savings": 2000}],
+            True,
+            1000,
+        ),  # countable vehicle still affects total
     ],
 )
 async def test_check_assets(assets_data, expected_eligible, expected_value):

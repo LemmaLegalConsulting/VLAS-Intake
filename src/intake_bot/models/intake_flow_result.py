@@ -38,6 +38,10 @@ class AssetsResult(IntakeFlowResult):
     receives_benefits: bool
 
 
+class AssetCategoryResult(IntakeFlowResult):
+    listing: Assets
+
+
 class CallerNamesResult(IntakeFlowResult):
     names: CallerNames
 
@@ -79,7 +83,7 @@ class LanguageResult(IntakeFlowResult):
 class PhoneNumberResult(IntakeFlowResult):
     is_valid: bool
     phone_number: str
-    phone_type: PhoneTypeCaller
+    phone_type: PhoneTypeCaller | None = None
 
 
 class ServiceAreaResult(IntakeFlowResult):

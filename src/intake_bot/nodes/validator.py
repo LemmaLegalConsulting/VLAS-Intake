@@ -1,17 +1,34 @@
 import re
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
 
+import yaml
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.validator import (
     Assets,
+    CashAssets,
     HouseholdIncome,
     IncomePeriod,
+    InvestmentAssets,
+    OtherPropertyAssets,
 )
 from intake_bot.services.classifier import Classifier
 from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.services.poverty import poverty_scale_income_qualifies
 from intake_bot.services.reference_data import ReferenceDataLoader
+from intake_bot.utils.globals import DATA_DIR
 from rapidfuzz import fuzz, process, utils
+
+
+def _load_asset_exemptions() -> tuple[frozenset[str], frozenset[str]]:
+    path = Path(DATA_DIR) / "asset_exemptions.yml"
+    with open(path) as f:
+        data = yaml.safe_load(f)
+    return (
+        frozenset(data.get("single_words", [])),
+        frozenset(data.get("phrases", [])),
+    )
 
 
 class IntakeValidator:
@@ -19,9 +36,129 @@ class IntakeValidator:
     Provides a set of asynchronous validation methods for intake screening.
     """
 
+    class AssetCategory(str, Enum):
+        ALL = "all"
+        CASH = "cash"
+        INVESTMENTS = "investments"
+        OTHER_PROPERTY = "other_property"
+
+    ASSET_CATEGORY_STATE_KEYS = (
+        "assets_cash_accounts",
+        "assets_investments",
+        "assets_other_property",
+    )
+
+    ASSET_VALIDATION_MODELS = {
+        AssetCategory.ALL: Assets,
+        AssetCategory.CASH: CashAssets,
+        AssetCategory.INVESTMENTS: InvestmentAssets,
+        AssetCategory.OTHER_PROPERTY: OtherPropertyAssets,
+    }
+
+    ASSET_EXEMPT_SINGLE_WORDS, ASSET_EXEMPT_PHRASES = _load_asset_exemptions()
+
     def __init__(self):
-        self.service_areas = ReferenceDataLoader().service_areas
+        reference_data = ReferenceDataLoader()
+        self.service_areas = reference_data.service_areas
+        self.service_area_aliases = reference_data.service_area_aliases
         self.classifier = Classifier()
+
+    @classmethod
+    def assets_validate(
+        cls,
+        assets: list[dict] | None,
+        category: AssetCategory | str = AssetCategory.ALL,
+    ) -> Assets:
+        if isinstance(category, str):
+            category = cls.AssetCategory(category)
+        model = cls.ASSET_VALIDATION_MODELS[category]
+        return model.model_validate(assets or [])
+
+    @staticmethod
+    def assets_normalize_name(asset_name: str) -> str:
+        return re.sub(r"""[^a-z0-9]+""", " ", asset_name.lower()).strip()
+
+    @classmethod
+    def assets_is_exempt(cls, asset_name: str) -> bool:
+        normalized_name = cls.assets_normalize_name(asset_name)
+        if not normalized_name:
+            return False
+
+        if normalized_name in cls.ASSET_EXEMPT_SINGLE_WORDS:
+            return True
+
+        if any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES):
+            return True
+
+        return False
+
+    @classmethod
+    def assets_filter_countable_entries(cls, asset_entries: list[dict]) -> list[dict]:
+        filtered_entries: list[dict] = []
+
+        for asset_entry in asset_entries:
+            for asset_name, value in asset_entry.items():
+                if cls.assets_is_exempt(asset_name):
+                    continue
+                filtered_entries.append({asset_name: value})
+
+        return filtered_entries
+
+    @staticmethod
+    def assets_merge_entries(existing: list[dict], updates: list[dict]) -> list[dict]:
+        totals: dict[str, int] = {}
+
+        for asset_entry in [*existing, *updates]:
+            for asset_name, value in asset_entry.items():
+                totals[asset_name] = totals.get(asset_name, 0) + int(value)
+
+        return [{asset_name: value} for asset_name, value in totals.items()]
+
+    @classmethod
+    def assets_entries_from_state(cls, state_value: dict | None) -> list[dict]:
+        if not isinstance(state_value, dict):
+            return []
+        return cls.assets_filter_countable_entries(
+            [
+                entry.root
+                for entry in cls.assets_validate(
+                    state_value.get("listing", []), cls.AssetCategory.ALL
+                ).root
+            ]
+        )
+
+    @classmethod
+    def assets_combine_partial(
+        cls, state: dict, overrides: dict[str, list[dict]] | None = None
+    ) -> list[dict]:
+        overrides = overrides or {}
+        merged_assets: list[dict] = []
+
+        for state_key in cls.ASSET_CATEGORY_STATE_KEYS:
+            asset_entries = overrides.get(
+                state_key,
+                cls.assets_entries_from_state(state.get(state_key)),
+            )
+            merged_assets = cls.assets_merge_entries(merged_assets, asset_entries)
+
+        return cls.assets_filter_countable_entries(merged_assets)
+
+    @classmethod
+    def assets_clear_partial_state(cls, state: dict) -> None:
+        for state_key in cls.ASSET_CATEGORY_STATE_KEYS:
+            state.pop(state_key, None)
+
+    @classmethod
+    def assets_prompt_text(cls, assets: list[dict]) -> str:
+        assets = cls.assets_filter_countable_entries(assets)
+        if not assets:
+            return "No countable assets have been reported so far."
+
+        asset_lines = []
+        for asset_entry in assets:
+            for asset_name, value in asset_entry.items():
+                asset_lines.append(f"- {asset_name}: ${value}")
+        return "\n".join(asset_lines)
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         """
@@ -127,6 +264,26 @@ class IntakeValidator:
         Returns:
             tuple[str, int]: (matched_location, fips_code) where fips_code is 0 if no match found
         """
+        normalized_location = ReferenceDataLoader._normalize_service_area_text(location)
+        if not normalized_location:
+            return "", 0
+
+        alias_match = self.service_area_aliases.get(normalized_location)
+        if alias_match:
+            return alias_match
+
+        embedded_alias_match = max(
+            (
+                (alias, match_data)
+                for alias, match_data in self.service_area_aliases.items()
+                if re.search(rf"""\b{re.escape(alias)}\b""", normalized_location)
+            ),
+            key=lambda item: len(item[0]),
+            default=None,
+        )
+        if embedded_alias_match:
+            return embedded_alias_match[1]
+
         match = process.extractOne(
             location,
             self.service_areas.keys(),
@@ -202,8 +359,11 @@ class IntakeValidator:
         vlas_assets_limit: int = 10_000
 
         total_value = 0
-        for asset_entry in assets.root:
-            for value in asset_entry.root.values():
+        countable_assets = self.assets_filter_countable_entries(
+            [asset_entry.root for asset_entry in assets.root]
+        )
+        for asset_entry in countable_assets:
+            for value in asset_entry.values():
                 total_value += int(value)
         assets_value: int = int(total_value)
         is_eligible: bool = vlas_assets_limit >= assets_value

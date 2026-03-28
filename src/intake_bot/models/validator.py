@@ -4,7 +4,14 @@ from enum import Enum
 from typing import List, Optional
 
 from intake_bot.services.phonenumber import phone_number_is_valid
-from pydantic import BaseModel, ConfigDict, Field, RootModel, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    RootModel,
+    field_validator,
+    model_validator,
+)
 
 
 def normalize_to_ascii(v: str | None) -> str | None:
@@ -77,7 +84,7 @@ class PhoneTypeAdverseParty(str, Enum):
 
 class PhoneAdverseParty(BaseModel):
     number: str
-    type: PhoneTypeAdverseParty
+    type: Optional[PhoneTypeAdverseParty] = None
 
     @field_validator("number", mode="before")
     @classmethod
@@ -91,6 +98,13 @@ class PhoneAdverseParty(BaseModel):
         if not is_valid:
             raise ValueError(f"""Invalid US phone number: {v}""")
         return formatted
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def falsy_type_to_none(cls, v):
+        if not v:
+            return None
+        return v
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -151,6 +165,18 @@ class Assets(RootModel[list[AssetEntry]]):
     """
 
     pass
+
+
+class CashAssets(Assets):
+    """Countable cash and bank-type assets collected in the cash-assets step."""
+
+
+class InvestmentAssets(Assets):
+    """Countable investments and cash-value financial assets."""
+
+
+class OtherPropertyAssets(Assets):
+    """Other countable non-exempt assets such as land or business property."""
 
 
 ######################################################################
@@ -344,7 +370,33 @@ class IncomeDetail(BaseModel):
 class MemberIncome(
     RootModel[dict[str, IncomeDetail]]
 ):  # income_category_name -> IncomeDetail
-    pass
+    @model_validator(mode="after")
+    def collapse_all_zero_income(self) -> "MemberIncome":
+        """Collapse an all-zero income listing to a single 'No Household Income' entry.
+
+        The LLM sometimes responds to "what income does this member have?" by
+        exhaustively listing every income category at $0 — e.g.
+        {"wages": 0, "social_security": 0, "disability": 0, ...} — rather than
+        using the canonical shorthand {"No Household Income": 0}.  Sending those
+        redundant entries downstream would create unnecessary LegalServer income
+        records and add noise to the pipeline state.
+
+        Post-condition: if all amounts were 0, self.root contains exactly one
+        entry: {"No Household Income": IncomeDetail(amount=0, period=Monthly)}.
+
+        Note: the household-level strip_zero_only_members validator relies on
+        this invariant — it recognises a member with no real income by checking
+        for the 'No Household Income' key.
+        """
+        if not self.root:
+            return self
+        if all(detail.amount == 0 for detail in self.root.values()):
+            self.root = {
+                "No Household Income": IncomeDetail(
+                    amount=0, period=IncomePeriod.MONTHLY
+                )
+            }
+        return self
 
 
 class HouseholdIncome(
@@ -378,3 +430,25 @@ class HouseholdIncome(
             )
             return {"Household": default_member_income}
         return v
+
+    @model_validator(mode="after")
+    def strip_zero_only_members(self) -> "HouseholdIncome":
+        """Remove members whose only entry is 'No Household Income' at $0
+        when other members exist.  The LLM sometimes lists children separately
+        with no income; these redundant entries create noise in the state and
+        generate unnecessary LegalServer API calls."""
+        if len(self.root) <= 1:
+            return self
+        filtered = {
+            name: member
+            for name, member in self.root.items()
+            if not (
+                len(member.root) == 1
+                and "No Household Income" in member.root
+                and member.root["No Household Income"].amount == 0
+            )
+        }
+        # Keep at least one member — if every member was zero-only, keep them all
+        if filtered:
+            self.root = filtered
+        return self

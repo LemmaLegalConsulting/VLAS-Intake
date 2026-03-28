@@ -1,0 +1,82 @@
+# Exempt asset terms — assets matching these are excluded from
+# means-testing totals (e.g. primary residence, retirement accounts,
+# primary vehicle).
+#
+# "single_words" match an entire normalised asset name.
+# "phrases" match as substrings within a normalised asset name.
+# Normalisation lowercases the name and replaces non-alphanumeric
+# characters with spaces.
+
+single_words:
+  # English
+  - home
+  - house
+  - ira
+  - iras
+  - pension
+  - residence
+  - retirement
+  # Spanish
+  - casa
+  - hogar
+  - jubilación
+  - pensión
+  - residencia
+  - retiro
+
+phrases:
+  # English — retirement accounts
+  - "401 k"
+  - "401k"
+  - "403 b"
+  - "403b"
+  - retirement account
+  - retirement accounts
+  - retirement fund
+  - retirement funds
+  # English — vehicles
+  - main car
+  - main motorcycle
+  - main suv
+  - main truck
+  - main vehicle
+  - only car
+  - only motorcycle
+  - only suv
+  - only truck
+  - only vehicle
+  - primary car
+  - primary motorcycle
+  - primary mode of transportation
+  - primary suv
+  - primary transportation
+  - primary truck
+  - primary vehicle
+  - transportation vehicle
+  - vehicle used for transportation
+  # English — residence
+  - primary residence
+  # Spanish — retirement accounts
+  - cuenta de jubilación
+  - cuenta de retiro
+  - cuentas de jubilación
+  - cuentas de retiro
+  - fondo de jubilación
+  - fondo de retiro
+  - fondos de jubilación
+  - fondos de retiro
+  # Spanish — vehicles
+  - auto principal
+  - camioneta principal
+  - carro principal
+  - medio de transporte principal
+  - motocicleta principal
+  - transporte principal
+  - vehículo de transporte
+  - vehículo principal
+  - único auto
+  - único carro
+  - único vehículo
+  # Spanish — residence
+  - residencia principal
+  - vivienda principal
