@@ -1,11 +1,11 @@
-agent_name = "vlas-intake-bot"
+agent_name    = "vlas-intake-bot"
 agent_profile = "agent-1x"
-region = "us-east"
-secret_set = "vlas-intake-bot-secrets-lemma"
+region        = "us-east"
+secret_set    = "vlas-intake-bot-secrets-lemma"
 # PIPECAT_LOG_LEVEL = "INFO"
 
 [krisp_viva]
-audio_filter = "tel"
+  audio_filter = "tel"
 
 [scaling]
-min_agents = 0
+  min_agents = 0
