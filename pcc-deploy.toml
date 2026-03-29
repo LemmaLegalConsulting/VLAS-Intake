@@ -4,5 +4,8 @@ region = "us-east"
 secret_set = "vlas-intake-bot-secrets-lemma"
 # PIPECAT_LOG_LEVEL = "INFO"
 
+[krisp_viva]
+audio_filter = "tel"
+
 [scaling]
 min_agents = 0

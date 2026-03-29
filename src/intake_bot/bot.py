@@ -4,6 +4,12 @@ from collections.abc import Awaitable, Callable
 import aiofiles
 from loguru import logger
 from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
+
+try:
+    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
+except Exception:
+    KrispVivaFilter = None
+
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -201,13 +207,15 @@ async def bot(runner_args: RunnerArguments):
         logger.info(
             "No Daily dial-in metadata detected; starting standard Pipecat Cloud WebRTC session."
         )
+        audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
+        logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
         transport = DailyTransport(
             runner_args.room_url,
             runner_args.token,
             "VLAS Intake Bot",
             params=DailyParams(
                 audio_in_enabled=True,
-                audio_in_filter=RNNoiseFilter(),
+                audio_in_filter=audio_filter,
                 audio_out_enabled=True,
             ),
         )
@@ -240,6 +248,8 @@ async def bot(runner_args: RunnerArguments):
     if caller_phone_number:
         logger.info(f"""Handling Daily PSTN call from: {caller_phone_number}""")
 
+    audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
+    logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
     transport = DailyTransport(
         runner_args.room_url,
         runner_args.token,
@@ -249,7 +259,7 @@ async def bot(runner_args: RunnerArguments):
             api_url=request.daily_api_url,
             dialin_settings=daily_dialin_settings,
             audio_in_enabled=True,
-            audio_in_filter=RNNoiseFilter(),
+            audio_in_filter=audio_filter,
             audio_out_enabled=True,
         ),
     )
