@@ -25,9 +25,14 @@ from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
+    LLMAssistantAggregatorParams,
     LLMContextAggregatorPair,
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
+)
+from pipecat.utils.context.llm_context_summarization import (
+    LLMAutoContextSummarizationConfig,
+    LLMContextSummaryConfig,
 )
 from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
@@ -60,6 +65,7 @@ from intake_bot.utils.daily_dialin import (
     normalize_daily_dialin_body,
 )
 from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.node_prompts import NodePrompts
 
 TransportSetup = Callable[
     [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
@@ -326,9 +332,31 @@ async def run_bot(
             get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
         )
 
+    summary_llm_model = get_ev("AZURE_LLM_SUMMARY_MODEL", default=require_ev("AZURE_LLM_MODEL"))
+    summary_llm = AzureLLMService(
+        api_key=require_ev("AZURE_API_KEY"),
+        endpoint=require_ev("AZURE_LLM_ENDPOINT"),
+        settings=AzureLLMService.Settings(model=summary_llm_model),
+    )
+    prompts = NodePrompts()
+    summarization_prompt = prompts.get("reset_with_summary")
+
     context = LLMContext()
     context_aggregator = LLMContextAggregatorPair(
         context,
+        assistant_params=LLMAssistantAggregatorParams(
+            enable_auto_context_summarization=True,
+            auto_context_summarization_config=LLMAutoContextSummarizationConfig(
+                max_context_tokens=6000,
+                max_unsummarized_messages=30,
+                summary_config=LLMContextSummaryConfig(
+                    target_context_tokens=4000,
+                    min_messages_after_summary=6,
+                    summarization_prompt=summarization_prompt,
+                    llm=summary_llm,
+                ),
+            ),
+        ),
         user_params=LLMUserAggregatorParams(
             user_mute_strategies=[FunctionCallUserMuteStrategy()],
             user_idle_timeout=resolved_user_idle_timeout_secs,
@@ -448,6 +476,19 @@ async def run_bot(
     @context_aggregator.user().event_handler("on_user_turn_started")
     async def on_user_turn_started(aggregator, strategy):
         idle_retry_handler.reset()
+
+    @context_aggregator.user().event_handler("on_user_turn_stopped")
+    async def on_empty_user_turn_recovery(
+        aggregator, strategy, message: UserTurnStoppedMessage
+    ):
+        if not message.content or not message.content.strip():
+            logger.warning(
+                f"""Empty user turn detected for call {call_id}; triggering idle recovery"""
+            )
+            language = flow_manager.state.get("language", {}).get(
+                "language", "English"
+            )
+            await task.queue_frames(idle_retry_handler.next_frames(language))
 
     @context_aggregator.user().event_handler("on_user_turn_idle")
     async def on_user_turn_idle(aggregator):

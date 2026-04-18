@@ -377,7 +377,6 @@ async def run_client(
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            allow_interruptions=True,
             audio_in_sample_rate=8000,
             audio_out_sample_rate=8000,
             enable_metrics=True,

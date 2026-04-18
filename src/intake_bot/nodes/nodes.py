@@ -51,8 +51,6 @@ from pipecat.services.azure.stt import AzureSTTService
 from pipecat.services.azure.tts import AzureTTSService
 from pipecat.transcriptions.language import Language
 from pipecat_flows import (
-    ContextStrategy,
-    ContextStrategyConfig,
     FlowManager,
     NodeConfig,
 )
@@ -98,10 +96,6 @@ def node_initial() -> NodeConfig:
 def node_partial_reset_with_summary() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
-        "context_strategy": ContextStrategyConfig(
-            strategy=ContextStrategy.RESET_WITH_SUMMARY,
-            summary_prompt=prompts.get("reset_with_summary"),
-        ),
     }
 
 
