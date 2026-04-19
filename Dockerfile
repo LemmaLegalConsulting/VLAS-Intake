@@ -1,4 +1,4 @@
-FROM dailyco/pipecat-base:0.1.17-py3.12
+FROM dailyco/pipecat-base:latest-py3.12
 
 ENV UV_COMPILE_BYTECODE=1
 ENV UV_LINK_MODE=copy
