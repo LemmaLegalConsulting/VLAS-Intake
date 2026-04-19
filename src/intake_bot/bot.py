@@ -332,7 +332,9 @@ async def run_bot(
             get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
         )
 
-    summary_llm_model = get_ev("AZURE_LLM_SUMMARY_MODEL", default=require_ev("AZURE_LLM_MODEL"))
+    summary_llm_model = get_ev(
+        "AZURE_LLM_SUMMARY_MODEL", default=require_ev("AZURE_LLM_MODEL")
+    )
     summary_llm = AzureLLMService(
         api_key=require_ev("AZURE_API_KEY"),
         endpoint=require_ev("AZURE_LLM_ENDPOINT"),
@@ -485,9 +487,7 @@ async def run_bot(
             logger.warning(
                 f"""Empty user turn detected for call {call_id}; triggering idle recovery"""
             )
-            language = flow_manager.state.get("language", {}).get(
-                "language", "English"
-            )
+            language = flow_manager.state.get("language", {}).get("language", "English")
             await task.queue_frames(idle_retry_handler.next_frames(language))
 
     @context_aggregator.user().event_handler("on_user_turn_idle")
