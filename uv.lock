@@ -1155,7 +1155,7 @@ wheels = [
 
 [[package]]
 name = "intake-bot"
-version = "0.9.1"
+version = "26.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
