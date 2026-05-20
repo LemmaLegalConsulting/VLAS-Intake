@@ -19,7 +19,7 @@
 
 [[repos]]
     hooks = [
-        { entry = ".venv/bin/pytest tests", id = "pytest", language = "system", name = "pytest", pass_filenames = false, types_or = [
+        { entry = "uv run --active pytest", id = "pytest", language = "system", name = "pytest", pass_filenames = false, types_or = [
             "pyi",
             "python",
         ] },
