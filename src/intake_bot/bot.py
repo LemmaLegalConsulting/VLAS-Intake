@@ -3,13 +3,6 @@ from collections.abc import Awaitable, Callable
 
 import aiofiles
 from loguru import logger
-from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
-
-try:
-    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
-except Exception:
-    KrispVivaFilter = None
-
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
@@ -44,9 +37,6 @@ from pipecat.turns.user_mute import (
 )
 from pipecat.turns.user_start.external_user_turn_start_strategy import (
     ExternalUserTurnStartStrategy,
-)
-from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
-    ExternalUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 from pipecat.utils.context.llm_context_summarization import (
@@ -217,15 +207,12 @@ async def bot(runner_args: RunnerArguments):
         logger.info(
             "No Daily dial-in metadata detected; starting standard Pipecat Cloud WebRTC session."
         )
-        audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
-        logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
         transport = DailyTransport(
             runner_args.room_url,
             runner_args.token,
             "VLAS Intake Bot",
             params=DailyParams(
                 audio_in_enabled=True,
-                audio_in_filter=audio_filter,
                 audio_out_enabled=True,
             ),
         )
@@ -258,8 +245,6 @@ async def bot(runner_args: RunnerArguments):
     if caller_phone_number:
         logger.info(f"""Handling Daily PSTN call from: {caller_phone_number}""")
 
-    audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
-    logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
     transport = DailyTransport(
         runner_args.room_url,
         runner_args.token,
@@ -269,7 +254,6 @@ async def bot(runner_args: RunnerArguments):
             api_url=request.daily_api_url,
             dialin_settings=daily_dialin_settings,
             audio_in_enabled=True,
-            audio_in_filter=audio_filter,
             audio_out_enabled=True,
         ),
     )

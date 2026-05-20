@@ -4,7 +4,7 @@
         "loguru>=0.7.3",
         "phonenumberslite>=9.0.30",
         "pipecat-ai-flows>=1.1.0",
-        "pipecat-ai[azure,daily,deepgram,rnnoise,runner,silero,webrtc]>=1.2.1",
+        "pipecat-ai[azure,daily,deepgram,runner,silero,webrtc]>=1.2.1",
         "pipecatcloud>=0.7.1",
         "python-dotenv>=1.2.2",
         "pyyaml>=6.0.3",
@@ -19,7 +19,7 @@
 [dependency-groups]
     dev = [
         "fastapi>=0.136.1",
-        "pipecat-ai-cli>=1.2.1",
+        "pipecat-ai-cli>=1.2.2",
         "pipecat-ai-tail>=0.0.5",
         "pipecat-ai-whisker>=1.0.0",
         "pipecat-ai[websocket]>=1.2.1",
