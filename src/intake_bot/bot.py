@@ -10,8 +10,6 @@ try:
 except Exception:
     KrispVivaFilter = None
 
-from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
@@ -30,14 +28,11 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
 )
-from pipecat.utils.context.llm_context_summarization import (
-    LLMAutoContextSummarizationConfig,
-    LLMContextSummaryConfig,
-)
 from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
-from pipecat.services.azure.stt import AzureSTTService
-from pipecat.services.azure.tts import AzureTTSService
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.daily.transport import (
     DailyDialinSettings,
@@ -47,9 +42,17 @@ from pipecat.transports.daily.transport import (
 from pipecat.turns.user_mute import (
     FunctionCallUserMuteStrategy,
 )
-from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
-from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.turns.user_start.external_user_turn_start_strategy import (
+    ExternalUserTurnStartStrategy,
+)
+from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
+    ExternalUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
+from pipecat.utils.context.llm_context_summarization import (
+    LLMAutoContextSummarizationConfig,
+    LLMContextSummaryConfig,
+)
 from pipecat_flows import FlowManager
 from pydantic import ValidationError
 
@@ -60,11 +63,12 @@ from intake_bot.nodes.nodes import (
 )
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
 from intake_bot.services.legalserver import save_intake_legalserver
+from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
 from intake_bot.utils.daily_dialin import (
     looks_like_daily_dialin_body,
     normalize_daily_dialin_body,
 )
-from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, require_ev
 from intake_bot.utils.node_prompts import NodePrompts
 
 TransportSetup = Callable[
@@ -304,11 +308,15 @@ async def run_bot(
     """
     Main function to set up and run the VLAS intake bot.
     """
-    stt = AzureSTTService(
-        api_key=require_ev("AZURE_API_KEY"),
-        region=require_ev("AZURE_SPEECH_REGION"),
-        ttfs_p99_latency=float(get_ev("AZURE_STT_TTFS_P99_LATENCY", "1.5")),
+    stt = DeepgramFluxSTTService(
+        api_key=require_ev("DEEPGRAM_API_KEY"),
+        settings=DeepgramFluxSTTService.Settings(
+            model=get_ev("DEEPGRAM_STT_MODEL", "flux-general-multi"),
+            language_hints=[Language.EN, Language.ES],
+        ),
     )
+
+    tts_voice = get_deepgram_tts_voices(Language.EN)
 
     llm = AzureLLMService(
         api_key=require_ev("AZURE_API_KEY"),
@@ -318,11 +326,10 @@ async def run_bot(
         ),
     )
 
-    tts = AzureTTSService(
-        api_key=require_ev("AZURE_API_KEY"),
-        region=require_ev("AZURE_SPEECH_REGION"),
-        settings=AzureTTSService.Settings(
-            voice=require_ev("AZURE_SPEECH_VOICE"),
+    tts = DeepgramTTSService(
+        api_key=require_ev("DEEPGRAM_API_KEY"),
+        settings=DeepgramTTSService.Settings(
+            voice=tts_voice,
         ),
     )
 
@@ -362,24 +369,10 @@ async def run_bot(
         user_params=LLMUserAggregatorParams(
             user_mute_strategies=[FunctionCallUserMuteStrategy()],
             user_idle_timeout=resolved_user_idle_timeout_secs,
-            user_turn_strategies=UserTurnStrategies(
-                start=[
-                    MinWordsUserTurnStartStrategy(min_words=2),
-                ],
-                stop=[
-                    TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=LocalSmartTurnAnalyzerV3(
-                            params=SmartTurnParams(
-                                stop_secs=float(get_ev("SMART_TURN_STOP_SECS", "4.5")),
-                                pre_speech_ms=float(
-                                    get_ev("SMART_TURN_PRE_SPEECH_MS", "700")
-                                ),
-                            )
-                        )
-                    )
-                ],
+            user_turn_strategies=FilterIncompleteUserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[DeduplicatingExternalUserTurnStopStrategy()],
             ),
-            user_turn_stop_timeout=float(get_ev("USER_TURN_STOP_TIMEOUT_SECS", "7.0")),
             vad_analyzer=SileroVADAnalyzer(
                 params=VADParams(
                     confidence=float(get_ev("VAD_CONFIDENCE", "0.65")),

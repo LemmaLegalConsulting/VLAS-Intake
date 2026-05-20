@@ -30,18 +30,25 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.azure.llm import AzureLLMService
-from pipecat.services.azure.stt import AzureSTTService
-from pipecat.services.azure.tts import AzureTTSService
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
 )
-from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
-from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.turns.user_start.external_user_turn_start_strategy import (
+    ExternalUserTurnStartStrategy,
+)
+from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
+    ExternalUserTurnStopStrategy,
+)
+from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
 from test_manager import TestRunner
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
+
+from intake_bot.utils.ev import get_deepgram_tts_voices
 
 
 def _patch_pipecat_websocket_client_double_connect() -> None:
@@ -116,8 +123,6 @@ def build_client_system_prompt(script: str) -> str:
     )
 
 
-DEFAULT_USER_TURN_STOP_TIMEOUT_SECS = 0.8
-DEFAULT_USER_SPEECH_TIMEOUT_SECS = 0.6
 INTERIM_FINALIZE_TIMEOUT_SECS = 1.5
 
 
@@ -125,7 +130,7 @@ class InterimTranscriptionFinalizer(FrameProcessor):
     """Promotes interim STT transcriptions to finals after a quiet period.
 
     The server transport has no audio mixer, so it only sends audio frames
-    during TTS playback.  Between utterances the client's Azure STT receives
+    during TTS playback.  Between utterances the client's Deepgram Flux STT receives
     no audio and therefore never produces a 'Recognized' (final) event —
     only 'Recognizing' (interim) events.  This processor watches for interim
     frames and, if no new interim arrives within *timeout* seconds, promotes
@@ -183,7 +188,7 @@ class SilenceMixer(BaseAudioMixer):
     When an audio_out_mixer is set on the transport, the output loop sends
     audio frames continuously — TTS audio when speaking, silence when idle.
     Without a mixer, the transport only sends frames during TTS playback,
-    leaving the remote side's Azure STT starved of audio and unable to
+    leaving the remote side's Flux STT starved of audio and unable to
     finalize recognitions.
     """
 
@@ -262,10 +267,10 @@ async def run_client(
     server_idle_timeout_secs: float | None = None,
 ):
     azure_api_key = _require_env("AZURE_API_KEY")
-    azure_speech_region = _require_env("AZURE_SPEECH_REGION")
     azure_llm_endpoint = _require_env("AZURE_LLM_ENDPOINT", "AZURE_CHATGPT_ENDPOINT")
     azure_llm_model = _require_env("AZURE_LLM_MODEL", "AZURE_CHATGPT_MODEL")
-    azure_speech_voice = _require_env("AZURE_SPEECH_VOICE")
+    deepgram_api_key = _require_env("DEEPGRAM_API_KEY")
+    deepgram_stt_model = _get_env("DEEPGRAM_STT_MODEL", default="flux-general-multi")
     azure_summary_model = _get_env(
         "AZURE_LLM_SUMMARY_MODEL",
         "AZURE_LLM_MODEL",
@@ -276,19 +281,6 @@ async def run_client(
         "AZURE_OPENAI_API_VERSION",
         default="2024-09-01-preview",
     )
-    user_turn_stop_timeout = float(
-        _get_env(
-            "CLIENT_USER_TURN_STOP_TIMEOUT_SECS",
-            default=str(DEFAULT_USER_TURN_STOP_TIMEOUT_SECS),
-        )
-    )
-    user_speech_timeout = float(
-        _get_env(
-            "CLIENT_USER_SPEECH_TIMEOUT_SECS",
-            default=str(DEFAULT_USER_SPEECH_TIMEOUT_SECS),
-        )
-    )
-
     websocket_url = _build_websocket_url(
         server_url,
         phone_number,
@@ -315,13 +307,18 @@ async def run_client(
         .get("language", {})
         .get("language", "English")
     )
-    client_stt_language = (
-        Language.ES_US if script_language == "Spanish" else Language.EN_US
+    client_language_hints = (
+        [Language.ES, Language.EN]
+        if script_language == "Spanish"
+        else [Language.EN, Language.ES]
     )
-    stt = AzureSTTService(
-        api_key=azure_api_key,
-        region=azure_speech_region,
-        settings=AzureSTTService.Settings(language=client_stt_language),
+    client_tts_voice = get_deepgram_tts_voices(client_language_hints[0])
+    stt = DeepgramFluxSTTService(
+        api_key=deepgram_api_key,
+        settings=DeepgramFluxSTTService.Settings(
+            model=deepgram_stt_model,
+            language_hints=client_language_hints,
+        ),
     )
 
     llm = AzureLLMService(
@@ -333,11 +330,10 @@ async def run_client(
         ),
     )
 
-    tts = AzureTTSService(
-        api_key=azure_api_key,
-        region=azure_speech_region,
-        settings=AzureTTSService.Settings(
-            voice=azure_speech_voice,
+    tts = DeepgramTTSService(
+        api_key=deepgram_api_key,
+        settings=DeepgramTTSService.Settings(
+            voice=client_tts_voice,
         ),
     )
 
@@ -347,15 +343,11 @@ async def run_client(
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            user_turn_strategies=UserTurnStrategies(
-                stop=[
-                    SpeechTimeoutUserTurnStopStrategy(
-                        user_speech_timeout=user_speech_timeout
-                    )
-                ]
+            user_turn_strategies=FilterIncompleteUserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy()],
             ),
             vad_analyzer=SileroVADAnalyzer(),
-            user_turn_stop_timeout=user_turn_stop_timeout,
         ),
     )
 

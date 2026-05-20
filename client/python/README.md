@@ -49,30 +49,29 @@ This exercises the current websocket transport directly:
 
 - client connects to `/ws?call_id=...&caller_phone_number=...`
 - transport uses the protobuf websocket serializer
-- caller simulation uses Azure STT, Azure OpenAI, and Azure TTS
+- caller simulation uses Deepgram Flux STT, Azure OpenAI, and Deepgram
+  Aura 2 TTS
 
 The client transport is configured with a `SilenceMixer` so that the
 output transport sends continuous audio frames — TTS audio when
-speaking, silence when idle. Without this, the server's Azure STT
-never receives silence between utterances and cannot finalize
+speaking, silence when idle. Without this, the server's Deepgram Flux
+STT never receives silence between utterances and cannot finalize
 recognitions (real phone calls send continuous audio naturally).
 
 An `InterimTranscriptionFinalizer` sits between the client's STT and
 LLM aggregator. The server transport also lacks a mixer, so it only
-sends audio during TTS playback. The client's Azure STT therefore only
-produces interim transcriptions of the server's speech. The finalizer
-promotes an interim to a final transcript after a short quiet period
-so the client LLM can respond.
+sends audio during TTS playback. The client's Deepgram Flux STT
+therefore only produces interim transcriptions of the server's speech.
+The finalizer promotes an interim to a final transcript after a short
+quiet period so the client LLM can respond.
 
-The Python test client now uses the same Azure environment contract as
-the bot runtime, with fallback support for legacy Pipecat Azure env
-names where useful. Local `.env` must include:
+The Python test client now uses the same Azure-plus-Deepgram
+environment contract as the bot runtime. Local `.env` must include:
 
 - `AZURE_API_KEY`
-- `AZURE_SPEECH_REGION`
-- `AZURE_SPEECH_VOICE`
 - `AZURE_LLM_ENDPOINT`
 - `AZURE_LLM_MODEL`
+- `DEEPGRAM_API_KEY`
 
 Optional:
 
@@ -80,3 +79,13 @@ Optional:
   summaries
 - `AZURE_LLM_API_VERSION` or `AZURE_OPENAI_API_VERSION` to override
   the Azure OpenAI API version used by the summary client
+- `DEEPGRAM_STT_MODEL` to override the default `flux-general-multi`
+- `DEEPGRAM_TTS_VOICE_EN` to override the default English voice
+- `DEEPGRAM_TTS_VOICE_ES` or another
+  `DEEPGRAM_TTS_VOICE_<LANGUAGE_CODE>` override to select a
+  language-specific TTS voice after the caller switches languages
+
+The scripted client now matches the bot's turn handling: it uses
+`FilterIncompleteUserTurnStrategies` with explicit external start/stop
+strategies so Flux, not Pipecat timeout defaults, owns turn
+boundaries.

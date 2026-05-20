@@ -43,12 +43,16 @@ from intake_bot.services.dialpad import (
     SMS,
     ReferralContent,
 )
-from intake_bot.utils.ev import get_ev
+from intake_bot.utils.ev import get_deepgram_tts_voices, get_ev
 from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
-from pipecat.frames.frames import STTUpdateSettingsFrame, TTSUpdateSettingsFrame
-from pipecat.services.azure.stt import AzureSTTService
-from pipecat.services.azure.tts import AzureTTSService
+from pipecat.frames.frames import (
+    STTUpdateSettingsFrame,
+    TTSSpeakFrame,
+    TTSUpdateSettingsFrame,
+)
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat_flows import (
     FlowManager,
@@ -96,6 +100,44 @@ def node_initial() -> NodeConfig:
 def node_partial_reset_with_summary() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
+    }
+
+
+async def _speak_language_selection_prompt(
+    action: dict, flow_manager: FlowManager
+) -> None:
+    english_prompt = action["english_prompt"]
+    spanish_prompt = action["spanish_prompt"]
+
+    english_voice = get_deepgram_tts_voices(Language.EN)
+    spanish_voice = get_deepgram_tts_voices(Language.ES)
+
+    await flow_manager.task.queue_frame(
+        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
+    )
+    await flow_manager.task.queue_frame(TTSSpeakFrame(text=english_prompt))
+    await flow_manager.task.queue_frame(
+        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=spanish_voice))
+    )
+    await flow_manager.task.queue_frame(TTSSpeakFrame(text=spanish_prompt))
+    await flow_manager.task.queue_frame(
+        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
+    )
+
+
+def node_record_language() -> NodeConfig:
+    return {
+        **prompts.get("record_language"),
+        "functions": [record_language],
+        "pre_actions": [
+            {
+                "type": "function",
+                "handler": _speak_language_selection_prompt,
+                "english_prompt": "Would you prefer to speak in English?",
+                "spanish_prompt": "Prefiere hablar en espanol?",
+            }
+        ],
+        "respond_immediately": False,
     }
 
 
@@ -286,12 +328,7 @@ async def system_phone_number(
 
     status = status_helper(is_valid)
     result = dict(status=status.value, phone_number=validated_caller_id_phone_number)
-    next_node = NodeConfig(
-        {
-            **prompts.get("record_language"),
-            "functions": [record_language],
-        }
-    )
+    next_node = NodeConfig(node_record_language())
     return result, next_node
 
 
@@ -306,15 +343,19 @@ async def record_language(
         language (str): The caller's preferred language (English or Spanish).
     """
     normalized_language = language.strip().lower()
-    stt_language = (
-        Language.ES_US if normalized_language == "spanish" else Language.EN_US
+    stt_language_hint = Language.ES if normalized_language == "spanish" else Language.EN
+    language_hints = [stt_language_hint]
+    tts_voice = get_deepgram_tts_voices(stt_language_hint)
+
+    await flow_manager.task.queue_frame(
+        STTUpdateSettingsFrame(
+            delta=DeepgramFluxSTTService.Settings(language_hints=language_hints)
+        )
     )
     await flow_manager.task.queue_frame(
-        STTUpdateSettingsFrame(delta=AzureSTTService.Settings(language=stt_language))
+        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=tts_voice))
     )
-    await flow_manager.task.queue_frame(
-        TTSUpdateSettingsFrame(delta=AzureTTSService.Settings(language=stt_language))
-    )
+    flow_manager.state["tts_voice"] = tts_voice
 
     result = LanguageResult(status=Status.SUCCESS, language=language)
     next_node = NodeConfig(

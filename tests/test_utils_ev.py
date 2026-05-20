@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, require_ev
 
 
 def test_get_ev_returns_existing_value(monkeypatch):
@@ -68,3 +68,63 @@ def test_ev_is_true_returns_false_when_missing(monkeypatch):
     monkeypatch.delenv("BOOL_KEY", raising=False)
 
     assert ev_is_true("BOOL_KEY") is False
+
+
+def test_get_deepgram_tts_voices_uses_default_voice_without_language(monkeypatch):
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_ES", raising=False)
+
+    voice = get_deepgram_tts_voices()
+
+    assert voice == "aura-2-mars-en"
+
+
+def test_get_deepgram_tts_voices_uses_language_default_without_env_override(
+    monkeypatch,
+):
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_ES", raising=False)
+
+    voice = get_deepgram_tts_voices("ES")
+
+    assert voice == "aura-2-olivia-es"
+
+
+def test_get_deepgram_tts_voices_prefers_exact_language_code_match(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_EN", "aura-2-helena-en")
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES", "aura-2-sofia-en")
+
+    english_voice = get_deepgram_tts_voices("EN")
+    spanish_voice = get_deepgram_tts_voices("ES")
+
+    assert english_voice == "aura-2-helena-en"
+    assert spanish_voice == "aura-2-sofia-en"
+
+
+def test_get_deepgram_tts_voices_matches_locale_suffix(monkeypatch):
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES_US", "aura-2-sofia-en")
+
+    voice = get_deepgram_tts_voices("ES")
+
+    assert voice == "aura-2-sofia-en"
+
+
+def test_get_deepgram_tts_voices_returns_global_default_for_unknown_language(
+    monkeypatch,
+):
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_FR", raising=False)
+
+    voice = get_deepgram_tts_voices("FR")
+
+    assert voice == "aura-2-mars-en"
+
+
+def test_get_deepgram_tts_voices_does_not_use_bare_env_fallback(monkeypatch):
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE", "aura-2-ignored-en")
+    monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
+
+    voice = get_deepgram_tts_voices("EN")
+
+    assert voice == "aura-2-mars-en"

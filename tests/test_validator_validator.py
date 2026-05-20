@@ -30,7 +30,7 @@ from intake_bot.nodes.validator import IntakeValidator
         ("Buckingham", "Buckingham County", 51029),  # another partial match
         ("Danville", "Danville City", 51595),  # city match
         ("Suffolk", "Suffolk City", 51800),  # city match without suffix
-        ("South Boston", "South Boston", 51083),  # exact city
+        ("Martinsville City", "Martinsville City", 51690),  # exact city
         ("Emporia", "Emporia City", 51600),  # city match
         ("lynchburg", "Lynchburg City", 51680),  # lowercase city
         ("Halifax", "Halifax County", 51083),  # partial county

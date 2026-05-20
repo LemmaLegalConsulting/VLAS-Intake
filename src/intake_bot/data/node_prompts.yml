@@ -77,14 +77,11 @@ record_language:
     - content: >-
         [Instructions]
         1. This is the language-selection step. The caller's preferred language has not been established yet.
-        2. Ask the caller the bilingual prompt exactly as written, in a single utterance, with both the English and Spanish parts included.
-        3. Do NOT translate, paraphrase, shorten, reorder, or omit any part of the bilingual prompt.
+        2. The initial language-selection question has already been spoken with explicit TTS voice switching.
+        3. Do NOT repeat the full bilingual prompt unless the caller's response is ambiguous, mixed, or unclear.
         4. Do NOT choose the caller's language from a single word, a name, a place, an accent, or an uncertain transcription.
         5. Only call the `record_language` function once the caller clearly indicates either English or Spanish.
-        6. If the caller's response is ambiguous, mixed, or unclear, repeat the same bilingual prompt and briefly ask them to say English or Spanish.
-
-        [User Prompt]
-        Would you prefer to speak in English or Spanish? ¿Prefiere hablar en ingles o espanol?
+        6. If the caller's response is ambiguous, mixed, or unclear, briefly ask them to say English or Spanish.
 
 # Phone number
 record_phone_number:

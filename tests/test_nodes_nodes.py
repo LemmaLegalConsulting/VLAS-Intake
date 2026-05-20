@@ -35,6 +35,7 @@ from intake_bot.nodes.nodes import (
 )
 from intake_bot.services.dialpad import CASE_TYPE_REFERRAL, GENERAL_REFERRAL
 from intake_bot.utils.node_prompts import NodePrompts
+from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
 
 
 @pytest.fixture
@@ -72,6 +73,8 @@ async def test_system_phone_number_with_phone(flow_manager, patch_validator):
     assert result["status"] == Status.SUCCESS
     assert result["phone_number"] == "(866) 534-5243"
     assert "record_language_prompt" in next_node
+    assert next_node["respond_immediately"] is False
+    assert next_node["pre_actions"][0]["type"] == "function"
 
 
 @pytest.mark.asyncio
@@ -82,6 +85,39 @@ async def test_system_phone_number_without_phone(flow_manager, patch_validator):
     assert result["status"] == Status.ERROR
     assert result["phone_number"] == ""
     assert "record_language_prompt" in next_node
+    assert next_node["respond_immediately"] is False
+
+
+@pytest.mark.asyncio
+async def test_system_phone_number_queues_bilingual_language_prompt(
+    flow_manager, patch_validator
+):
+    patch_validator.check_phone_number = AsyncMock(return_value=(False, ""))
+
+    with patch(
+        "intake_bot.nodes.nodes.get_deepgram_tts_voices",
+        side_effect=["voice-en", "voice-es", "voice-en"],
+    ):
+        _, next_node = await system_phone_number(flow_manager)
+        prompt_action = next_node["pre_actions"][0]
+
+        await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+
+    assert len(queued_frames) == 5
+    assert isinstance(queued_frames[0], TTSUpdateSettingsFrame)
+    assert queued_frames[0].delta.voice == "voice-en"
+    assert isinstance(queued_frames[1], TTSSpeakFrame)
+    assert queued_frames[1].text == "Would you prefer to speak in English?"
+    assert isinstance(queued_frames[2], TTSUpdateSettingsFrame)
+    assert queued_frames[2].delta.voice == "voice-es"
+    assert isinstance(queued_frames[3], TTSSpeakFrame)
+    assert queued_frames[3].text == "Prefiere hablar en espanol?"
+    assert isinstance(queued_frames[4], TTSUpdateSettingsFrame)
+    assert queued_frames[4].delta.voice == "voice-en"
 
 
 @pytest.mark.asyncio
