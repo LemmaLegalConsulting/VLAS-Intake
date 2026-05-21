@@ -65,11 +65,179 @@ initial:
   pre_actions:
     - type: tts_say
       text: >-
-        Welcome to Virginia Legal Aid Society's LawLine.
+        {initial_greeting}
   task_messages:
     - content: >-
         [Instructions]
         Run the `system_phone_number` function.
+
+spoken_prompts:
+  initial_greeting: >-
+    Welcome to Virginia Legal Aid Society's LawLine.
+  idle_retry_first:
+    english: >-
+      Are you still there?
+    spanish: >-
+      ¿Sigue ahí?
+  idle_retry_second:
+    english: >-
+      Would you like to continue with the interview?
+    spanish: >-
+      ¿Le gustaría continuar con la entrevista?
+  idle_retry_goodbye:
+    english: >-
+      It seems like you're busy right now. Feel free to call back. Have a nice day!
+    spanish: >-
+      Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!
+  record_language_prompt_english: >-
+    Would you prefer to speak in English?
+  record_language_prompt_spanish: >-
+    Prefiere hablar en espanol?
+  record_phone_number_confirmation:
+    english: >-
+      Please answer yes or no. I have your phone number as {spoken_phone_number}. Is that correct?
+    spanish: >-
+      Por favor responda si o no. Tengo su numero de telefono como {spoken_phone_number}. Es correcto?
+  record_phone_number_request:
+    english: >-
+      Please provide your phone number.
+    spanish: >-
+      Por favor, proporcione su numero de telefono.
+  record_phone_type_question:
+    english: >-
+      What type of phone number is this: mobile, home, work, or other?
+    spanish: >-
+      Que tipo de numero de telefono es este: movil, casa, trabajo, u otro?
+  record_name_question:
+    english: >-
+      Please provide your full legal name, including your first, middle, and last name. If you have a suffix like Junior, Senior, the Second, or the Third, please include that.
+    spanish: >-
+      Por favor, proporcione su nombre legal completo, incluyendo su nombre, segundo nombre, y apellido. Si tiene un sufijo como Junior, Senior, Segundo, o Tercero, por favor incluyalo.
+  record_service_area_question:
+    english: >-
+      Please tell me the city or county where the legal incident occurred.
+    spanish: >-
+      Por favor digame la ciudad o el condado donde ocurrio el incidente legal.
+  record_case_type_question:
+    english: >-
+      Please briefly describe the legal issue or situation you need help with.
+    spanish: >-
+      Por favor describa brevemente el problema legal o la situacion con la que necesita ayuda.
+  record_adverse_parties_question:
+    english: >-
+      To ensure we do not have a conflict of interest, are there any individuals who are adverse or opposing parties in your legal case?
+    spanish: >-
+      Para asegurarnos de que no tengamos un conflicto de intereses, hay alguna persona que sea parte adversa u opuesta en su caso legal?
+  record_domestic_violence_question:
+    english: >-
+      Please answer yes or no. One more eligibility question: are you experiencing or have you experienced domestic violence, such as threats, yelling, throwing things, controlling behavior, or physical abuse?
+    spanish: >-
+      Por favor responda si o no. Una pregunta mas de elegibilidad: esta experimentando o ha experimentado violencia domestica, como amenazas, gritos, arrojar cosas, comportamiento controlador o abuso fisico?
+  record_household_composition_question:
+    english: >-
+      How many adults, including you, and how many children under 18 live in your household?
+    spanish: >-
+      Cuantos adultos, incluyendole a usted, y cuantos ninos menores de 18 anos viven en su hogar?
+  record_household_composition_question_domestic_violence:
+    english: >-
+      How many adults, including you, and how many children under 18 live in your household? Do not count anyone who has perpetrated domestic violence against you.
+    spanish: >-
+      Cuantos adultos, incluyendole a usted, y cuantos ninos menores de 18 anos viven en su hogar? No cuente a nadie que haya perpetrado violencia domestica contra usted.
+  record_income_question:
+    english: >-
+      Tell me the income for each household member who has income. Include the person's name, the source, the amount, and how often they receive it.
+    spanish: >-
+      Digame los ingresos de cada miembro del hogar que tenga ingresos. Incluya el nombre de la persona, la fuente, la cantidad y con que frecuencia los recibe.
+  confirm_income_over_limit_question:
+    english: >-
+      Please answer yes or no. Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our limit. Do you wish to proceed with the intake even though Law-Line probably will not be able to help you?
+    spanish: >-
+      Por favor responda si o no. Debido a que Virginia Legal Aid Society existe para ayudar a personas de bajos ingresos, no cobramos honorarios por nuestra ayuda. La necesidad de ayuda es mucho mayor de la que podemos atender, asi que tenemos que establecer limites sobre a quien podemos ayudar y a quien no. Lamento decirle que su hogar esta por encima de nuestro limite. Desea continuar con la entrevista aunque es probable que Law-Line no pueda ayudarle?
+  record_assets_receives_benefits_question:
+    english: >-
+      Please answer yes or no. Are you receiving Medicaid, SSI, or TANF benefits?
+    spanish: >-
+      Por favor responda si o no. Esta recibiendo beneficios de Medicaid, SSI o TANF?
+  record_assets_receives_benefits_question_tanf:
+    english: >-
+      Please answer yes or no. You mentioned receiving TANF. Do you also receive Medicaid?
+    spanish: >-
+      Por favor responda si o no. Usted menciono que recibe TANF. Tambien recibe Medicaid?
+  record_assets_receives_benefits_question_ssi:
+    english: >-
+      Please answer yes or no. You mentioned receiving SSI. Do you also receive Medicaid?
+    spanish: >-
+      Por favor responda si o no. Usted menciono que recibe SSI. Tambien recibe Medicaid?
+  record_assets_receives_benefits_question_tanf_ssi:
+    english: >-
+      Please answer yes or no. You mentioned receiving TANF or SSI. Do you also receive Medicaid?
+    spanish: >-
+      Por favor responda si o no. Usted menciono que recibe TANF o SSI. Tambien recibe Medicaid?
+  record_assets_cash_accounts_question:
+    english: >-
+      Please answer yes or no. Do you have any money in cash, checking, or savings?
+    spanish: >-
+      Por favor responda si o no. Tiene dinero en efectivo, en una cuenta corriente o en ahorros?
+  record_assets_investments_question:
+    english: >-
+      Please answer yes or no. Do you have any non-retirement investments, like stocks, bonds, or crypto?
+    spanish: >-
+      Por favor responda si o no. Tiene inversiones que no sean para la jubilacion, como acciones, bonos o cripto?
+  record_assets_other_property_question:
+    english: >-
+      Please answer yes or no. Do you own any other countable property, like jewelry, business assets, an extra vehicle that is not your main transportation, or land other than the home you live in?
+    spanish: >-
+      Por favor responda si o no. Tiene alguna otra propiedad contable, como joyas, bienes del negocio, un vehiculo adicional que no sea su transporte principal, o terreno aparte de la casa en la que vive?
+  record_assets_list_confirmation:
+    english: >-
+      Please answer yes or no. Let me confirm your countable assets: {current_assets_summary}. Does that sound right?
+    spanish: >-
+      Por favor responda si o no. Permitamelo confirmar sus bienes contables: {current_assets_summary}. Suena correcto?
+  confirm_assets_over_limit_question:
+    english: >-
+      Please answer yes or no. Because Virginia Legal Aid Society exists to help low-income people, we do not charge any fees for our help. The need for help is much larger than we can meet, so we have to set limits on who we can help and who we cannot. I am sorry to tell you that your household is above our asset limit. Do you wish to proceed with the intake even though Law-Line probably will not be able to help you?
+    spanish: >-
+      Por favor responda si o no. Debido a que Virginia Legal Aid Society existe para ayudar a personas de bajos ingresos, no cobramos honorarios por nuestra ayuda. La necesidad de ayuda es mucho mayor de la que podemos atender, asi que tenemos que establecer limites sobre a quien podemos ayudar y a quien no. Lamento decirle que su hogar esta por encima de nuestro limite de bienes. Desea continuar con la entrevista aunque es probable que Law-Line no pueda ayudarle?
+  record_citizenship_question:
+    english: >-
+      Please answer yes or no. Are you a United States citizen?
+    spanish: >-
+      Por favor responda si o no. Es ciudadano de los Estados Unidos?
+  record_ssn_last_4_question:
+    english: >-
+      Please provide the last 4 digits of your social security number.
+    spanish: >-
+      Por favor proporcione los ultimos 4 digitos de su numero de seguro social.
+  record_date_of_birth_question:
+    english: >-
+      Please provide your date of birth.
+    spanish: >-
+      Por favor proporcione su fecha de nacimiento.
+  record_names_question:
+    english: >-
+      Please answer yes or no first. Do you have any other names to include in your legal file, such as a maiden name, former name, or nickname used in legal records?
+    spanish: >-
+      Por favor responda si o no primero. Tiene otros nombres que deban incluirse en su expediente legal, como un apellido de soltera, un nombre anterior o un apodo usado en registros legales?
+  record_address_question:
+    english: >-
+      What is your residential address, including street, city, state, ZIP code, and county? Include any apartment or suite number if you have one.
+    spanish: >-
+      Cual es su direccion residencial, incluyendo calle, ciudad, estado, codigo postal y condado? Incluya cualquier numero de apartamento o suite si tiene uno.
+  case_type_ineligible_question:
+    english: >-
+      I am sorry, Law-Line is not able to help with this type of case. Would you like the Virginia State Bar referral information over the phone or sent by text?
+    spanish: >-
+      Lo siento, Law-Line no puede ayudar con este tipo de caso. Desea recibir la informacion de referencia del Virginia State Bar por telefono o por mensaje de texto?
+  complete_intake_thanks:
+    english: >-
+      Thank you for your time.
+    spanish: >-
+      Gracias por su tiempo.
+  end_goodbye:
+    english: >-
+      Goodbye.
+    spanish: >-
+      Adios.
 
 # Language
 record_language:
@@ -88,10 +256,12 @@ record_phone_number:
   task_messages:
     - content: >-
         [Instructions]
-        1. Check if the caller's phone number is already available in the system.
-          - If the phone number is available, read it back to the caller and confirm if it is correct (use digit-by-digit pronunciation as described below).
-          - If the phone number is not available, ask the caller to provide their phone number.
-        2. After receiving the phone number, ALWAYS read it back to the caller to confirm its accuracy.
+        1. The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the phone number is still unclear.
+        2. Check if the caller's phone number is already available in the system.
+          - If the caller confirms the number you already have is correct, call `record_phone_number` with that confirmed number.
+          - If the caller says the existing number is incorrect, ask them for the correct number and continue this step.
+          - If no phone number is available yet, collect the caller's phone number.
+        3. After receiving a new or corrected phone number, ALWAYS read it back to the caller to confirm its accuracy.
           - IMPORTANT: After reading the number back, ask only whether the number is correct, and then wait for the caller's answer.
           - IMPORTANT: Read the phone number digit-by-digit (one digit at a time), not as a whole number.
           - IMPORTANT: Read the phone number in normal groupings of 3 digits, 3 digits, 4 digits.
@@ -101,23 +271,19 @@ record_phone_number:
           - Ask the confirmation as a direct question, for example: "I heard eight six six, five three four, five two four three. Is that correct?" (or in Spanish: "Escuché ocho seis seis, cinco tres cuatro, cinco dos cuatro tres. ¿Es correcto?")
           - If the caller indicates the number is incorrect, wait and see if they provide the correct number; if not, ask them to provide the correct number again, and then repeat the confirmation process.
           - If the caller gives an unclear answer to the confirmation question, repeat the confirmation question and wait for a clear yes-or-no answer.
-        3. If the phone number provided is invalid, explain that you need a valid 10-digit US phone number and ask them to try again.
-        4. ONLY use the `record_phone_number` function after the caller explicitly confirms that the phone number is correct.
-        5. Do NOT ask for the phone type in this step. The next step will ask for it after the confirmed phone number has been saved.
+        4. If the phone number provided is invalid, explain that you need a valid 10-digit US phone number and ask them to try again.
+        5. ONLY use the `record_phone_number` function after the caller explicitly confirms that the phone number is correct.
+        6. Do NOT ask for the phone type in this step. The next step will ask for it after the confirmed phone number has been saved.
 
         [System]
         Phone number: {phone_number}
-
-        [User Prompt]
-        (Translate this to the caller's language if they are not speaking English)
-        Please provide your phone number.
 
 record_phone_type:
   task_messages:
     - content: >-
         [Instructions]
-        1. The caller's phone number has already been confirmed. Do NOT ask for the phone number again unless the caller volunteers a correction.
-        2. Ask one short question: "What type of phone number is this: mobile, home, work, or other?"
+        1. The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or gives an unclear response.
+        2. The caller's phone number has already been confirmed. Do NOT ask for the phone number again unless the caller volunteers a correction.
         3. If the caller gives a synonym, normalize it when calling the function. Examples: cellular or movil -> mobile, casa -> home, trabajo -> work, otro -> other.
         4. If the caller gives an unclear or unrelated answer, ask again and wait for a clear phone type.
         5. ONLY use the `record_phone_type` function after the caller explicitly identifies the phone type.
@@ -125,16 +291,12 @@ record_phone_type:
         [System]
         Confirmed phone number: {phone_number}
 
-        [User Prompt]
-        (Translate this to the caller's language if they are not speaking English)
-        What type of phone number is this: mobile, home, work, or other?
-
 # Name
 record_name:
   task_messages:
     - content: >-
         [Instructions]
-        1. Ask the caller for their full legal name, including their first, middle, and last name. If they have a suffix (for example Jr., Sr., II, III), collect that too.
+        1. The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the name is still unclear.
         2. After the caller provides their name, read it back and confirm the spelling.
           - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas. This ensures each letter is spoken with a natural pause.
           - Prefer a natural confirmation such as: "I heard [First Name] [Middle Name] [Last Name]. Is the first name spelled [F I R S T], middle name [M I D D L E], and last name [L A S T]?"
@@ -146,15 +308,13 @@ record_name:
         6. IMPORTANT: If the caller says "correct" or "yes" but then provides a spelling that does NOT match what you just spelled out, treat the caller's spelling as the authoritative version. Do NOT accept it as confirmed until you have reconciled the contradiction (e.g., "You said that's correct, but the spelling you gave for the first name looks different from what I had. Let me confirm -- is it spelled C E L E S T E or C L E S D?").
         7. Only use the `record_name` function after the caller confirms that the spelling of their full legal name is correct.
 
-        [User Prompt]
-        (Translate this to the caller's language if they are not speaking English)
-        Please provide your full legal name, including your first, middle, and last name. If you have a suffix like Jr., Sr., II, or III, please include that.
-
 # Service area
 record_service_area:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the location is still unclear.
+
         1. Ask the caller where the legal incident occurred.
         2. If the caller gives a city or county, IMMEDIATELY call the `record_service_area` function with that location.
         3. If the caller answers with something other than a city or county, or mixes a location with unrelated facts, acknowledge briefly, keep only the city or county if one was actually provided, and otherwise ask again for just the city or county.
@@ -180,6 +340,8 @@ record_case_type:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the case description is still unclear.
+
         Ask the caller to briefly describe their legal case in their own words.
 
         [User Prompt]
@@ -199,6 +361,8 @@ record_adverse_parties:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         1. Explain to the caller that Law-Line is legally obligated to ensure there is no conflict of interest.
         2. Ask the caller if there are any individuals who are adverse (opposing) parties in their legal case.
         3. IF the caller indicates there ARE adverse parties:
@@ -261,6 +425,8 @@ record_domestic_violence:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         Ask one short eligibility question about domestic violence.
         If helpful, clarify that it can include physical violence, threats, yelling, throwing things, or controlling behavior.
         Once the caller answers yes or no, call the `record_domestic_violence` function with the boolean value.
@@ -279,6 +445,8 @@ record_household_composition:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the household counts are still unclear.
+
         1. Ask for two numbers only: adults age 18 and older, and children under 18.
         2. Remind the caller to include themselves in the adult count.
         3. If the caller previously reported domestic violence, tell them not to count the person who harmed them.
@@ -302,6 +470,8 @@ record_income:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the income details are still unclear.
+
         1. You have already collected the household counts. Ask only about household members who have income.
         2. This includes adults and children with income, but still excludes anyone who has perpetrated domestic violence against the caller.
         3. For each household member with income, collect:
@@ -367,6 +537,8 @@ confirm_income_over_limit:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer or asks for clarification.
+
         The caller is likely ineligible for Law-Line legal help.
 
         If the caller clearly agrees to continue (e.g., "yes"), call `continue_intake("record_assets_receives_benefits")`.
@@ -385,6 +557,8 @@ record_assets_receives_benefits:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         Check the conversation summary. If the caller has ALREADY reported receiving TANF (Temporary Assistance for Needy Families) or SSI (Supplemental Security Income) as income, do not ask the generic question.
         Instead, acknowledge the benefit they already reported, and ask if they also receive Medicaid.
 
@@ -405,6 +579,8 @@ record_assets_cash_accounts:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         Ask one short question about cash, checking, or savings, then wait for the caller's answer.
 
         Do NOT call the function until the caller answers this question.
@@ -423,6 +599,8 @@ record_assets_investments:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         Ask one short question about countable investments such as stocks, bonds, or crypto, then wait for the caller's answer.
 
         Do NOT call the function until the caller answers this question.
@@ -442,6 +620,8 @@ record_assets_other_property:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         Ask one short question about other countable property, then wait for the caller's answer.
 
         Do NOT call the function until the caller answers this question.
@@ -462,6 +642,8 @@ record_assets_list:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the corrections are still unclear.
+
         Briefly confirm the countable assets collected so far, then ask if that sounds right.
 
         Assets collected so far:
@@ -500,6 +682,8 @@ record_citizenship:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+
         1. Ask one short question about whether the caller is a US citizen.
         2. If the caller clearly says yes, call `record_citizenship(is_a_us_citizen=true, answer_was_explicit=true)`.
         3. If the caller clearly says no, call `record_citizenship(is_a_us_citizen=false, answer_was_explicit=true)`.
@@ -516,6 +700,8 @@ record_ssn_last_4:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the SSN last 4 is still unclear.
+
         1. Ask the caller for the last 4 digits of their social security number. Explain that you only need the last 4 digits.
         2. The caller may provide the digits in various formats (for example: "1234", "123-4", "1-23-4", etc.). Accept any reasonable format with 4 digits.
         3. After receiving the digits, read them back to the caller digit-by-digit (one digit at a time) and ask them to confirm they are correct.
@@ -538,6 +724,8 @@ record_date_of_birth:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the date of birth is still unclear.
+
         1. Ask the caller for their date of birth.
         2. The caller may provide the date in various formats (for example: "January 15, 1980", "01/15/1980", "1980-01-15", etc.). Accept any reasonable date format.
         3. After receiving the date, read it back to the caller in a clear format (for example, "January 15, 1980") and ask them to confirm it is correct.
@@ -562,6 +750,8 @@ record_address:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the address is still unclear.
+
         1. Ask the caller for their residential address, including:
           - Street address (required)
           - Apartment, suite, or unit number (optional)
@@ -594,6 +784,8 @@ record_names:
   task_messages:
     - content: >-
         [Instructions]
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the additional names are still unclear.
+
         1. Ask the caller if they have any other names that should be included in their legal file. This includes:
            - Maiden names or birth names
            - Names from previous marriages
@@ -665,18 +857,11 @@ complete_intake:
     - content: >-
         Thank the caller for their time.
 
-# Generally ineligible
-ineligible:
-  task_messages:
-    - content: >-
-        Apologize to the caller that Law-Line isn't able to help them.
-        Ask whether they want the resource information over the phone or sent by text.
-        If they choose phone, call `send_general_referral_and_end` with delivery_method="phone".
-        If they choose text, call `send_general_referral_and_end` with delivery_method="text".
-
 case_type_ineligible:
   task_messages:
     - content: >-
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer or asks for clarification.
+
         Apologize to the caller that Law-Line isn't able to help with this type of case.
         Ask whether they want the Virginia State Bar referral information over the phone or sent by text.
         If they choose phone, call `send_case_type_referral_and_end` with delivery_method="phone".

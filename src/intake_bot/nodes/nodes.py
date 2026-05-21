@@ -1,5 +1,6 @@
 import sys
 import unicodedata
+from datetime import datetime, timezone
 
 from intake_bot.models.intake_flow_result import (
     AddressResult,
@@ -37,9 +38,7 @@ from intake_bot.nodes.utils import (
 )
 from intake_bot.nodes.validator import IntakeValidator
 from intake_bot.services.dialpad import (
-    CASE_TYPE_REFERRAL,
-    GENERAL_REFERRAL,
-    OVER_LIMIT_REFERRAL,
+    REFERRAL,
     SMS,
     ReferralContent,
 )
@@ -55,6 +54,8 @@ from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat_flows import (
+    ContextStrategy,
+    ContextStrategyConfig,
     FlowManager,
     NodeConfig,
 )
@@ -65,6 +66,9 @@ prompts = NodePrompts()
 validator = IntakeValidator()
 sms_service = SMS()
 _ADVERSE_PARTIES_FOLLOW_UP_KEY = "_adverse_parties_follow_up_requested"
+
+_ACKNOWLEDGMENT_CONFIRMATION = "confirmation"
+_ACKNOWLEDGMENT_INFORMATION = "information"
 
 
 ######################################################################
@@ -77,6 +81,12 @@ def node_initial() -> NodeConfig:
     Create initial node for welcoming the caller. Allow the conversation to be ended.
     """
     initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
+    initial_prompt_kwargs = {}
+    if initial_prompt == "initial":
+        initial_prompt_kwargs["initial_greeting"] = prompts.get_spoken_prompt(
+            "initial_greeting"
+        )
+
     initial_function_name = get_ev(
         "TEST_INITIAL_FUNCTION", default="system_phone_number"
     )
@@ -92,22 +102,364 @@ def node_initial() -> NodeConfig:
 
     return {
         **prompts.get("primary_role_message"),
-        **prompts.get(initial_prompt),
+        **prompts.get(initial_prompt, **initial_prompt_kwargs),
         "functions": [initial_function],
     }
 
 
-def node_partial_reset_with_summary() -> NodeConfig:
+def node_start() -> NodeConfig:
+    initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
+    initial_function = get_ev("TEST_INITIAL_FUNCTION", default="system_phone_number")
+
+    if initial_prompt == "initial" and initial_function == "system_phone_number":
+        return node_record_language(include_initial_greeting=True)
+
+    return node_initial()
+
+
+def node_partial_reset_with_state() -> NodeConfig:
     return {
         **prompts.get("primary_role_message"),
+        "context_strategy": ContextStrategyConfig(
+            strategy=ContextStrategy.RESET,
+        ),
     }
+
+
+def _normalize_prompt_lead(text: str) -> str:
+    if text.startswith("I "):
+        return text
+
+    for index, char in enumerate(text):
+        if char.isalpha():
+            return text[:index] + char.lower() + text[index + 1 :]
+    return text
+
+
+def _compose_spoken_prompt(
+    flow_manager: FlowManager,
+    question: str,
+    acknowledgment_category: str | None = None,
+) -> str:
+    if not acknowledgment_category:
+        return question
+
+    acknowledgment = prompts.get_acknowledgment_phrase(
+        acknowledgment_category,
+        _caller_language(flow_manager),
+    )
+    if not acknowledgment:
+        return question
+
+    return f"{acknowledgment}, {_normalize_prompt_lead(question)}"
+
+
+def _spoken_prompt_text(
+    flow_manager: FlowManager,
+    prompt_key: str,
+    acknowledgment_category: str | None = None,
+    **kwargs,
+) -> str:
+    question = prompts.get_spoken_prompt(
+        prompt_key,
+        _caller_language(flow_manager),
+        **kwargs,
+    )
+    return _compose_spoken_prompt(flow_manager, question, acknowledgment_category)
+
+
+def _spoken_prompt_text_builder(
+    prompt_key: str,
+    acknowledgment_category: str | None = None,
+    prompt_kwargs: dict | None = None,
+):
+    resolved_prompt_kwargs = prompt_kwargs or {}
+
+    def builder(flow_manager: FlowManager) -> str:
+        return _spoken_prompt_text(
+            flow_manager,
+            prompt_key,
+            acknowledgment_category,
+            **resolved_prompt_kwargs,
+        )
+
+    return builder
+
+
+def _transcript_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+async def _log_spoken_text(flow_manager: FlowManager, text: str) -> None:
+    if not text or not text.strip():
+        return
+
+    transcript_handler = flow_manager.__dict__.get("_transcript_handler")
+    if transcript_handler is None:
+        transcript_handler = flow_manager.state.get("_transcript_handler")
+    if transcript_handler is None:
+        return
+
+    if hasattr(transcript_handler, "save_assistant_tts"):
+        await transcript_handler.save_assistant_tts(text)
+        return
+
+    if hasattr(transcript_handler, "save_transcript_message"):
+        await transcript_handler.save_transcript_message(
+            "assistant",
+            text,
+            _transcript_timestamp(),
+        )
+
+
+def _build_step_node(
+    prompt_key: str,
+    functions: list,
+    *,
+    prompt_kwargs: dict | None = None,
+    text_builder=None,
+) -> NodeConfig:
+    node = node_partial_reset_with_state() | {
+        **prompts.get(prompt_key, **(prompt_kwargs or {})),
+        "functions": functions,
+    }
+
+    if text_builder is not None:
+        node["pre_actions"] = [
+            {
+                "type": "function",
+                "handler": _speak_dynamic_prompt,
+                "text_builder": text_builder,
+            }
+        ]
+        node["respond_immediately"] = False
+
+    return node
+
+
+def _build_static_tts_node(
+    text: str, post_actions: list[dict] | None = None
+) -> NodeConfig:
+    node = {
+        "task_messages": [],
+        "pre_actions": [{"type": "tts_say", "text": text}],
+        "functions": [],
+    }
+    if post_actions is not None:
+        node["post_actions"] = post_actions
+    return node
+
+
+def _phone_digits(value: str | None) -> str:
+    if not value:
+        return ""
+
+    digits = "".join(char for char in value if char.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits if len(digits) == 10 else ""
+
+
+def _spoken_phone_number(value: str | None, language: str) -> str | None:
+    digits = _phone_digits(value)
+    if not digits:
+        return None
+
+    number_words = {
+        "english": {
+            "0": "zero",
+            "1": "one",
+            "2": "two",
+            "3": "three",
+            "4": "four",
+            "5": "five",
+            "6": "six",
+            "7": "seven",
+            "8": "eight",
+            "9": "nine",
+        },
+        "spanish": {
+            "0": "cero",
+            "1": "uno",
+            "2": "dos",
+            "3": "tres",
+            "4": "cuatro",
+            "5": "cinco",
+            "6": "seis",
+            "7": "siete",
+            "8": "ocho",
+            "9": "nueve",
+        },
+    }
+
+    language_key = "spanish" if language == "spanish" else "english"
+    groups = (digits[:3], digits[3:6], digits[6:])
+    spoken_groups = []
+    for group in groups:
+        spoken_groups.append(
+            " ".join(number_words[language_key][digit] for digit in group)
+        )
+    return ", ".join(spoken_groups)
+
+
+def _phone_number_prompt_text(flow_manager: FlowManager) -> str:
+    language = _caller_language(flow_manager)
+    spoken_phone_number = _spoken_phone_number(
+        _caller_phone_number(flow_manager), language
+    )
+
+    if spoken_phone_number:
+        question = prompts.get_spoken_prompt(
+            "record_phone_number_confirmation",
+            language,
+            spoken_phone_number=spoken_phone_number,
+        )
+        return _compose_spoken_prompt(
+            flow_manager,
+            question,
+            _ACKNOWLEDGMENT_CONFIRMATION,
+        )
+
+    return prompts.get_spoken_prompt("record_phone_number_request", language)
+
+
+def _phone_type_prompt_text(flow_manager: FlowManager) -> str:
+    question = prompts.get_spoken_prompt(
+        "record_phone_type_question",
+        _caller_language(flow_manager),
+    )
+
+    return _compose_spoken_prompt(
+        flow_manager,
+        question,
+        _ACKNOWLEDGMENT_CONFIRMATION,
+    )
+
+
+def _name_prompt_text(flow_manager: FlowManager) -> str:
+    question = prompts.get_spoken_prompt(
+        "record_name_question",
+        _caller_language(flow_manager),
+    )
+
+    return _compose_spoken_prompt(
+        flow_manager,
+        question,
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+def _service_area_prompt_text(flow_manager: FlowManager) -> str:
+    return _spoken_prompt_text(
+        flow_manager,
+        "record_service_area_question",
+        _ACKNOWLEDGMENT_CONFIRMATION,
+    )
+
+
+def _case_type_prompt_text(flow_manager: FlowManager) -> str:
+    return _spoken_prompt_text(
+        flow_manager,
+        "record_case_type_question",
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+def _adverse_parties_prompt_text(flow_manager: FlowManager) -> str:
+    return _spoken_prompt_text(
+        flow_manager,
+        "record_adverse_parties_question",
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+def _domestic_violence_prompt_text(flow_manager: FlowManager) -> str:
+    return _spoken_prompt_text(
+        flow_manager,
+        "record_domestic_violence_question",
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+def _household_composition_prompt_text(flow_manager: FlowManager) -> str:
+    prompt_key = "record_household_composition_question"
+    if flow_manager.state.get("domestic_violence", {}).get("is_experiencing"):
+        prompt_key = "record_household_composition_question_domestic_violence"
+
+    return _spoken_prompt_text(
+        flow_manager,
+        prompt_key,
+        _ACKNOWLEDGMENT_CONFIRMATION,
+    )
+
+
+def _income_prompt_text(flow_manager: FlowManager) -> str:
+    return _spoken_prompt_text(
+        flow_manager,
+        "record_income_question",
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+def _reported_income_categories(flow_manager: FlowManager) -> set[str]:
+    income_state = flow_manager.state.get("income", {})
+    listing = income_state.get("listing") if isinstance(income_state, dict) else None
+    categories: set[str] = set()
+
+    if not isinstance(listing, dict):
+        return categories
+
+    for member_income in listing.values():
+        if isinstance(member_income, dict):
+            categories.update(category.strip().lower() for category in member_income)
+
+    return categories
+
+
+def _assets_receives_benefits_prompt_text(flow_manager: FlowManager) -> str:
+    categories = _reported_income_categories(flow_manager)
+    has_tanf = "tanf (temporary assistance for needy families)" in categories
+    has_ssi = bool(
+        {
+            "ssi (supplemental security income)",
+            "ssi/ssdi combo",
+        }
+        & categories
+    )
+
+    if has_tanf and has_ssi:
+        prompt_key = "record_assets_receives_benefits_question_tanf_ssi"
+    elif has_tanf:
+        prompt_key = "record_assets_receives_benefits_question_tanf"
+    elif has_ssi:
+        prompt_key = "record_assets_receives_benefits_question_ssi"
+    else:
+        prompt_key = "record_assets_receives_benefits_question"
+
+    return _spoken_prompt_text(
+        flow_manager,
+        prompt_key,
+        _ACKNOWLEDGMENT_INFORMATION,
+    )
+
+
+async def _speak_dynamic_prompt(action: dict, flow_manager: FlowManager) -> None:
+    text = action["text_builder"](flow_manager)
+    await _log_spoken_text(flow_manager, text)
+    await flow_manager.task.queue_frame(TTSSpeakFrame(text=text))
 
 
 async def _speak_language_selection_prompt(
     action: dict, flow_manager: FlowManager
 ) -> None:
-    english_prompt = action["english_prompt"]
-    spanish_prompt = action["spanish_prompt"]
+    welcome_prompt_key = action.get("welcome_prompt_key")
+    if welcome_prompt_key:
+        welcome_prompt = prompts.get_spoken_prompt(welcome_prompt_key)
+        await _log_spoken_text(flow_manager, welcome_prompt)
+        await flow_manager.task.queue_frame(TTSSpeakFrame(text=welcome_prompt))
+
+    english_prompt = prompts.get_spoken_prompt(action["english_prompt_key"])
+    spanish_prompt = prompts.get_spoken_prompt(action["spanish_prompt_key"])
 
     english_voice = get_deepgram_tts_voices(Language.EN)
     spanish_voice = get_deepgram_tts_voices(Language.ES)
@@ -115,30 +467,270 @@ async def _speak_language_selection_prompt(
     await flow_manager.task.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
     )
+    await _log_spoken_text(flow_manager, english_prompt)
     await flow_manager.task.queue_frame(TTSSpeakFrame(text=english_prompt))
     await flow_manager.task.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=spanish_voice))
     )
+    await _log_spoken_text(flow_manager, spanish_prompt)
     await flow_manager.task.queue_frame(TTSSpeakFrame(text=spanish_prompt))
     await flow_manager.task.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
     )
 
 
-def node_record_language() -> NodeConfig:
+def node_record_language(include_initial_greeting: bool = False) -> NodeConfig:
+    pre_action = {
+        "type": "function",
+        "handler": _speak_language_selection_prompt,
+        "english_prompt_key": "record_language_prompt_english",
+        "spanish_prompt_key": "record_language_prompt_spanish",
+    }
+    if include_initial_greeting:
+        pre_action["welcome_prompt_key"] = "initial_greeting"
+
     return {
         **prompts.get("record_language"),
         "functions": [record_language],
+        "pre_actions": [pre_action],
+        "respond_immediately": False,
+    }
+
+
+def node_record_phone_number(phone_number: str | None = None) -> NodeConfig:
+    return {
+        **node_partial_reset_with_state(),
+        **prompts.get("record_phone_number", phone_number=phone_number or ""),
+        "functions": [record_phone_number],
         "pre_actions": [
             {
                 "type": "function",
-                "handler": _speak_language_selection_prompt,
-                "english_prompt": "Would you prefer to speak in English?",
-                "spanish_prompt": "Prefiere hablar en espanol?",
+                "handler": _speak_dynamic_prompt,
+                "text_builder": _phone_number_prompt_text,
             }
         ],
         "respond_immediately": False,
     }
+
+
+def node_record_phone_type(phone_number: str | None = None) -> NodeConfig:
+    return {
+        **node_partial_reset_with_state(),
+        **prompts.get("record_phone_type", phone_number=phone_number or ""),
+        "functions": [record_phone_type],
+        "pre_actions": [
+            {
+                "type": "function",
+                "handler": _speak_dynamic_prompt,
+                "text_builder": _phone_type_prompt_text,
+            }
+        ],
+        "respond_immediately": False,
+    }
+
+
+def node_record_name() -> NodeConfig:
+    return {
+        **node_partial_reset_with_state(),
+        **prompts.get("record_name"),
+        "functions": [record_name],
+        "pre_actions": [
+            {
+                "type": "function",
+                "handler": _speak_dynamic_prompt,
+                "text_builder": _name_prompt_text,
+            }
+        ],
+        "respond_immediately": False,
+    }
+
+
+def node_record_service_area() -> NodeConfig:
+    return _build_step_node(
+        "record_service_area",
+        [record_service_area],
+        text_builder=_service_area_prompt_text,
+    )
+
+
+def node_record_case_type() -> NodeConfig:
+    return _build_step_node(
+        "record_case_type",
+        [record_case_type],
+        text_builder=_case_type_prompt_text,
+    )
+
+
+def node_record_adverse_parties() -> NodeConfig:
+    return _build_step_node(
+        "record_adverse_parties",
+        [record_adverse_parties],
+        text_builder=_adverse_parties_prompt_text,
+    )
+
+
+def node_record_domestic_violence() -> NodeConfig:
+    return _build_step_node(
+        "record_domestic_violence",
+        [record_domestic_violence],
+        text_builder=_domestic_violence_prompt_text,
+    )
+
+
+def node_record_household_composition() -> NodeConfig:
+    return _build_step_node(
+        "record_household_composition",
+        [record_household_composition],
+        text_builder=_household_composition_prompt_text,
+    )
+
+
+def node_record_income() -> NodeConfig:
+    return _build_step_node(
+        "record_income",
+        [record_income],
+        text_builder=_income_prompt_text,
+    )
+
+
+def node_confirm_income_over_limit() -> NodeConfig:
+    return _build_step_node(
+        "confirm_income_over_limit",
+        [continue_intake, send_over_limit_referral_and_end],
+        text_builder=_spoken_prompt_text_builder("confirm_income_over_limit_question"),
+    )
+
+
+def node_record_assets_receives_benefits() -> NodeConfig:
+    return _build_step_node(
+        "record_assets_receives_benefits",
+        [record_assets_receives_benefits],
+        text_builder=_assets_receives_benefits_prompt_text,
+    )
+
+
+def node_record_assets_cash_accounts() -> NodeConfig:
+    return _build_step_node(
+        "record_assets_cash_accounts",
+        [record_assets_cash_accounts],
+        text_builder=_spoken_prompt_text_builder(
+            "record_assets_cash_accounts_question",
+            _ACKNOWLEDGMENT_CONFIRMATION,
+        ),
+    )
+
+
+def node_record_assets_investments() -> NodeConfig:
+    return _build_step_node(
+        "record_assets_investments",
+        [record_assets_investments],
+        text_builder=_spoken_prompt_text_builder(
+            "record_assets_investments_question",
+            _ACKNOWLEDGMENT_INFORMATION,
+        ),
+    )
+
+
+def node_record_assets_other_property() -> NodeConfig:
+    return _build_step_node(
+        "record_assets_other_property",
+        [record_assets_other_property],
+        text_builder=_spoken_prompt_text_builder(
+            "record_assets_other_property_question",
+            _ACKNOWLEDGMENT_INFORMATION,
+        ),
+    )
+
+
+def node_record_assets_list(current_assets_summary: str) -> NodeConfig:
+    return _build_step_node(
+        "record_assets_list",
+        [record_assets_list],
+        prompt_kwargs={"current_assets_summary": current_assets_summary},
+        text_builder=_spoken_prompt_text_builder(
+            "record_assets_list_confirmation",
+            _ACKNOWLEDGMENT_INFORMATION,
+            {"current_assets_summary": current_assets_summary},
+        ),
+    )
+
+
+def node_confirm_assets_over_limit() -> NodeConfig:
+    return _build_step_node(
+        "confirm_assets_over_limit",
+        [continue_intake, send_over_limit_referral_and_end],
+        text_builder=_spoken_prompt_text_builder("confirm_assets_over_limit_question"),
+    )
+
+
+def node_record_citizenship() -> NodeConfig:
+    return _build_step_node(
+        "record_citizenship",
+        [record_citizenship],
+        text_builder=_spoken_prompt_text_builder(
+            "record_citizenship_question",
+            _ACKNOWLEDGMENT_CONFIRMATION,
+        ),
+    )
+
+
+def node_record_ssn_last_4() -> NodeConfig:
+    return _build_step_node(
+        "record_ssn_last_4",
+        [record_ssn_last_4],
+        text_builder=_spoken_prompt_text_builder(
+            "record_ssn_last_4_question",
+            _ACKNOWLEDGMENT_CONFIRMATION,
+        ),
+    )
+
+
+def node_record_date_of_birth() -> NodeConfig:
+    return _build_step_node(
+        "record_date_of_birth",
+        [record_date_of_birth],
+        text_builder=_spoken_prompt_text_builder(
+            "record_date_of_birth_question",
+            _ACKNOWLEDGMENT_CONFIRMATION,
+        ),
+    )
+
+
+def node_record_names() -> NodeConfig:
+    return _build_step_node(
+        "record_names",
+        [record_names],
+        text_builder=_spoken_prompt_text_builder(
+            "record_names_question",
+            _ACKNOWLEDGMENT_INFORMATION,
+        ),
+    )
+
+
+def node_record_address() -> NodeConfig:
+    return _build_step_node(
+        "record_address",
+        [record_address],
+        text_builder=_spoken_prompt_text_builder(
+            "record_address_question",
+            _ACKNOWLEDGMENT_INFORMATION,
+        ),
+    )
+
+
+def node_case_type_ineligible() -> NodeConfig:
+    return _build_step_node(
+        "case_type_ineligible",
+        [send_case_type_referral_and_end],
+        text_builder=_spoken_prompt_text_builder("case_type_ineligible_question"),
+    )
+
+
+def node_complete_intake(language: str = "English") -> NodeConfig:
+    return _build_static_tts_node(
+        prompts.get_spoken_prompt("complete_intake_thanks", language),
+        post_actions=[{"type": "end_conversation"}],
+    )
 
 
 def _caller_language(flow_manager: FlowManager) -> str:
@@ -266,6 +858,7 @@ def _node_referral_and_end(
         else content.text_delivery_text(language)
     )
     return {
+        "task_messages": [],
         "pre_actions": [{"type": "tts_say", "text": spoken_text}],
         "functions": [],
         "post_actions": [{"type": "end_conversation"}],
@@ -358,15 +951,7 @@ async def record_language(
     flow_manager.state["tts_voice"] = tts_voice
 
     result = LanguageResult(status=Status.SUCCESS, language=language)
-    next_node = NodeConfig(
-        {
-            **prompts.get(
-                "record_phone_number",
-                phone_number=flow_manager.state.get("phone"),
-            ),
-            "functions": [record_phone_number],
-        }
-    )
+    next_node = NodeConfig(node_record_phone_number(_caller_phone_number(flow_manager)))
     return result, next_node
 
 
@@ -393,16 +978,7 @@ async def record_phone_number(
     )
 
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get(
-                    "record_phone_type",
-                    phone_number=validated_phone_number,
-                ),
-                "functions": [record_phone_type],
-            }
-        )
+        next_node = NodeConfig(node_record_phone_type(validated_phone_number))
     else:
         if not is_valid:
             result.error = "Not a valid US phone number"
@@ -446,13 +1022,7 @@ async def record_phone_type(
         phone_number=phone_number,
         phone_type=validated_phone_type,
     )
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_name"),
-            "functions": [record_name],
-        }
-    )
+    next_node = NodeConfig(node_record_name())
     return result, next_node
 
 
@@ -489,13 +1059,7 @@ async def record_name(
         return result, None
 
     result = CallerNamesResult(status=Status.SUCCESS, names=[name_validated])
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_service_area"),
-            "functions": [record_service_area],
-        }
-    )
+    next_node = NodeConfig(node_record_service_area())
     return result, next_node
 
 
@@ -522,13 +1086,7 @@ async def record_service_area(
     )
 
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_case_type"),
-                "functions": [record_case_type],
-            }
-        )
+        next_node = NodeConfig(node_record_case_type())
     else:
         if match:
             result.error = f"""No exact match found. Maybe you meant {match}?"""
@@ -578,22 +1136,10 @@ async def record_case_type(
         case_description=case_description,
     )
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_adverse_parties"),
-                "functions": [record_adverse_parties],
-            }
-        )
+        next_node = NodeConfig(node_record_adverse_parties())
     else:
         result.error = "Ineligible case type."
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("case_type_ineligible"),
-                "functions": [send_case_type_referral_and_end],
-            }
-        )
+        next_node = NodeConfig(node_case_type_ineligible())
     return result, next_node
 
 
@@ -657,13 +1203,7 @@ async def record_adverse_parties(
         status=Status.SUCCESS,
         adverse_parties=adverse_parties_validated,
     )
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_domestic_violence"),
-            "functions": [record_domestic_violence],
-        }
-    )
+    next_node = NodeConfig(node_record_domestic_violence())
     return result, next_node
 
 
@@ -682,13 +1222,7 @@ async def record_domestic_violence(
         is_experiencing=is_experiencing,
     )
 
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_household_composition"),
-            "functions": [record_household_composition],
-        }
-    )
+    next_node = NodeConfig(node_record_household_composition())
     return result, next_node
 
 
@@ -719,13 +1253,7 @@ async def record_household_composition(
         number_of_adults=number_of_adults,
         number_of_children=number_of_children,
     )
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_income"),
-            "functions": [record_income],
-        }
-    )
+    next_node = NodeConfig(node_record_income())
     return result, next_node
 
 
@@ -779,22 +1307,10 @@ async def record_income(
         household_size=household_size,
     )
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_assets_receives_benefits"),
-                "functions": [record_assets_receives_benefits],
-            }
-        )
+        next_node = NodeConfig(node_record_assets_receives_benefits())
     else:
         result.error = """Over the household income limit"""
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("confirm_income_over_limit"),
-                "functions": [continue_intake, send_over_limit_referral_and_end],
-            }
-        )
+        next_node = NodeConfig(node_confirm_income_over_limit())
     return result, next_node
 
 
@@ -817,23 +1333,11 @@ async def record_assets_receives_benefits(
             total_value=0,
             receives_benefits=True,
         )
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_citizenship"),
-                "functions": [record_citizenship],
-            }
-        )
+        next_node = NodeConfig(node_record_citizenship())
     else:
         IntakeValidator.assets_clear_partial_state(flow_manager.state)
         result = None
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_assets_cash_accounts"),
-                "functions": [record_assets_cash_accounts],
-            }
-        )
+        next_node = NodeConfig(node_record_assets_cash_accounts())
     return result, next_node
 
 
@@ -849,13 +1353,7 @@ async def record_assets_cash_accounts(
         return _asset_validation_error_result(e), None
 
     result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_assets_investments"),
-            "functions": [record_assets_investments],
-        }
-    )
+    next_node = NodeConfig(node_record_assets_investments())
     return result, next_node
 
 
@@ -871,13 +1369,7 @@ async def record_assets_investments(
         return _asset_validation_error_result(e), None
 
     result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_assets_other_property"),
-            "functions": [record_assets_other_property],
-        }
-    )
+    next_node = NodeConfig(node_record_assets_other_property())
     return result, next_node
 
 
@@ -899,16 +1391,7 @@ async def record_assets_other_property(
     )
     result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
     next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get(
-                "record_assets_list",
-                current_assets_summary=IntakeValidator.assets_prompt_text(
-                    merged_assets
-                ),
-            ),
-            "functions": [record_assets_list],
-        }
+        node_record_assets_list(IntakeValidator.assets_prompt_text(merged_assets))
     )
     return result, next_node
 
@@ -960,22 +1443,10 @@ async def record_assets_list(
     )
     IntakeValidator.assets_clear_partial_state(flow_manager.state)
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_citizenship"),
-                "functions": [record_citizenship],
-            }
-        )
+        next_node = NodeConfig(node_record_citizenship())
     else:
         result.error = "Over the household assets' value limit."
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("confirm_assets_over_limit"),
-                "functions": [continue_intake, send_over_limit_referral_and_end],
-            }
-        )
+        next_node = NodeConfig(node_confirm_assets_over_limit())
     return result, next_node
 
 
@@ -1002,13 +1473,7 @@ async def record_citizenship(
         return result, None
 
     result = CitizenshipResult(status=Status.SUCCESS, is_citizen=is_a_us_citizen)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_ssn_last_4"),
-            "functions": [record_ssn_last_4],
-        }
-    )
+    next_node = NodeConfig(node_record_ssn_last_4())
     return result, next_node
 
 
@@ -1061,13 +1526,7 @@ async def record_ssn_last_4(
     )
 
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_date_of_birth"),
-                "functions": [record_date_of_birth],
-            }
-        )
+        next_node = NodeConfig(node_record_date_of_birth())
     else:
         result.error = (
             "Invalid SSN. Please provide the last 4 digits in format: XXXX or XXX-X."
@@ -1102,13 +1561,7 @@ async def record_date_of_birth(
     )
 
     if status == Status.SUCCESS:
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("record_names"),
-                "functions": [record_names],
-            }
-        )
+        next_node = NodeConfig(node_record_names())
     else:
         result.error = "Invalid date of birth. Please provide a date in the format MM/DD/YYYY or similar."
         next_node = None
@@ -1168,13 +1621,7 @@ async def record_names(
         return result, None
 
     result = CallerNamesResult(status=Status.SUCCESS, names=names_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("record_address"),
-            "functions": [record_address],
-        }
-    )
+    next_node = NodeConfig(node_record_address())
     return result, next_node
 
 
@@ -1204,13 +1651,7 @@ async def record_address(
     # Check if all required fields are empty
     if not any([street, city, state, zip, county]):
         result = AddressResult(status=Status.SUCCESS, address=None)
-        next_node = NodeConfig(
-            node_partial_reset_with_summary()
-            | {
-                **prompts.get("complete_intake"),
-                "post_actions": [{"type": "end_conversation"}],
-            }
-        )
+        next_node = NodeConfig(node_complete_intake(_caller_language(flow_manager)))
         return result, next_node
 
     try:
@@ -1234,13 +1675,7 @@ async def record_address(
         return result, None
 
     result = AddressResult(status=Status.SUCCESS, address=address_validated)
-    next_node = NodeConfig(
-        node_partial_reset_with_summary()
-        | {
-            **prompts.get("complete_intake"),
-            "post_actions": [{"type": "end_conversation"}],
-        }
-    )
+    next_node = NodeConfig(node_complete_intake(_caller_language(flow_manager)))
     return result, next_node
 
 
@@ -1264,8 +1699,30 @@ async def continue_intake(
     except AttributeError:
         raise ValueError(f"""Function '{next_step}' does not exist.""")
 
+    deterministic_builders = {
+        "record_name": node_record_name,
+        "record_service_area": node_record_service_area,
+        "record_case_type": node_record_case_type,
+        "record_adverse_parties": node_record_adverse_parties,
+        "record_domestic_violence": node_record_domestic_violence,
+        "record_household_composition": node_record_household_composition,
+        "record_income": node_record_income,
+        "record_assets_receives_benefits": node_record_assets_receives_benefits,
+        "record_assets_cash_accounts": node_record_assets_cash_accounts,
+        "record_assets_investments": node_record_assets_investments,
+        "record_assets_other_property": node_record_assets_other_property,
+        "record_citizenship": node_record_citizenship,
+        "record_ssn_last_4": node_record_ssn_last_4,
+        "record_date_of_birth": node_record_date_of_birth,
+        "record_names": node_record_names,
+        "record_address": node_record_address,
+    }
+    deterministic_builder = deterministic_builders.get(next_step)
+    if deterministic_builder is not None:
+        return None, NodeConfig(deterministic_builder())
+
     next_node = NodeConfig(
-        node_partial_reset_with_summary()
+        node_partial_reset_with_state()
         | {
             **prompts.get(next_step),
             "functions": [next_function],
@@ -1278,6 +1735,13 @@ async def send_general_referral_and_end(
     flow_manager: FlowManager,
     delivery_method: str,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    return await _send_referral_and_end(flow_manager, delivery_method)
+
+
+async def _send_referral_and_end(
+    flow_manager: FlowManager,
+    delivery_method: str,
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
     normalized_method = _normalize_referral_delivery_method(delivery_method)
     if normalized_method is None:
         return (
@@ -1288,50 +1752,22 @@ async def send_general_referral_and_end(
             None,
         )
     if normalized_method == "text":
-        await _send_referral_sms(flow_manager, GENERAL_REFERRAL)
-    return None, _node_referral_and_end(
-        flow_manager, GENERAL_REFERRAL, normalized_method
-    )
+        await _send_referral_sms(flow_manager, REFERRAL)
+    return None, _node_referral_and_end(flow_manager, REFERRAL, normalized_method)
 
 
 async def send_case_type_referral_and_end(
     flow_manager: FlowManager,
     delivery_method: str,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    normalized_method = _normalize_referral_delivery_method(delivery_method)
-    if normalized_method is None:
-        return (
-            IntakeFlowResult(
-                status=Status.ERROR,
-                error="delivery_method must be either 'phone' or 'text'.",
-            ),
-            None,
-        )
-    if normalized_method == "text":
-        await _send_referral_sms(flow_manager, CASE_TYPE_REFERRAL)
-    return None, _node_referral_and_end(
-        flow_manager, CASE_TYPE_REFERRAL, normalized_method
-    )
+    return await _send_referral_and_end(flow_manager, delivery_method)
 
 
 async def send_over_limit_referral_and_end(
     flow_manager: FlowManager,
     delivery_method: str,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    normalized_method = _normalize_referral_delivery_method(delivery_method)
-    if normalized_method is None:
-        return (
-            IntakeFlowResult(
-                status=Status.ERROR,
-                error="delivery_method must be either 'phone' or 'text'.",
-            ),
-            None,
-        )
-    if normalized_method == "text":
-        await _send_referral_sms(flow_manager, OVER_LIMIT_REFERRAL)
-    return None, _node_referral_and_end(
-        flow_manager, OVER_LIMIT_REFERRAL, normalized_method
-    )
+    return await _send_referral_and_end(flow_manager, delivery_method)
 
 
 async def end_conversation(
@@ -1340,18 +1776,17 @@ async def end_conversation(
     """
     End the conversation.
     """
-    return None, node_end_conversation()
+    return None, node_end_conversation(_caller_language(flow_manager))
 
 
-def node_end_conversation() -> NodeConfig:
+def node_end_conversation(language: str = "English") -> NodeConfig:
     """
     Create the final node.
     """
-    return {
-        **prompts.get("end"),
-        "functions": [],
-        "post_actions": [{"type": "end_conversation"}],
-    }
+    return _build_static_tts_node(
+        prompts.get_spoken_prompt("end_goodbye", language),
+        post_actions=[{"type": "end_conversation"}],
+    )
 
 
 async def caller_ended_conversation(
@@ -1360,15 +1795,14 @@ async def caller_ended_conversation(
     """
     The caller ended the conversation.
     """
-    return None, node_caller_ended_conversation()
+    return None, node_caller_ended_conversation(_caller_language(flow_manager))
 
 
-def node_caller_ended_conversation() -> NodeConfig:
+def node_caller_ended_conversation(language: str = "English") -> NodeConfig:
     """
     Create the final node.
     """
-    return {
-        **prompts.get("caller_ended_conversation"),
-        "functions": [],
-        "post_actions": [{"type": "end_conversation"}],
-    }
+    return _build_static_tts_node(
+        prompts.get_spoken_prompt("end_goodbye", language),
+        post_actions=[{"type": "end_conversation"}],
+    )

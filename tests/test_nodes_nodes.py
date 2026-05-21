@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from intake_bot.models.intake_flow_result import Status
@@ -9,6 +9,9 @@ from intake_bot.nodes.nodes import (
     end_conversation,
     node_caller_ended_conversation,
     node_end_conversation,
+    node_initial,
+    node_record_language,
+    node_start,
     record_address,
     record_adverse_parties,
     record_assets_cash_accounts,
@@ -33,9 +36,61 @@ from intake_bot.nodes.nodes import (
     send_general_referral_and_end,
     system_phone_number,
 )
-from intake_bot.services.dialpad import CASE_TYPE_REFERRAL, GENERAL_REFERRAL
+from intake_bot.nodes.validator import IntakeValidator
+from intake_bot.services.dialpad import REFERRAL
 from intake_bot.utils.node_prompts import NodePrompts
 from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
+from pipecat_flows import ContextStrategy
+
+ACKNOWLEDGMENT_BY_LANGUAGE = {
+    "english": "Okay",
+    "spanish": "De acuerdo",
+}
+
+
+def _normalized_language(language: str | None) -> str:
+    return "spanish" if (language or "").strip().lower() == "spanish" else "english"
+
+
+def _with_acknowledgment(text: str, acknowledgment: str | None = None) -> str:
+    if not acknowledgment:
+        return text
+
+    if text.startswith("I "):
+        normalized = text
+    else:
+        normalized = text
+        for index, char in enumerate(text):
+            if char.isalpha():
+                normalized = text[:index] + char.lower() + text[index + 1 :]
+                break
+
+    return f"{acknowledgment}, {normalized}"
+
+
+async def _assert_spoken_next_node(
+    next_node,
+    flow_manager,
+    prompt_loader,
+    prompt_key: str,
+    *,
+    language: str = "English",
+    acknowledgment: str | None = None,
+    **kwargs,
+):
+    assert next_node["respond_immediately"] is False
+    prompt_action = next_node["pre_actions"][0]
+
+    await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[-1], TTSSpeakFrame)
+    assert queued_frames[-1].text == _with_acknowledgment(
+        prompt_loader.get_spoken_prompt(prompt_key, language, **kwargs),
+        acknowledgment,
+    )
 
 
 @pytest.fixture
@@ -47,6 +102,11 @@ def flow_manager():
     return fm
 
 
+@pytest.fixture(scope="module")
+def prompt_loader():
+    return NodePrompts()
+
+
 @pytest.fixture(autouse=True)
 def patch_validator(monkeypatch):
     validator_mock = MagicMock()
@@ -55,9 +115,15 @@ def patch_validator(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def patch_prompts(monkeypatch):
+def patch_prompts(monkeypatch, prompt_loader):
     prompts_mock = MagicMock()
     prompts_mock.get.side_effect = lambda k, **kwargs: {f"""{k}_prompt""": True}
+    prompts_mock.get_acknowledgment_phrase.side_effect = (
+        lambda category, language="english": ACKNOWLEDGMENT_BY_LANGUAGE[
+            _normalized_language(language)
+        ]
+    )
+    prompts_mock.get_spoken_prompt.side_effect = prompt_loader.get_spoken_prompt
     monkeypatch.setattr("intake_bot.nodes.nodes.prompts", prompts_mock)
     return prompts_mock
 
@@ -90,7 +156,7 @@ async def test_system_phone_number_without_phone(flow_manager, patch_validator):
 
 @pytest.mark.asyncio
 async def test_system_phone_number_queues_bilingual_language_prompt(
-    flow_manager, patch_validator
+    flow_manager, patch_validator, prompt_loader
 ):
     patch_validator.check_phone_number = AsyncMock(return_value=(False, ""))
 
@@ -111,27 +177,98 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
     assert isinstance(queued_frames[0], TTSUpdateSettingsFrame)
     assert queued_frames[0].delta.voice == "voice-en"
     assert isinstance(queued_frames[1], TTSSpeakFrame)
-    assert queued_frames[1].text == "Would you prefer to speak in English?"
+    assert queued_frames[1].text == prompt_loader.get_spoken_prompt(
+        "record_language_prompt_english"
+    )
     assert isinstance(queued_frames[2], TTSUpdateSettingsFrame)
     assert queued_frames[2].delta.voice == "voice-es"
     assert isinstance(queued_frames[3], TTSSpeakFrame)
-    assert queued_frames[3].text == "Prefiere hablar en espanol?"
+    assert queued_frames[3].text == prompt_loader.get_spoken_prompt(
+        "record_language_prompt_spanish"
+    )
     assert isinstance(queued_frames[4], TTSUpdateSettingsFrame)
     assert queued_frames[4].delta.voice == "voice-en"
 
 
 @pytest.mark.asyncio
-async def test_record_language(flow_manager):
+async def test_node_record_language_can_include_initial_greeting(
+    flow_manager, prompt_loader
+):
+    transcript_handler = MagicMock()
+    transcript_handler.save_assistant_tts = AsyncMock()
+    flow_manager.state["_transcript_handler"] = transcript_handler
+
+    with patch(
+        "intake_bot.nodes.nodes.get_deepgram_tts_voices",
+        side_effect=["voice-en", "voice-es", "voice-en"],
+    ):
+        node = node_record_language(include_initial_greeting=True)
+        prompt_action = node["pre_actions"][0]
+
+        await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+
+    assert isinstance(queued_frames[0], TTSSpeakFrame)
+    assert queued_frames[0].text == prompt_loader.get_spoken_prompt("initial_greeting")
+    assert isinstance(queued_frames[1], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[2], TTSSpeakFrame)
+    assert queued_frames[2].text == prompt_loader.get_spoken_prompt(
+        "record_language_prompt_english"
+    )
+    assert isinstance(queued_frames[3], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[4], TTSSpeakFrame)
+    assert queued_frames[4].text == prompt_loader.get_spoken_prompt(
+        "record_language_prompt_spanish"
+    )
+    assert isinstance(queued_frames[5], TTSUpdateSettingsFrame)
+    transcript_handler.save_assistant_tts.assert_has_awaits(
+        [
+            call(prompt_loader.get_spoken_prompt("initial_greeting")),
+            call(prompt_loader.get_spoken_prompt("record_language_prompt_english")),
+            call(prompt_loader.get_spoken_prompt("record_language_prompt_spanish")),
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_language(flow_manager, prompt_loader):
+    flow_manager.state["phone"] = "+18665345243"
+    transcript_handler = MagicMock()
+    transcript_handler.save_assistant_tts = AsyncMock()
+    flow_manager.state["_transcript_handler"] = transcript_handler
     result, next_node = await record_language(flow_manager, "English")
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["language"]["language"] == "English"
     assert flow_manager.task.queue_frame.await_count == 2  # STT + TTS language updates
     assert "record_phone_number_prompt" in next_node
+    assert next_node["respond_immediately"] is False
+
+    prompt_action = next_node["pre_actions"][0]
+    await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[-1], TTSSpeakFrame)
+    assert queued_frames[-1].text == _with_acknowledgment(
+        prompt_loader.get_spoken_prompt(
+            "record_phone_number_confirmation",
+            "English",
+            spoken_phone_number="eight six six, five three four, five two four three",
+        ),
+        ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
+    transcript_handler.save_assistant_tts.assert_awaited_once_with(
+        queued_frames[-1].text
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_phone_number_valid(flow_manager, patch_validator):
+async def test_record_phone_number_valid(flow_manager, patch_validator, prompt_loader):
     patch_validator.check_phone_number = AsyncMock(
         return_value=(True, "(866) 534-5243")
     )
@@ -142,10 +279,24 @@ async def test_record_phone_number_valid(flow_manager, patch_validator):
     assert flow_manager.state["phone"]["phone_number"] == "(866) 534-5243"
     assert "phone_type" not in flow_manager.state["phone"]
     assert "record_phone_type_prompt" in next_node
+    assert next_node["context_strategy"].strategy == ContextStrategy.RESET
+    assert next_node["respond_immediately"] is False
+
+    prompt_action = next_node["pre_actions"][0]
+    await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[-1], TTSSpeakFrame)
+    assert queued_frames[-1].text == _with_acknowledgment(
+        prompt_loader.get_spoken_prompt("record_phone_type_question", "English"),
+        ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_phone_type_valid(flow_manager):
+async def test_record_phone_type_valid(flow_manager, prompt_loader):
     flow_manager.state["phone"] = {
         "is_valid": True,
         "phone_number": "(866) 534-5243",
@@ -157,6 +308,19 @@ async def test_record_phone_type_valid(flow_manager):
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["phone_type"] == "mobile"
     assert "record_name_prompt" in next_node
+    assert next_node["respond_immediately"] is False
+
+    prompt_action = next_node["pre_actions"][0]
+    await prompt_action["handler"](prompt_action, flow_manager)
+
+    queued_frames = [
+        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[-1], TTSSpeakFrame)
+    assert queued_frames[-1].text == _with_acknowledgment(
+        prompt_loader.get_spoken_prompt("record_name_question", "English"),
+        ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -192,7 +356,7 @@ async def test_record_phone_number_invalid(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_record_name_valid(flow_manager):
+async def test_record_name_valid(flow_manager, prompt_loader):
     result, next_node = await record_name(flow_manager, "John", "Q", "Public", "Jr.")
     assert isinstance(result, dict)
     # CallerNameResult now has a 'names' field containing CallerNames (a RootModel with a list)
@@ -212,6 +376,13 @@ async def test_record_name_valid(flow_manager):
         flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
     )  # Verify type in state
     assert "record_service_area_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_service_area_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -223,7 +394,7 @@ async def test_record_name_invalid(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_record_address_valid(flow_manager):
+async def test_record_address_valid(flow_manager, prompt_loader):
     result, next_node = await record_address(
         flow_manager,
         street="123 Main St",
@@ -242,11 +413,14 @@ async def test_record_address_valid(flow_manager):
     assert result["address"]["zip"] == "23219"
     assert result["address"]["county"] == "Richmond"
     assert flow_manager.state["address"] is not None
-    assert "complete_intake_prompt" in next_node
+    assert next_node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "complete_intake_thanks", "English"
+    )
+    assert next_node["post_actions"] == [{"type": "end_conversation"}]
 
 
 @pytest.mark.asyncio
-async def test_record_address_valid_no_street_2(flow_manager):
+async def test_record_address_valid_no_street_2(flow_manager, prompt_loader):
     result, next_node = await record_address(
         flow_manager,
         street="456 Oak Ave",
@@ -263,7 +437,10 @@ async def test_record_address_valid_no_street_2(flow_manager):
     assert result["address"]["state"] == "VA"
     assert result["address"]["zip"] == "22201"
     assert result["address"]["county"] == "Arlington"
-    assert "complete_intake_prompt" in next_node
+    assert next_node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "complete_intake_thanks", "English"
+    )
+    assert next_node["post_actions"] == [{"type": "end_conversation"}]
 
 
 @pytest.mark.asyncio
@@ -296,74 +473,83 @@ async def test_record_address_invalid_missing_city(flow_manager):
     assert next_node is None
 
 
-def test_record_address_prompt_includes_county_follow_up_separation_rules():
-    prompt = NodePrompts().get("record_address")
+def test_standard_prompts_load_nonempty_system_task_messages(prompt_loader):
+    for prompt_name in (
+        "record_address",
+        "record_service_area",
+        "record_adverse_parties",
+    ):
+        prompt = prompt_loader.get(prompt_name)
+        assert prompt["task_messages"]
+        assert all(
+            task_message.get("role") == "system"
+            for task_message in prompt["task_messages"]
+            if "content" in task_message
+        )
+        assert all(
+            task_message["content"].strip()
+            for task_message in prompt["task_messages"]
+            if "content" in task_message
+        )
+
+
+def test_initial_prompt_formats_tts_pre_action_text(prompt_loader):
+    initial_greeting = prompt_loader.get_spoken_prompt("initial_greeting")
+    prompt = prompt_loader.get(
+        "initial",
+        initial_greeting=initial_greeting,
+    )
+
+    assert prompt["pre_actions"][0]["text"] == initial_greeting
+
+
+def test_node_initial_uses_spoken_prompt_for_greeting(patch_prompts, prompt_loader):
+    node = node_initial()
+    initial_greeting = prompt_loader.get_spoken_prompt("initial_greeting")
+
+    patch_prompts.get_spoken_prompt.assert_called_once_with("initial_greeting")
+    patch_prompts.get.assert_any_call(
+        "initial",
+        initial_greeting=initial_greeting,
+    )
+    assert "functions" in node
+
+
+def test_node_start_defaults_to_language_selection(monkeypatch):
+    monkeypatch.delenv("TEST_INITIAL_PROMPT", raising=False)
+    monkeypatch.delenv("TEST_INITIAL_FUNCTION", raising=False)
+
+    node = node_start()
+
+    assert node["respond_immediately"] is False
+    assert node["pre_actions"][0]["handler"]
+    assert node["pre_actions"][0]["welcome_prompt_key"] == "initial_greeting"
+
+
+def test_standard_node_prompts_prepend_acknowledgment_instruction(prompt_loader):
+    prompt = prompt_loader.get("record_service_area")
     content = prompt["task_messages"][0]["content"]
 
-    assert (
-        "explicitly ask for the county along with the other address fields" in content
-    )
-    assert "ask a separate follow-up question asking only for the county" in content
-    assert (
-        "Do NOT combine the county follow-up with the address confirmation" in content
-    )
-    assert "insert a brief pause before saying the street name" in content
-    assert "always say the full state name, not the abbreviation" in content
+    assert content.startswith(NodePrompts.ACKNOWLEDGMENT_PREFIX)
+    assert content.count(NodePrompts.ACKNOWLEDGMENT_PREFIX) == 1
 
 
-def test_standard_node_prompts_include_thank_you_acknowledgment_instruction():
-    prompt = NodePrompts().get("record_name")
+def test_excluded_node_prompts_do_not_prepend_acknowledgment_instruction(prompt_loader):
+    prompt = prompt_loader.get("record_language")
     content = prompt["task_messages"][0]["content"]
 
-    assert "fits the caller's immediately preceding answer" in content
-    assert (
-        "Whenever possible, weave the acknowledgment directly into the next question or instruction"
-        in content
-    )
-    assert "Prefer connected phrasing with a comma" in content
-    assert "If the caller briefly confirmed something" in content
-    assert "If the caller provided new factual information" in content
-    assert "If the caller corrected, clarified, or spelled something" in content
-    assert "Use exactly one short acknowledgment lead-in before continuing" in content
-    assert (
-        "Do not stack an acknowledgment sentence and then a separate next-question sentence"
-        in content
-    )
-    assert "Do not add extra praise, filler, or multiple acknowledgments" in content
+    assert not content.startswith(NodePrompts.ACKNOWLEDGMENT_PREFIX)
 
+    converted_prompt = prompt_loader.get("record_name")
+    converted_content = converted_prompt["task_messages"][0]["content"]
 
-def test_excluded_node_prompts_do_not_include_thank_you_acknowledgment_instruction():
-    prompt = NodePrompts().get("record_language")
-    content = prompt["task_messages"][0]["content"]
-
-    assert "fits the caller's immediately preceding answer" not in content
-
-
-def test_record_service_area_prompt_handles_non_location_answers():
-    prompt = NodePrompts().get("record_service_area")
-    content = prompt["task_messages"][0]["content"]
-
-    assert "If the caller answers with something other than a city or county" in content
-    assert "ask again for just the city or county" in content
-    assert (
-        "Do NOT mark the caller ineligible just because they answered the wrong question"
-        in content
-    )
-
-
-def test_record_adverse_parties_prompt_handles_mixed_answers():
-    prompt = NodePrompts().get("record_adverse_parties")
-    content = prompt["task_messages"][0]["content"]
-
-    assert "same utterance as unrelated facts from another step" in content
-    assert (
-        "continue asking for the remaining useful details before moving on" in content
-    )
-    assert "Do NOT skip directly to the next intake step" in content
+    assert not converted_content.startswith(NodePrompts.ACKNOWLEDGMENT_PREFIX)
 
 
 @pytest.mark.asyncio
-async def test_record_service_area_eligible(flow_manager, patch_validator):
+async def test_record_service_area_eligible(
+    flow_manager, patch_validator, prompt_loader
+):
     patch_validator.check_service_area = AsyncMock(
         return_value=("Amelia County", 51007)
     )
@@ -373,6 +559,13 @@ async def test_record_service_area_eligible(flow_manager, patch_validator):
     assert flow_manager.state["service_area"]["location"] == "Amelia County"
     assert result["fips_code"] == 51007
     assert "record_case_type_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_case_type_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -407,7 +600,7 @@ async def test_record_service_area_ineligible_no_match(flow_manager, patch_valid
 
 
 @pytest.mark.asyncio
-async def test_record_case_type_eligible(flow_manager, patch_validator):
+async def test_record_case_type_eligible(flow_manager, patch_validator, prompt_loader):
     from intake_bot.models.classifier import ClassificationResponse
 
     patch_validator.check_case_type = AsyncMock(
@@ -427,10 +620,19 @@ async def test_record_case_type_eligible(flow_manager, patch_validator):
     assert result["is_eligible"] is True
     assert result["case_description"] == "bankruptcy"
     assert "record_adverse_parties_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_adverse_parties_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_case_type_ineligible(flow_manager, patch_validator):
+async def test_record_case_type_ineligible(
+    flow_manager, patch_validator, prompt_loader
+):
     from intake_bot.models.classifier import ClassificationResponse
 
     patch_validator.check_case_type = AsyncMock(
@@ -449,6 +651,12 @@ async def test_record_case_type_ineligible(flow_manager, patch_validator):
     assert "Ineligible case type." in result["error"]
     assert result["is_eligible"] is False
     assert "case_type_ineligible_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "case_type_ineligible_question",
+    )
 
 
 @pytest.mark.asyncio
@@ -467,12 +675,11 @@ async def test_send_general_referral_and_end_sends_sms_and_returns_end_node(
     assert result is None
     sms_mock.send.assert_awaited_once_with(
         "+15096305855",
-        GENERAL_REFERRAL.sms_text("English"),
+        REFERRAL.sms_text("English"),
     )
     assert flow_manager.state["sms_messages"][0]["category"] == "referral"
-    assert next_node["pre_actions"][0]["text"] == GENERAL_REFERRAL.text_delivery_text(
-        "English"
-    )
+    assert next_node["pre_actions"][0]["text"] == REFERRAL.text_delivery_text("English")
+    assert next_node["task_messages"] == []
     assert next_node["post_actions"] == [{"type": "end_conversation"}]
 
 
@@ -490,9 +697,8 @@ async def test_send_case_type_referral_and_end_phone_does_not_send_sms(
     _, next_node = await send_case_type_referral_and_end(flow_manager, "phone")
 
     sms_mock.send.assert_not_awaited()
-    assert next_node["pre_actions"][0]["text"] == CASE_TYPE_REFERRAL.spoken_text(
-        "Spanish"
-    )
+    assert next_node["pre_actions"][0]["text"] == REFERRAL.spoken_text("Spanish")
+    assert next_node["task_messages"] == []
 
 
 @pytest.mark.asyncio
@@ -508,23 +714,13 @@ async def test_send_general_referral_and_end_rejects_invalid_delivery_method(
     assert next_node is None
 
 
-def test_ineligible_prompt_routes_to_referral_end_function_without_urls():
-    prompt = NodePrompts().get("ineligible")
-    content = prompt["task_messages"][0]["content"]
-
-    assert "send_general_referral_and_end" in content
-    assert "over the phone or sent by text" in content
-    assert "V A L E G A L A I D" not in content
-    assert "L S C dot G O V" not in content
-    assert "V S B dot O R G" not in content
-
-
-def test_case_type_ineligible_prompt_routes_to_referral_end_function_without_url():
-    prompt = NodePrompts().get("case_type_ineligible")
+def test_case_type_ineligible_prompt_routes_to_referral_end_function_without_url(
+    prompt_loader,
+):
+    prompt = prompt_loader.get("case_type_ineligible")
     content = prompt["task_messages"][0]["content"]
 
     assert "send_case_type_referral_and_end" in content
-    assert "over the phone or sent by text" in content
     assert "V S B dot O R G" not in content
 
 
@@ -549,23 +745,39 @@ async def test_record_case_type_follow_up_needed(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_record_domestic_violence_true(flow_manager):
+async def test_record_domestic_violence_true(flow_manager, prompt_loader):
     result, next_node = await record_domestic_violence(flow_manager, True)
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is True
     assert "record_household_composition_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_household_composition_question_domestic_violence",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_domestic_violence_false(flow_manager):
+async def test_record_domestic_violence_false(flow_manager, prompt_loader):
     result, next_node = await record_domestic_violence(flow_manager, False)
     assert isinstance(result, dict)
     assert flow_manager.state["domestic_violence"]["is_experiencing"] is False
     assert "record_household_composition_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_household_composition_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_household_composition_valid(flow_manager, patch_validator):
+async def test_record_household_composition_valid(
+    flow_manager, patch_validator, prompt_loader
+):
     patch_validator.check_household_composition = AsyncMock(return_value=(True, 3))
     result, next_node = await record_household_composition(flow_manager, 1, 2)
     assert isinstance(result, dict)
@@ -573,6 +785,13 @@ async def test_record_household_composition_valid(flow_manager, patch_validator)
     assert flow_manager.state["household_composition"]["number_of_adults"] == 1
     assert flow_manager.state["household_composition"]["number_of_children"] == 2
     assert "record_income_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_income_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -608,7 +827,7 @@ async def test_record_household_composition_invalid_negative_children(
 
 @pytest.mark.asyncio
 async def test_record_income_valid_eligible_with_dummy_model(
-    flow_manager, patch_validator
+    flow_manager, patch_validator, prompt_loader
 ):
     patch_validator.check_income = AsyncMock(return_value=(True, 1000, 3))
     # Set household composition in state
@@ -629,6 +848,43 @@ async def test_record_income_valid_eligible_with_dummy_model(
     assert flow_manager.state["income"]["monthly_amount"] == 1000
     assert flow_manager.state["income"]["household_size"] == 3
     assert "record_assets_receives_benefits_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_assets_receives_benefits_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_record_income_with_ssi_uses_medicaid_follow_up(
+    flow_manager, patch_validator, prompt_loader
+):
+    patch_validator.check_income = AsyncMock(return_value=(True, 900, 1))
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 0,
+    }
+    with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
+        income = {
+            "Jane Doe": {
+                "SSI (Supplemental Security Income)": {
+                    "amount": 900,
+                    "period": "Monthly",
+                }
+            }
+        }
+        result, next_node = await record_income(flow_manager, income)
+
+    assert result["status"] == Status.SUCCESS
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_assets_receives_benefits_question_ssi",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -655,7 +911,9 @@ async def test_record_income_multiple_members(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_record_income_valid_ineligible(flow_manager, patch_validator):
+async def test_record_income_valid_ineligible(
+    flow_manager, patch_validator, prompt_loader
+):
     flow_manager.state["household_composition"] = {
         "number_of_adults": 1,
         "number_of_children": 0,
@@ -677,6 +935,12 @@ async def test_record_income_valid_ineligible(flow_manager, patch_validator):
     assert flow_manager.state["income"]["household_size"] == 1
     assert flow_manager.state["income"]["listing"] == income
     assert "confirm_income_over_limit_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "confirm_income_over_limit_question",
+    )
 
 
 @pytest.mark.asyncio
@@ -803,7 +1067,7 @@ async def test_record_income_strips_children_keeps_parent_with_income(
 
 
 @pytest.mark.asyncio
-async def test_record_assets_receives_benefits_true(flow_manager):
+async def test_record_assets_receives_benefits_true(flow_manager, prompt_loader):
     result, next_node = await record_assets_receives_benefits(flow_manager, True)
     assert isinstance(result, dict)
     assert result["is_eligible"] is True
@@ -812,15 +1076,29 @@ async def test_record_assets_receives_benefits_true(flow_manager):
     assert flow_manager.state["assets"]["total_value"] == 0
     assert flow_manager.state["assets"]["receives_benefits"] is True
     assert "record_citizenship_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_citizenship_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_assets_receives_benefits_false(flow_manager):
+async def test_record_assets_receives_benefits_false(flow_manager, prompt_loader):
     flow_manager.state["assets_cash_accounts"] = {"listing": [{"cash": 20}]}
     result, next_node = await record_assets_receives_benefits(flow_manager, False)
     assert result is None
     assert "assets_cash_accounts" not in flow_manager.state
     assert "record_assets_cash_accounts_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_assets_cash_accounts_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -854,7 +1132,9 @@ async def test_record_assets_investments_stores_category_state(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_record_assets_other_property_routes_to_confirmation(flow_manager):
+async def test_record_assets_other_property_routes_to_confirmation(
+    flow_manager, prompt_loader
+):
     flow_manager.state["assets_cash_accounts"] = {
         "listing": [{"savings account": 1200}]
     }
@@ -868,10 +1148,23 @@ async def test_record_assets_other_property_routes_to_confirmation(flow_manager)
         "listing": [{"vacant land": 4000}]
     }
     assert "record_assets_list_prompt" in next_node
+    current_assets_summary = IntakeValidator.assets_prompt_text(
+        [{"savings account": 1200}, {"vacant land": 4000}]
+    )
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_assets_list_confirmation",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+        current_assets_summary=current_assets_summary,
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
+async def test_record_assets_list_valid_eligible(
+    flow_manager, patch_validator, prompt_loader
+):
     patch_validator.check_assets = AsyncMock(return_value=(True, 7000))
     with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"savings": 2000}, {"vacant land": 5000}]
@@ -886,10 +1179,19 @@ async def test_record_assets_list_valid_eligible(flow_manager, patch_validator):
     assert "assets_investments" not in flow_manager.state
     assert "assets_other_property" not in flow_manager.state
     assert "record_citizenship_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_citizenship_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
-async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator):
+async def test_record_assets_list_valid_ineligible(
+    flow_manager, patch_validator, prompt_loader
+):
     patch_validator.get_alternative_providers = AsyncMock(return_value="AltProvider")
     patch_validator.check_assets = AsyncMock(return_value=(False, 12000))
     with patch("intake_bot.nodes.nodes.Assets", Assets):
@@ -903,6 +1205,12 @@ async def test_record_assets_list_valid_ineligible(flow_manager, patch_validator
     assert flow_manager.state["assets"]["receives_benefits"] is False
     assert "Over the household assets' value limit." in result["error"]
     assert "confirm_assets_over_limit_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "confirm_assets_over_limit_question",
+    )
 
 
 @pytest.mark.asyncio
@@ -966,13 +1274,20 @@ async def test_record_assets_list_invalid(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_record_citizenship(flow_manager):
+async def test_record_citizenship(flow_manager, prompt_loader):
     result, next_node = await record_citizenship(
         flow_manager, True, answer_was_explicit=True
     )
     assert isinstance(result, dict)
     assert flow_manager.state["citizenship"]["is_citizen"] is True
     assert "record_ssn_last_4_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_ssn_last_4_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -985,7 +1300,7 @@ async def test_record_citizenship_requires_explicit_answer(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_record_date_of_birth_valid(flow_manager, patch_validator):
+async def test_record_date_of_birth_valid(flow_manager, patch_validator, prompt_loader):
     """Test record_date_of_birth with a valid date."""
     patch_validator.check_date_of_birth = AsyncMock(return_value=(True, "1980-01-15"))
     result, next_node = await record_date_of_birth(flow_manager, "01/15/1980")
@@ -994,6 +1309,13 @@ async def test_record_date_of_birth_valid(flow_manager, patch_validator):
     assert result["date_of_birth"] == "1980-01-15"
     assert flow_manager.state["date_of_birth"]["date_of_birth"] == "1980-01-15"
     assert "record_names_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_names_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -1040,7 +1362,7 @@ async def test_record_date_of_birth_future_date(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_record_ssn_last_4_valid(flow_manager, patch_validator):
+async def test_record_ssn_last_4_valid(flow_manager, patch_validator, prompt_loader):
     """Test record_ssn_last_4 with valid SSN last 4 digits."""
     patch_validator.check_ssn_last_4 = AsyncMock(return_value=(True, "1234"))
     result, next_node = await record_ssn_last_4(flow_manager, "1234")
@@ -1048,6 +1370,13 @@ async def test_record_ssn_last_4_valid(flow_manager, patch_validator):
     assert result["ssn_last_4"] == "1234"
     assert flow_manager.state["ssn_last_4"]["ssn_last_4"] == "1234"
     assert "record_date_of_birth_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_date_of_birth_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -1102,7 +1431,7 @@ async def test_record_citizenship_routes_to_ssn_last_4(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_record_names_with_prior_name(flow_manager):
+async def test_record_names_with_prior_name(flow_manager, prompt_loader):
     """Test record_names when a main name was already recorded at the start."""
     # Simulate the main name recorded at the start (from record_name)
     flow_manager.state["names"] = {
@@ -1151,6 +1480,13 @@ async def test_record_names_with_prior_name(flow_manager):
     assert len(flow_manager.state["names"]["names"]) == 3
     assert flow_manager.state["names"]["names"][0]["type"] == "Legal Name"
     assert "record_address_prompt" in next_node
+    await _assert_spoken_next_node(
+        next_node,
+        flow_manager,
+        prompt_loader,
+        "record_address_question",
+        acknowledgment=ACKNOWLEDGMENT_BY_LANGUAGE["english"],
+    )
 
 
 @pytest.mark.asyncio
@@ -1373,28 +1709,39 @@ async def test_continue_intake_invalid(flow_manager):
 
 
 @pytest.mark.asyncio
-async def test_end_conversation(flow_manager):
+async def test_end_conversation(flow_manager, prompt_loader):
     result, node = await end_conversation(flow_manager)
     assert result is None
-    assert "end_prompt" in node
+    assert node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "end_goodbye", "English"
+    )
+    assert node["post_actions"] == [{"type": "end_conversation"}]
 
 
 @pytest.mark.asyncio
-async def test_caller_ended_conversation(flow_manager):
+async def test_caller_ended_conversation(flow_manager, prompt_loader):
+    flow_manager.state["language"] = {"language": "Spanish"}
     result, node = await caller_ended_conversation(flow_manager)
     assert result is None
-    assert "caller_ended_conversation_prompt" in node
+    assert node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "end_goodbye", "Spanish"
+    )
+    assert node["post_actions"] == [{"type": "end_conversation"}]
 
 
-def test_node_end_conversation():
+def test_node_end_conversation(prompt_loader):
     node = node_end_conversation()
-    assert "end_prompt" in node
+    assert node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "end_goodbye", "English"
+    )
     assert "post_actions" in node
 
 
-def test_node_caller_ended_conversation():
-    node = node_caller_ended_conversation()
-    assert "caller_ended_conversation_prompt" in node
+def test_node_caller_ended_conversation(prompt_loader):
+    node = node_caller_ended_conversation("Spanish")
+    assert node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "end_goodbye", "Spanish"
+    )
     assert "post_actions" in node
 
 
@@ -1437,7 +1784,7 @@ async def test_record_date_of_birth_empty(flow_manager, patch_validator):
 
 
 @pytest.mark.asyncio
-async def test_record_address_empty(flow_manager):
+async def test_record_address_empty(flow_manager, prompt_loader):
     result, next_node = await record_address(
         flow_manager, street="", city="", state="", zip="", street_2="", county=""
     )
@@ -1445,3 +1792,6 @@ async def test_record_address_empty(flow_manager):
     assert result["status"] == Status.SUCCESS
     assert result.get("address") is None
     assert next_node is not None
+    assert next_node["pre_actions"][0]["text"] == prompt_loader.get_spoken_prompt(
+        "complete_intake_thanks", "English"
+    )

@@ -143,6 +143,7 @@ class StateValidator:
 
     # Keys that are automatically added by the system and should be ignored during validation
     SYSTEM_KEYS = {"_state_saved", "call_id", "status", "error", "case_description"}
+    IGNORED_EXTRA_KEY_PATHS = {"tts_voice"}
 
     def __init__(self):
         self.mismatches: List[Dict[str, Any]] = []
@@ -308,6 +309,9 @@ class StateValidator:
                 continue
 
             new_path = f"""{path}.{key}""" if path else key
+            if new_path in self.IGNORED_EXTRA_KEY_PATHS:
+                continue
+
             self.mismatches.append(
                 {
                     "path": new_path,

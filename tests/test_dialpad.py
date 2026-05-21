@@ -1,5 +1,5 @@
 import pytest
-from intake_bot.services.dialpad import CASE_TYPE_REFERRAL, GENERAL_REFERRAL, SMS
+from intake_bot.services.dialpad import REFERRAL, SMS
 
 
 class _FakeResponse:
@@ -53,10 +53,14 @@ def block_live_dialpad_http(monkeypatch):
 
 
 def test_referral_content_language_selection():
-    assert GENERAL_REFERRAL.spoken_text("English").startswith("I'm sorry")
-    assert GENERAL_REFERRAL.spoken_text("Spanish").startswith("Lo siento")
-    assert CASE_TYPE_REFERRAL.sms_text("English") == (
-        "Virginia State Bar referral information: https://www.vsb.org"
+    assert REFERRAL.spoken_text("English").startswith("I'm sorry")
+    assert REFERRAL.spoken_text("Spanish").startswith("Lo siento")
+    assert (
+        "V L A S punto O R G, barra, additional, guion, resources."
+        in REFERRAL.spoken_text("Spanish")
+    )
+    assert REFERRAL.sms_text("English") == (
+        "Law-Line cannot help directly with this issue, but you can find additional legal information and resources here: https://www.vlas.org/additional-resources"
     )
 
 

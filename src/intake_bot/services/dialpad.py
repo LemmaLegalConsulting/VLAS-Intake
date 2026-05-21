@@ -30,19 +30,15 @@ class ReferralContent:
         return self.sms_es if language.strip().lower() == "spanish" else self.sms_en
 
 
-def _load_referral_content(path: Path | None = None) -> dict[str, ReferralContent]:
+def _load_referral_content(path: Path | None = None) -> ReferralContent:
     referral_path = path or (Path(DATA_DIR) / "referral_content.yml")
     with open(referral_path, encoding="utf-8") as handle:
         raw_content: dict[str, dict[str, str]] = yaml.safe_load(handle)
 
-    return {key: ReferralContent(**value) for key, value in raw_content.items()}
+    return ReferralContent(**raw_content["referral"])
 
 
-_REFERRAL_CONTENT = _load_referral_content()
-
-GENERAL_REFERRAL = _REFERRAL_CONTENT["general_referral"]
-CASE_TYPE_REFERRAL = _REFERRAL_CONTENT["case_type_referral"]
-OVER_LIMIT_REFERRAL = _REFERRAL_CONTENT["over_limit_referral"]
+REFERRAL = _load_referral_content()
 
 
 class SMS:

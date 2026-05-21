@@ -1,12 +1,12 @@
-import os
 import sys
 from datetime import UTC, datetime
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from intake_bot.bot import run_bot
-from intake_bot.nodes.nodes import node_initial
-from intake_bot.utils.ev import ev_is_true, get_ev
+from intake_bot.nodes.nodes import node_start
+from intake_bot.utils.call_logging import runtime_log_filter
+from intake_bot.utils.ev import get_ev
 from loguru import logger
 from pipecat.audio.mixers.base_audio_mixer import BaseAudioMixer
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
@@ -16,27 +16,7 @@ from pipecat.transports.websocket.fastapi import (
 )
 
 logger.remove(0)
-
-# Suppress noisy pipecat DEBUG logs from turn-detection internals.
-_NOISY_PIPECAT_MODULES = {
-    "pipecat.turns.user_start",
-    "pipecat.audio.turn.smart_turn",
-}
-
-
-def _log_filter(record):
-    if record["level"].name == "DEBUG":
-        name = record["name"] or ""
-        for prefix in _NOISY_PIPECAT_MODULES:
-            if name.startswith(prefix):
-                return False
-    return True
-
-
-logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"), filter=_log_filter)
-if ev_is_true("LOG_TO_FILE"):
-    os.makedirs("logs", exist_ok=True)
-    logger.add("logs/server.log", level=get_ev("LOG_LEVEL", "INFO"), filter=_log_filter)
+logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"), filter=runtime_log_filter)
 
 
 def generate_call_id() -> str:
@@ -137,8 +117,9 @@ async def websocket_endpoint(websocket: WebSocket):
     async def configure_websocket_transport(transport, task, flow_manager, call_id):
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
-            logger.info(f"""WebSocket client connected for call {call_id}""")
-            await flow_manager.initialize(node_initial())
+            with logger.contextualize(call_id=call_id):
+                logger.info(f"""WebSocket client connected for call {call_id}""")
+            await flow_manager.initialize(node_start())
 
     await run_bot(
         transport=transport,

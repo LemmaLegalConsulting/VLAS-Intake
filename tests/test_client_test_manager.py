@@ -37,3 +37,17 @@ def test_test_runner_relative_paths_resolve_from_repo_roots():
     assert Path(runner.results_file) == module.DEFAULT_RESULTS_FILE
     assert Path(runner.flow_manager_state_file) == module.DEFAULT_STATE_FILE
     assert "victoria" in runner.scripts
+
+
+def test_state_validator_ignores_storage_only_tts_voice_extra_key():
+    module = _load_test_manager_module()
+
+    validator = module.StateValidator()
+
+    passed, mismatches = validator.compare_states(
+        actual_state={"language": "en", "tts_voice": "aura-2-mars-en"},
+        expected_state={"language": "en"},
+    )
+
+    assert passed is True
+    assert mismatches == []
