@@ -20,8 +20,8 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.workers.runner import WorkerRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -366,7 +366,7 @@ async def run_client(
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             audio_in_sample_rate=8000,
@@ -384,7 +384,7 @@ async def run_client(
     @transport.event_handler("on_disconnected")
     async def on_disconnected(transport, client):
         logger.info(f"""Client {client_name} disconnected from server""")
-        await task.cancel()
+        await worker.cancel()
 
     async def periodic_summarizer():
         if not azure_summary_model:
@@ -430,16 +430,17 @@ async def run_client(
                         "content": f"""Previous conversation summary: {summary}""",
                     },
                 ]
-                await task.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
+                await worker.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
                 logger.info(f"""Client {client_name} context updated with summary.""")
             except Exception as exc:
                 logger.error(f"""Client {client_name} summarization failed: {exc}""")
 
-    runner = PipelineRunner(handle_sigint=True)
+    runner = WorkerRunner(handle_sigint=True)
+    await runner.add_workers(worker)
     summarizer_task = asyncio.create_task(periodic_summarizer())
 
     try:
-        await runner.run(task)
+        await runner.run()
     except asyncio.CancelledError:
         logger.debug(f"""Client {client_name} task was cancelled""")
     except Exception as exc:
@@ -449,8 +450,8 @@ async def run_client(
         )
     finally:
         summarizer_task.cancel()
-        if not task._cancelled:
-            await task.cancel()
+        if not worker._cancelled:
+            await worker.cancel()
 
         await asyncio.sleep(1.0)
 

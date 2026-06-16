@@ -12,8 +12,8 @@ from pipecat.frames.frames import (
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
+from pipecat.workers.runner import WorkerRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
@@ -60,7 +60,7 @@ from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, req
 from intake_bot.utils.node_prompts import NodePrompts
 
 TransportSetup = Callable[
-    [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
+    [BaseTransport, PipelineWorker, FlowManager, str], Awaitable[None]
 ]
 
 
@@ -282,7 +282,7 @@ async def bot(runner_args: RunnerArguments):
     )
 
     def build_daily_participant_initializer(log_message: str):
-        async def configure_daily_transport(transport, task, flow_manager, call_id):
+        async def configure_daily_transport(transport, worker, flow_manager, call_id):
             flow_initialized = False
 
             @transport.event_handler("on_first_participant_joined")
@@ -355,14 +355,14 @@ async def bot(runner_args: RunnerArguments):
     )
 
     async def configure_daily_transport_with_dialin_error(
-        transport, task, flow_manager, call_id
+        transport, worker, flow_manager, call_id
     ):
-        await configure_daily_transport(transport, task, flow_manager, call_id)
+        await configure_daily_transport(transport, worker, flow_manager, call_id)
 
         @transport.event_handler("on_dialin_error")
         async def on_dialin_error(transport, data):
             logger.error(f"""Dial-in error: {data}""")
-            await task.cancel()
+            await worker.cancel()
 
     await run_bot(
         transport,
@@ -498,7 +498,7 @@ async def run_bot(
             whisker = WhiskerObserver(pipeline)
             observers.append(whisker)
 
-        task = PipelineTask(
+        worker = PipelineWorker(
             pipeline,
             params=PipelineParams(
                 audio_in_sample_rate=8000,
@@ -511,7 +511,7 @@ async def run_bot(
         )
 
         flow_manager = StateContextFlowManager(
-            task=task,
+            worker=worker,
             llm=llm,
             context_aggregator=context_aggregator,
             global_functions=[
@@ -532,7 +532,7 @@ async def run_bot(
             for frame in frames:
                 if isinstance(frame, TTSSpeakFrame):
                     await transcript_handler.save_assistant_tts(frame.text)
-            await task.queue_frames(frames)
+            await worker.queue_frames(frames)
 
         @context_aggregator.user().event_handler("on_user_turn_started")
         async def on_user_turn_started(aggregator, strategy):
@@ -569,10 +569,10 @@ async def run_bot(
                 logger.debug(
                     f"""Extending user idle timeout to {timeout_secs:.1f}s after assistant turn with {len(message.content.split())} words"""
                 )
-            await task.queue_frame(UserIdleTimeoutUpdateFrame(timeout=timeout_secs))
+            await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=timeout_secs))
 
         if configure_transport is not None:
-            await configure_transport(transport, task, flow_manager, call_id)
+            await configure_transport(transport, worker, flow_manager, call_id)
 
         @transport.event_handler("on_session_timeout")
         async def handle_timeout(transport, participant):
@@ -582,7 +582,7 @@ async def run_bot(
                 timeout_msg = "Gracias por llamar al servicio de ayuda legal Law-Line de Virginia. Parece que se ha desconectado. No dude en volver a llamarnos. ¡Adiós!"
             else:
                 timeout_msg = "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
-            await task.queue_frames(
+            await worker.queue_frames(
                 [
                     TTSSpeakFrame(timeout_msg),
                     EndFrame(),
@@ -592,10 +592,10 @@ async def run_bot(
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
             logger.info(f"""Client disconnected for call {call_id}""")
-            await task.stop_when_done()
+            await worker.stop_when_done()
 
-        @task.event_handler("on_pipeline_finished")
-        async def on_pipeline_finished(task, frame):
+        @worker.event_handler("on_pipeline_finished")
+        async def on_pipeline_finished(worker, frame):
             log_flow_manager_state(flow_manager)
             await save_state_to_json(flow_manager.state)
             await save_intake_legalserver(flow_manager.state)
@@ -604,10 +604,12 @@ async def run_bot(
             from pipecat_tail.runner import TailRunner
 
             runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
-            await runner.run(task)
+            await runner.add_workers(worker)
+            await runner.run()
         else:
-            runner = PipelineRunner(handle_sigint=handle_sigint, force_gc=True)
-            await runner.run(task)
+            runner = WorkerRunner(handle_sigint=handle_sigint, force_gc=True)
+            await runner.add_workers(worker)
+            await runner.run()
 
 
 if __name__ == "__main__":
