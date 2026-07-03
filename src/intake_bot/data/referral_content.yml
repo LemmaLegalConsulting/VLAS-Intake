@@ -1,17 +1,19 @@
 referral:
   spoken_en: >-
     I'm sorry, Law-Line is not able to help with that issue.
-    You can find additional legal information and other resources at
-    V L A S dot O R G, slash, additional, hyphen, resources. Goodbye.
+    Would you like me to give you referral information over the phone or send it by text?
   spoken_es: >-
     Lo siento, Law-Line no puede ayudar con ese asunto.
-    Puede encontrar informacion legal adicional y otros recursos en
-    V L A S punto O R G, barra, additional, guion, resources. Adios.
+    Le gustaria recibir informacion de referencia por telefono o por mensaje de texto?
+  phone_en: >-
+    Please visit V L A S dot O R G and look for additional resources. Goodbye.
+  phone_es: >-
+    Por favor visite V L A S punto O R G y busque recursos adicionales. Adios.
   text_en: >-
-    Okay. I will text you a link to additional legal resources now. Goodbye.
+    Okay. I will send you a link to additional resources now. Goodbye.
   text_es: >-
-    Esta bien. Le voy a enviar por texto un enlace con recursos legales adicionales ahora. Adios.
+    Esta bien. Le enviare un enlace con recursos adicionales ahora. Adios.
   sms_en: >-
-    Law-Line cannot help directly with this issue, but you can find additional legal information and resources here: https://www.vlas.org/additional-resources
+    Law-Line cannot help directly with this issue. You can find other resources here: https://www.vlas.org/additional-resources
   sms_es: >-
-    Law-Line no puede ayudar directamente con este asunto, pero puede encontrar informacion legal adicional y otros recursos aqui: https://www.vlas.org/additional-resources
+    Law-Line no puede ayudar directamente con este asunto. Puede encontrar otros recursos aqui: https://www.vlas.org/additional-resources

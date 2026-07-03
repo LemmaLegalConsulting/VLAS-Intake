@@ -13,6 +13,8 @@ from intake_bot.utils.globals import DATA_DIR
 class ReferralContent:
     spoken_en: str
     spoken_es: str
+    phone_en: str
+    phone_es: str
     text_en: str
     text_es: str
     sms_en: str
@@ -22,6 +24,9 @@ class ReferralContent:
         return (
             self.spoken_es if language.strip().lower() == "spanish" else self.spoken_en
         )
+
+    def phone_delivery_text(self, language: str) -> str:
+        return self.phone_es if language.strip().lower() == "spanish" else self.phone_en
 
     def text_delivery_text(self, language: str) -> str:
         return self.text_es if language.strip().lower() == "spanish" else self.text_en

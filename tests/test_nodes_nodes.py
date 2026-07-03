@@ -699,7 +699,9 @@ async def test_send_case_type_referral_and_end_phone_does_not_send_sms(
     _, next_node = await send_case_type_referral_and_end(flow_manager, "phone")
 
     sms_mock.send.assert_not_awaited()
-    assert next_node["pre_actions"][0]["text"] == REFERRAL.spoken_text("Spanish")
+    assert next_node["pre_actions"][0]["text"] == REFERRAL.phone_delivery_text(
+        "Spanish"
+    )
     assert next_node["task_messages"] == []
 
 

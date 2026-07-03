@@ -55,12 +55,17 @@ def block_live_dialpad_http(monkeypatch):
 def test_referral_content_language_selection():
     assert REFERRAL.spoken_text("English").startswith("I'm sorry")
     assert REFERRAL.spoken_text("Spanish").startswith("Lo siento")
-    assert (
-        "V L A S punto O R G, barra, additional, guion, resources."
-        in REFERRAL.spoken_text("Spanish")
+    assert "Would you like me to give you referral information" in REFERRAL.spoken_text(
+        "English"
+    )
+    assert "Le gustaria recibir informacion de referencia" in REFERRAL.spoken_text(
+        "Spanish"
+    )
+    assert REFERRAL.phone_delivery_text("English") == (
+        "Please visit V L A S dot O R G and look for additional resources. Goodbye."
     )
     assert REFERRAL.sms_text("English") == (
-        "Law-Line cannot help directly with this issue, but you can find additional legal information and resources here: https://www.vlas.org/additional-resources"
+        "Law-Line cannot help directly with this issue. You can find other resources here: https://www.vlas.org/additional-resources"
     )
 
 

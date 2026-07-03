@@ -853,7 +853,7 @@ def _node_referral_and_end(
 ) -> NodeConfig:
     language = _caller_language(flow_manager)
     spoken_text = (
-        content.spoken_text(language)
+        content.phone_delivery_text(language)
         if delivery_method == "phone"
         else content.text_delivery_text(language)
     )
@@ -1278,7 +1278,8 @@ async def record_income(
                         "social security": {"amount": 1200, "period": "year"},
                     }
                 }
-            Note: Only include household members who have income. Children with no income do not need to be listed.
+            Note: Include ALL household members. Members with no income should have
+            "No Household Income" as their single category.
     """
     try:
         income_validated = HouseholdIncome.model_validate(income)
