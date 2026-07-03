@@ -92,3 +92,41 @@ class ReferenceDataLoader:
     def get_all(self) -> Dict:
         """Get all loaded reference data."""
         return ReferenceDataLoader._data or {}
+
+    @property
+    def classifier_taxonomy(self) -> list[str]:
+        """Get the classifier taxonomy as a sorted list of labels."""
+        return sorted(self.legal_problem_codes.keys())
+
+    def label_for_legal_problem_code(self, code: str) -> str | None:
+        """Resolve a legal problem code to its label.
+
+        Args:
+            code: The full legal problem code string (e.g. ``"63 Private Landlord/Tenant"``)
+                  or just the numeric prefix (e.g. ``"63"``).
+
+        Returns:
+            The label portion (e.g. ``"Private Landlord/Tenant"``) or None if not found.
+        """
+        code = code.strip()
+        # Search by full entry value (e.g. "63 Private Landlord/Tenant")
+        for label, full_entry in self.legal_problem_codes.items():
+            if full_entry == code:
+                return label
+        # Search by numeric prefix
+        for label, full_entry in self.legal_problem_codes.items():
+            entry_prefix, _, _ = full_entry.partition(" ")
+            if entry_prefix == code:
+                return label
+        return None
+
+    def legal_problem_code_from_label(self, label: str) -> str | None:
+        """Resolve a label to its full legal problem code.
+
+        Args:
+            label: The label portion (e.g. ``"Private Landlord/Tenant"``).
+
+        Returns:
+            The full entry (e.g. ``"63 Private Landlord/Tenant"``) or None if not found.
+        """
+        return self.legal_problem_codes.get(label.strip())

@@ -38,27 +38,6 @@ primary_role_message:
        - The caller explicitly refuses to continue with the intake process (e.g., "I don't want to do this anymore", "Stop").
        - Do NOT call `end_conversation` if the caller is just pausing, thinking, or asking a clarifying question.
 
-# Reset and Summarize
-reset_with_summary: >-
-  Provide a comprehensive summary of ALL collected information in English.
-  ALWAYS start the summary with a line stating the caller's language, e.g., "Language: English" or "Language: Spanish".
-
-  You MUST include the following details if they have been collected:
-  - Caller's Name (including any suffix, and any other names)
-  - Phone Number
-  - Service Area / Location
-  - Legal Problem / Case Description
-  - Adverse Parties (names and details)
-  - Domestic Violence status
-  - Household Composition (number of adults/children)
-  - Income details (sources and amounts for each person)
-  - Asset details
-  - Citizenship status
-  - SSN (last 4)
-  - Date of Birth
-  - Address
-
-  Format this as a clear, structured summary so the next step has full context.
 
 # Greeting
 initial:
@@ -89,6 +68,21 @@ spoken_prompts:
       It seems like you're busy right now. Feel free to call back. Have a nice day!
     spanish: >-
       Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!
+  empty_turn_retry_first:
+    english: >-
+      I didn't catch that. Could you please repeat what you said?
+    spanish: >-
+      No entendí eso. ¿Podría repetir lo que dijo?
+  empty_turn_retry_second:
+    english: >-
+      I'm having trouble hearing you. Would you like to continue?
+    spanish: >-
+      Tengo problemas para escucharlo. ¿Le gustaría continuar?
+  empty_turn_retry_goodbye:
+    english: >-
+      It seems like there's difficulty with the connection. Feel free to call back. Have a nice day!
+    spanish: >-
+      Parece que hay problemas con la conexión. No dude en volver a llamar. ¡Que tenga un buen día!
   record_language_prompt_english: >-
     Would you prefer to speak in English?
   record_language_prompt_spanish: >-
@@ -851,11 +845,6 @@ record_names:
         (Translate this to the caller's language if they are not speaking English)
         Do you have any other names to include in your legal file, such as a maiden name, former name, or nickname used in legal records?
 
-# Intake complete
-complete_intake:
-  task_messages:
-    - content: >-
-        Thank the caller for their time.
 
 case_type_ineligible:
   task_messages:
@@ -867,23 +856,3 @@ case_type_ineligible:
         If they choose phone, call `send_case_type_referral_and_end` with delivery_method="phone".
         If they choose text, call `send_case_type_referral_and_end` with delivery_method="text".
 
-# End the conversation
-end:
-  task_messages:
-    - content: >-
-        [Instructions]
-        You are ending the call now.
-        Be rigidly succinct.
-        Say ONLY: "Goodbye."
-        Do NOT mention any websites, resources, referrals, or other information.
-        Do NOT add any extra sentences.
-
-caller_ended_conversation:
-  task_messages:
-    - content: >-
-        [Instructions]
-        The caller has ended the conversation.
-        Be rigidly succinct.
-        Say ONLY: "Goodbye."
-        Do NOT mention any websites, resources, referrals, or other information.
-        Do NOT add any extra sentences.

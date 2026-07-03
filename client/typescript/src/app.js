@@ -14,6 +14,30 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 import { PipecatClient, RTVIEvent, } from '@pipecat-ai/client-js';
 import { WebSocketTransport, } from '@pipecat-ai/websocket-transport';
+/**
+ * Small wrapper around WebSocketTransport that sends a plain JSON metadata
+ * message on the underlying WebSocket immediately after connect, before
+ * any protobuf-serialized frames are exchanged.
+ */
+class MetadataWebSocketTransport extends WebSocketTransport {
+    constructor(opts, metadata) {
+        super(opts);
+        this.metadata = metadata;
+    }
+    _connect(connectParams) {
+        const _super = Object.create(null, {
+            _connect: { get: () => super._connect }
+        });
+        return __awaiter(this, void 0, void 0, function* () {
+            yield _super._connect.call(this, connectParams);
+            // Access internal ReconnectingWebSocket -> native WebSocket
+            const rws = this._ws;
+            if ((rws === null || rws === void 0 ? void 0 : rws._ws) && rws._ws.readyState === WebSocket.OPEN) {
+                rws._ws.send(JSON.stringify(this.metadata));
+            }
+        });
+    }
+}
 class WebsocketClientApp {
     constructor() {
         this.rtviClient = null;
@@ -167,10 +191,6 @@ class WebsocketClientApp {
     buildWebsocketUrl() {
         const configuredUrl = import.meta.env.VITE_BACKEND_WS_URL || 'ws://localhost:8765/ws';
         const url = new URL(configuredUrl, window.location.href);
-        const callId = this.buildCallId();
-        const phoneNumber = import.meta.env.VITE_CALLER_PHONE_NUMBER || '8665345243';
-        url.searchParams.set('call_id', callId);
-        url.searchParams.set('caller_phone_number', phoneNumber);
         return url.toString();
     }
     buildCallId() {
@@ -595,13 +615,16 @@ class WebsocketClientApp {
             try {
                 const startTime = Date.now();
                 this.isDisconnecting = false;
+                const callId = this.buildCallId();
+                const phoneNumber = import.meta.env.VITE_CALLER_PHONE_NUMBER || '8665345243';
+                const metadata = { call_id: callId, caller_phone_number: phoneNumber };
                 const ws_opts = {
                     recorderSampleRate: 8000,
                     playerSampleRate: 8000,
                     wsUrl: this.buildWebsocketUrl(),
                 };
                 const pcConfig = {
-                    transport: new WebSocketTransport(ws_opts),
+                    transport: new MetadataWebSocketTransport(ws_opts, metadata),
                     enableMic: true,
                     enableCam: false,
                     callbacks: {

@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 
 import aiofiles
 from loguru import logger
-from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import (
     EndFrame,
     TTSSpeakFrame,
@@ -34,14 +33,22 @@ from pipecat.transports.daily.transport import (
     DailyTransport,
 )
 from pipecat.turns.user_mute import (
+    AlwaysUserMuteStrategy,
     FunctionCallUserMuteStrategy,
 )
 from pipecat.turns.user_start.external_user_turn_start_strategy import (
     ExternalUserTurnStartStrategy,
 )
-from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat_flows import ContextStrategy, FlowManager
 from pydantic import ValidationError
+
+from openai import (
+    APIError as OpenAIAPIError,
+    RateLimitError as OpenAIRateLimitError,
+    APIConnectionError,
+    APITimeoutError,
+)
 
 from intake_bot.nodes.nodes import (
     caller_ended_conversation,
@@ -229,9 +236,12 @@ class TranscriptHandler:
 class IdleRetryHandler:
     """Tracks idle reminders and returns the next frames to queue."""
 
-    def __init__(self, prompts: NodePrompts | None = None):
+    def __init__(
+        self, prompts: NodePrompts | None = None, prompt_prefix: str = "idle_retry"
+    ):
         self._retry_count = 0
         self._prompts = prompts or NodePrompts()
+        self._prompt_prefix = prompt_prefix
 
     def reset(self) -> None:
         self._retry_count = 0
@@ -240,14 +250,20 @@ class IdleRetryHandler:
         self._retry_count += 1
 
         if self._retry_count == 1:
-            msg = self._prompts.get_spoken_prompt("idle_retry_first", language)
+            msg = self._prompts.get_spoken_prompt(
+                f"{self._prompt_prefix}_first", language
+            )
             return [TTSSpeakFrame(msg, append_to_context=False)]
 
         if self._retry_count == 2:
-            msg = self._prompts.get_spoken_prompt("idle_retry_second", language)
+            msg = self._prompts.get_spoken_prompt(
+                f"{self._prompt_prefix}_second", language
+            )
             return [TTSSpeakFrame(msg, append_to_context=False)]
 
-        goodbye = self._prompts.get_spoken_prompt("idle_retry_goodbye", language)
+        goodbye = self._prompts.get_spoken_prompt(
+            f"{self._prompt_prefix}_goodbye", language
+        )
 
         return [TTSSpeakFrame(goodbye, append_to_context=False), EndFrame()]
 
@@ -373,6 +389,25 @@ async def bot(runner_args: RunnerArguments):
     )
 
 
+def _get_flux_settings(call_id: str) -> dict:
+    default_eager_eot = "0.3" if call_id.startswith("ws-test") else "0.6"
+    default_eot = "0.3" if call_id.startswith("ws-test") else "0.6"
+    default_eot_timeout = "1500" if call_id.startswith("ws-test") else "800"
+    default_min_conf = "0.1" if call_id.startswith("ws-test") else "0.5"
+    return {
+        "eager_eot_threshold": float(
+            get_ev("DEEPGRAM_FLUX_EAGER_EOT_THRESHOLD", default_eager_eot)
+        ),
+        "eot_threshold": float(get_ev("DEEPGRAM_FLUX_EOT_THRESHOLD", default_eot)),
+        "eot_timeout_ms": int(
+            get_ev("DEEPGRAM_FLUX_EOT_TIMEOUT_MS", default_eot_timeout)
+        ),
+        "min_confidence": float(
+            get_ev("DEEPGRAM_FLUX_MIN_CONFIDENCE", default_min_conf)
+        ),
+    }
+
+
 async def run_bot(
     transport: BaseTransport,
     call_id: str,
@@ -380,6 +415,7 @@ async def run_bot(
     handle_sigint: bool,
     configure_transport: TransportSetup | None = None,
     user_idle_timeout_secs: float | None = None,
+    strict_user_muting: bool = False,
 ):
     """
     Main function to set up and run the VLAS intake bot.
@@ -390,12 +426,22 @@ async def run_bot(
         if caller_phone_number:
             logger.info(f"""Handling incoming call from: {caller_phone_number}""")
 
+        flux_settings = _get_flux_settings(call_id)
+        flux_eager_eot_threshold = flux_settings["eager_eot_threshold"]
+        flux_eot_threshold = flux_settings["eot_threshold"]
+        flux_eot_timeout_ms = flux_settings["eot_timeout_ms"]
+        flux_min_confidence = flux_settings["min_confidence"]
+
         stt = DeepgramFluxSTTService(
             api_key=require_ev("DEEPGRAM_API_KEY"),
             ttfs_p99_latency=float(get_ev("DEEPGRAM_STT_TTFS_P99_LATENCY", "0.35")),
             settings=DeepgramFluxSTTService.Settings(
                 model=get_ev("DEEPGRAM_STT_MODEL", "flux-general-multi"),
                 language_hints=[Language.EN, Language.ES],
+                eager_eot_threshold=flux_eager_eot_threshold,
+                eot_threshold=flux_eot_threshold,
+                eot_timeout_ms=flux_eot_timeout_ms,
+                min_confidence=flux_min_confidence,
             ),
         )
 
@@ -426,13 +472,18 @@ async def run_bot(
         external_turn_stop_timeout_secs = float(
             get_ev("EXTERNAL_TURN_STOP_TIMEOUT_SECS", "0.2")
         )
+        user_mute_strategies = [FunctionCallUserMuteStrategy()]
+        if strict_user_muting:
+            user_mute_strategies.append(AlwaysUserMuteStrategy())
+
         context_aggregator = LLMContextAggregatorPair(
             context,
             assistant_params=LLMAssistantAggregatorParams(),
             user_params=LLMUserAggregatorParams(
-                user_mute_strategies=[FunctionCallUserMuteStrategy()],
+                filter_incomplete_user_turns=False,
+                user_mute_strategies=user_mute_strategies,
                 user_idle_timeout=resolved_user_idle_timeout_secs,
-                user_turn_strategies=FilterIncompleteUserTurnStrategies(
+                user_turn_strategies=UserTurnStrategies(
                     start=[ExternalUserTurnStartStrategy()],
                     stop=[
                         DeduplicatingExternalUserTurnStopStrategy(
@@ -440,7 +491,6 @@ async def run_bot(
                         )
                     ],
                 ),
-                vad_analyzer=SileroVADAnalyzer(),
             ),
         )
 
@@ -525,6 +575,7 @@ async def run_bot(
         flow_manager._transcript_handler = transcript_handler
 
         idle_retry_handler = IdleRetryHandler()
+        empty_turn_retry_handler = IdleRetryHandler(prompt_prefix="empty_turn_retry")
 
         async def queue_idle_frames_with_transcript(
             frames: list[TTSSpeakFrame | EndFrame],
@@ -537,6 +588,7 @@ async def run_bot(
         @context_aggregator.user().event_handler("on_user_turn_started")
         async def on_user_turn_started(aggregator, strategy):
             idle_retry_handler.reset()
+            empty_turn_retry_handler.reset()
 
         @context_aggregator.user().event_handler("on_user_turn_stopped")
         async def on_empty_user_turn_recovery(
@@ -544,13 +596,13 @@ async def run_bot(
         ):
             if not message.content or not message.content.strip():
                 logger.warning(
-                    f"""Empty user turn detected for call {call_id}; triggering idle recovery"""
+                    f"""Empty user turn detected for call {call_id}; triggering empty-turn recovery"""
                 )
                 language = flow_manager.state.get("language", {}).get(
                     "language", "English"
                 )
                 await queue_idle_frames_with_transcript(
-                    idle_retry_handler.next_frames(language)
+                    empty_turn_retry_handler.next_frames(language)
                 )
 
         @context_aggregator.user().event_handler("on_user_turn_idle")
@@ -599,6 +651,56 @@ async def run_bot(
             log_flow_manager_state(flow_manager)
             await save_state_to_json(flow_manager.state)
             await save_intake_legalserver(flow_manager.state)
+
+        _llm_error_count = 0
+        _last_llm_error_time = 0.0
+
+        @worker.event_handler("on_pipeline_error")
+        async def on_pipeline_error(worker, error):
+            nonlocal _llm_error_count, _last_llm_error_time
+            error_name = type(error).__name__
+            error_msg = str(error)
+            logger.warning(
+                f"Pipeline error in call {call_id}: {error_name}: {error_msg}"
+            )
+            error_name_lower = error_name.lower()
+            error_msg_lower = error_msg.lower()
+            if isinstance(
+                error,
+                (
+                    OpenAIAPIError,
+                    OpenAIRateLimitError,
+                    APIConnectionError,
+                    APITimeoutError,
+                ),
+            ) or (
+                "completion" in error_msg_lower
+                or "llm" in error_name_lower
+                or "openai" in error_name_lower
+            ):
+                now = datetime.now(timezone.utc).timestamp()
+                if now - _last_llm_error_time < 30.0:
+                    _llm_error_count += 1
+                else:
+                    _llm_error_count = 1
+                _last_llm_error_time = now
+                if _llm_error_count >= 3:
+                    logger.error(
+                        f"Too many LLM completion errors ({_llm_error_count}) in call {call_id}; ending call"
+                    )
+                    language = flow_manager.state.get("language", {}).get(
+                        "language", "English"
+                    )
+                    if language == "Spanish":
+                        msg = "Lo siento, tenemos problemas técnicos. Por favor, intente llamar de nuevo más tarde. ¡Gracias y adiós!"
+                    else:
+                        msg = "I'm sorry, we are experiencing technical difficulties. Please try calling again later. Thank you and goodbye!"
+                    await worker.queue_frames(
+                        [
+                            TTSSpeakFrame(msg),
+                            EndFrame(),
+                        ]
+                    )
 
         if ev_is_true("ENABLE_TAIL_RUNNER"):
             from pipecat_tail.runner import TailRunner

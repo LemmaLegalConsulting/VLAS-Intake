@@ -446,7 +446,7 @@ def _assets_receives_benefits_prompt_text(flow_manager: FlowManager) -> str:
 async def _speak_dynamic_prompt(action: dict, flow_manager: FlowManager) -> None:
     text = action["text_builder"](flow_manager)
     await _log_spoken_text(flow_manager, text)
-    await flow_manager.task.queue_frame(TTSSpeakFrame(text=text))
+    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=text))
 
 
 async def _speak_language_selection_prompt(
@@ -456,7 +456,7 @@ async def _speak_language_selection_prompt(
     if welcome_prompt_key:
         welcome_prompt = prompts.get_spoken_prompt(welcome_prompt_key)
         await _log_spoken_text(flow_manager, welcome_prompt)
-        await flow_manager.task.queue_frame(TTSSpeakFrame(text=welcome_prompt))
+        await flow_manager.worker.queue_frame(TTSSpeakFrame(text=welcome_prompt))
 
     english_prompt = prompts.get_spoken_prompt(action["english_prompt_key"])
     spanish_prompt = prompts.get_spoken_prompt(action["spanish_prompt_key"])
@@ -464,17 +464,17 @@ async def _speak_language_selection_prompt(
     english_voice = get_deepgram_tts_voices(Language.EN)
     spanish_voice = get_deepgram_tts_voices(Language.ES)
 
-    await flow_manager.task.queue_frame(
+    await flow_manager.worker.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
     )
     await _log_spoken_text(flow_manager, english_prompt)
-    await flow_manager.task.queue_frame(TTSSpeakFrame(text=english_prompt))
-    await flow_manager.task.queue_frame(
+    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=english_prompt))
+    await flow_manager.worker.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=spanish_voice))
     )
     await _log_spoken_text(flow_manager, spanish_prompt)
-    await flow_manager.task.queue_frame(TTSSpeakFrame(text=spanish_prompt))
-    await flow_manager.task.queue_frame(
+    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=spanish_prompt))
+    await flow_manager.worker.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
     )
 
@@ -940,12 +940,12 @@ async def record_language(
     language_hints = [stt_language_hint]
     tts_voice = get_deepgram_tts_voices(stt_language_hint)
 
-    await flow_manager.task.queue_frame(
+    await flow_manager.worker.queue_frame(
         STTUpdateSettingsFrame(
             delta=DeepgramFluxSTTService.Settings(language_hints=language_hints)
         )
     )
-    await flow_manager.task.queue_frame(
+    await flow_manager.worker.queue_frame(
         TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=tts_voice))
     )
     flow_manager.state["tts_voice"] = tts_voice

@@ -18,15 +18,17 @@ from intake_bot.utils.globals import PROJECT_ROOT
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
-LEGALSERVER_API_BASE_URL = (
-    f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2"""
-)
 
-LEGALSERVER_HEADERS = {
-    "Authorization": f"""Bearer {require_ev("LEGAL_SERVER_BEARER_TOKEN")}""",
-    "Content-Type": "application/json",
-    "Accept": "application/json, text/html",
-}
+def _legalserver_api_base_url() -> str:
+    return f"""https://{require_ev("LEGAL_SERVER_SUBDOMAIN")}.legalserver.org/api/v2"""
+
+
+def _legalserver_headers() -> dict[str, str]:
+    return {
+        "Authorization": f"""Bearer {require_ev("LEGAL_SERVER_BEARER_TOKEN")}""",
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/html",
+    }
 
 
 def _finalize_response(response: aiohttp.ClientResponse) -> None:
@@ -83,8 +85,8 @@ async def save_intake_legalserver(state: dict):
             logger.debug(f"""Matter payload: {payload}""")
 
             matter_response = await session.post(
-                f"""{LEGALSERVER_API_BASE_URL}/matters""",
-                headers=LEGALSERVER_HEADERS,
+                f"""{_legalserver_api_base_url()}/matters""",
+                headers=_legalserver_headers(),
                 json=payload,
             )
 
@@ -296,8 +298,8 @@ async def _post_fallback_note(
 
     try:
         response = await session.post(
-            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
-            headers=LEGALSERVER_HEADERS,
+            f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/notes""",
+            headers=_legalserver_headers(),
             json=payload.model_dump(exclude_none=True),
         )
         if response.status not in (200, 201):
@@ -348,8 +350,8 @@ async def _save_income_records(
                     continue
 
                 response = await session.post(
-                    f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/incomes""",
-                    headers=LEGALSERVER_HEADERS,
+                    f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/incomes""",
+                    headers=_legalserver_headers(),
                     json=payload.model_dump(exclude_none=True),
                 )
 
@@ -411,8 +413,8 @@ async def _save_additional_names(
                 continue
 
             response = await session.post(
-                f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/additional_names""",
-                headers=LEGALSERVER_HEADERS,
+                f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/additional_names""",
+                headers=_legalserver_headers(),
                 json=payload.model_dump(exclude_none=True),
             )
 
@@ -492,8 +494,8 @@ async def _save_adverse_parties(
                 continue
 
             response = await session.post(
-                f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/adverse_parties""",
-                headers=LEGALSERVER_HEADERS,
+                f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/adverse_parties""",
+                headers=_legalserver_headers(),
                 json=payload.model_dump(exclude_none=True),
             )
 
@@ -552,8 +554,8 @@ async def _save_case_description_note(
             return
 
         response = await session.post(
-            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
-            headers=LEGALSERVER_HEADERS,
+            f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/notes""",
+            headers=_legalserver_headers(),
             json=payload.model_dump(exclude_none=True),
         )
 
@@ -604,8 +606,8 @@ async def _save_assets_note(
             return
 
         response = await session.post(
-            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
-            headers=LEGALSERVER_HEADERS,
+            f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/notes""",
+            headers=_legalserver_headers(),
             json=payload.model_dump(exclude_none=True),
         )
 
@@ -647,8 +649,8 @@ async def _save_assets_note(
             return
 
         response = await session.post(
-            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
-            headers=LEGALSERVER_HEADERS,
+            f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/notes""",
+            headers=_legalserver_headers(),
             json=payload.model_dump(exclude_none=True),
         )
 
@@ -689,8 +691,8 @@ async def _save_rejection_note(
         )
 
         response = await session.post(
-            f"""{LEGALSERVER_API_BASE_URL}/matters/{matter_uuid}/notes""",
-            headers=LEGALSERVER_HEADERS,
+            f"""{_legalserver_api_base_url()}/matters/{matter_uuid}/notes""",
+            headers=_legalserver_headers(),
             json=payload.model_dump(exclude_none=True),
         )
 
@@ -762,8 +764,8 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
             while total_pages is None or page_number <= total_pages:
                 # Query custom lookups endpoint with pagination
                 response = await session.get(
-                    f"""{LEGALSERVER_API_BASE_URL}/custom_lookups?page_number={page_number}""",
-                    headers=LEGALSERVER_HEADERS,
+                    f"""{_legalserver_api_base_url()}/custom_lookups?page_number={page_number}""",
+                    headers=_legalserver_headers(),
                 )
 
                 if response.status not in (200, 201):
@@ -829,11 +831,11 @@ async def query_lookup_values(
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Construct URL based on lookup type
             if is_custom:
-                base_url = (
-                    f"""{LEGALSERVER_API_BASE_URL}/custom_lookups/{lookup_identifier}"""
-                )
+                base_url = f"""{_legalserver_api_base_url()}/custom_lookups/{lookup_identifier}"""
             else:
-                base_url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_identifier}"""
+                base_url = (
+                    f"""{_legalserver_api_base_url()}/lookups/{lookup_identifier}"""
+                )
 
             all_values = []
             page_number = 1
@@ -845,7 +847,7 @@ async def query_lookup_values(
             while total_pages is None or page_number <= total_pages:
                 response = await session.get(
                     base_url,
-                    headers=LEGALSERVER_HEADERS,
+                    headers=_legalserver_headers(),
                     params={"page_number": page_number},
                 )
 
@@ -930,12 +932,12 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
         async with aiohttp.ClientSession(timeout=timeout) as session:
             # Query each lookup type to find the ID
             for lookup_type in common_types:
-                url = f"""{LEGALSERVER_API_BASE_URL}/lookups/{lookup_type}"""
+                url = f"""{_legalserver_api_base_url()}/lookups/{lookup_type}"""
 
                 try:
                     response = await session.get(
                         url,
-                        headers=LEGALSERVER_HEADERS,
+                        headers=_legalserver_headers(),
                         timeout=aiohttp.ClientTimeout(total=10),
                     )
 

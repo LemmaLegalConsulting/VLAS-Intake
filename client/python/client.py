@@ -1,11 +1,11 @@
 import argparse
 import asyncio
+import json
 import os
 import random
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
 
 import yaml
 from dotenv import load_dotenv
@@ -43,7 +43,7 @@ from pipecat.turns.user_start.external_user_turn_start_strategy import (
 from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
     ExternalUserTurnStopStrategy,
 )
-from pipecat.turns.user_turn_strategies import FilterIncompleteUserTurnStrategies
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from test_manager import TestRunner
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
@@ -223,12 +223,7 @@ def _require_env(*names: str) -> str:
     return value
 
 
-def _build_websocket_url(
-    server_url: str,
-    phone_number: str,
-    call_id: str,
-    idle_timeout_secs: float | None = None,
-) -> str:
+def _build_websocket_url(server_url: str) -> str:
     base_url = server_url.rstrip("/")
     if base_url.startswith("http://"):
         base_url = "ws://" + base_url[len("http://") :]
@@ -238,15 +233,7 @@ def _build_websocket_url(
     if not base_url.endswith("/ws"):
         base_url = f"""{base_url}/ws"""
 
-    query_params = {
-        "call_id": call_id,
-        "caller_phone_number": phone_number,
-    }
-    if idle_timeout_secs is not None:
-        query_params["idle_timeout_secs"] = f"""{idle_timeout_secs:g}"""
-
-    query = urlencode(query_params)
-    return f"""{base_url}?{query}"""
+    return base_url
 
 
 def _new_call_id(client_name: str, prefix: str = "ws-test") -> str:
@@ -281,12 +268,14 @@ async def run_client(
         "AZURE_OPENAI_API_VERSION",
         default="2024-09-01-preview",
     )
-    websocket_url = _build_websocket_url(
-        server_url,
-        phone_number,
-        call_id,
-        idle_timeout_secs=server_idle_timeout_secs,
-    )
+    metadata = {
+        "call_id": call_id,
+        "caller_phone_number": phone_number,
+    }
+    if server_idle_timeout_secs is not None:
+        metadata["idle_timeout_secs"] = server_idle_timeout_secs
+
+    websocket_url = _build_websocket_url(server_url)
     logger.info(f"""Client {client_name} connecting to {websocket_url}""")
 
     transport = WebsocketClientTransport(
@@ -343,9 +332,10 @@ async def run_client(
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            user_turn_strategies=FilterIncompleteUserTurnStrategies(
+            filter_incomplete_user_turns=False,
+            user_turn_strategies=UserTurnStrategies(
                 start=[ExternalUserTurnStartStrategy()],
-                stop=[ExternalUserTurnStopStrategy()],
+                stop=[ExternalUserTurnStopStrategy(timeout=0.2)],
             ),
             vad_analyzer=SileroVADAnalyzer(),
         ),
@@ -380,6 +370,8 @@ async def run_client(
     @transport.event_handler("on_connected")
     async def on_connected(transport, client):
         logger.info(f"""Client {client_name} connected with call_id={call_id}""")
+        # Send JSON metadata handshake before any protobuf frames
+        await client.send(json.dumps(metadata))
 
     @transport.event_handler("on_disconnected")
     async def on_disconnected(transport, client):

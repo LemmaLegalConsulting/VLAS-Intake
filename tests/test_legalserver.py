@@ -18,6 +18,54 @@ def _enable_legalserver_connection_by_default(monkeypatch):
     monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "false")
 
 
+class TestModuleImport:
+    """Tests that the legalserver module can be imported without LegalServer credentials."""
+
+    def test_import_succeeds_without_credentials(self, monkeypatch):
+        monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
+        monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
+        import importlib
+        import intake_bot.services.legalserver as ls
+
+        importlib.reload(ls)
+        assert ls is not None
+
+    def test_lazy_api_base_url_raises_without_subdomain(self, monkeypatch):
+        monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
+        monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
+        import importlib
+        import intake_bot.services.legalserver as ls
+
+        importlib.reload(ls)
+        with pytest.raises(ValueError, match="LEGAL_SERVER_SUBDOMAIN"):
+            ls._legalserver_api_base_url()
+
+    def test_lazy_headers_raises_without_bearer_token(self, monkeypatch):
+        monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
+        monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
+        import importlib
+        import intake_bot.services.legalserver as ls
+
+        importlib.reload(ls)
+        with pytest.raises(ValueError, match="LEGAL_SERVER_BEARER_TOKEN"):
+            ls._legalserver_headers()
+
+    @pytest.mark.asyncio
+    async def test_save_intake_legalserver_early_return_no_credentials(
+        self, monkeypatch
+    ):
+        monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
+        monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
+        monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "true")
+        import importlib
+        import intake_bot.services.legalserver as ls
+
+        importlib.reload(ls)
+        with patch("intake_bot.services.legalserver.logger") as mock_logger:
+            await ls.save_intake_legalserver({})
+            mock_logger.debug.assert_called_with("LegalServer connection disabled")
+
+
 class TestBuildMatterPayload:
     """Tests for _build_matter_payload helper function."""
 

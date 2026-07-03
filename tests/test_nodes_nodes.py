@@ -84,7 +84,7 @@ async def _assert_spoken_next_node(
     await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
     assert isinstance(queued_frames[-1], TTSSpeakFrame)
     assert queued_frames[-1].text == _with_acknowledgment(
@@ -97,8 +97,8 @@ async def _assert_spoken_next_node(
 def flow_manager():
     fm = MagicMock()
     fm.state = {}
-    fm.task = MagicMock()
-    fm.task.queue_frame = AsyncMock()
+    fm.worker = MagicMock()
+    fm.worker.queue_frame = AsyncMock()
     return fm
 
 
@@ -170,7 +170,7 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
         await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
 
     assert len(queued_frames) == 5
@@ -208,7 +208,7 @@ async def test_node_record_language_can_include_initial_greeting(
         await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
 
     assert isinstance(queued_frames[0], TTSSpeakFrame)
@@ -243,7 +243,9 @@ async def test_record_language(flow_manager, prompt_loader):
     assert isinstance(result, dict)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["language"]["language"] == "English"
-    assert flow_manager.task.queue_frame.await_count == 2  # STT + TTS language updates
+    assert (
+        flow_manager.worker.queue_frame.await_count == 2
+    )  # STT + TTS language updates
     assert "record_phone_number_prompt" in next_node
     assert next_node["respond_immediately"] is False
 
@@ -251,7 +253,7 @@ async def test_record_language(flow_manager, prompt_loader):
     await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
     assert isinstance(queued_frames[-1], TTSSpeakFrame)
     assert queued_frames[-1].text == _with_acknowledgment(
@@ -286,7 +288,7 @@ async def test_record_phone_number_valid(flow_manager, patch_validator, prompt_l
     await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
     assert isinstance(queued_frames[-1], TTSSpeakFrame)
     assert queued_frames[-1].text == _with_acknowledgment(
@@ -314,7 +316,7 @@ async def test_record_phone_type_valid(flow_manager, prompt_loader):
     await prompt_action["handler"](prompt_action, flow_manager)
 
     queued_frames = [
-        call.args[0] for call in flow_manager.task.queue_frame.await_args_list
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
     assert isinstance(queued_frames[-1], TTSSpeakFrame)
     assert queued_frames[-1].text == _with_acknowledgment(
