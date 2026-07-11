@@ -7,13 +7,12 @@ from pipecat.frames.frames import (
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
-from pipecat.utils.asyncio.task_manager import TaskManager, TaskManagerParams
+from pipecat.utils.asyncio.task_manager import TaskManager
 
 
 @pytest.mark.asyncio
 async def test_deduplicating_external_strategy_triggers_once_per_buffered_text():
-    task_manager = TaskManager()
-    task_manager.setup(TaskManagerParams(loop=asyncio.get_running_loop()))
+    task_manager = TaskManager(loop=asyncio.get_running_loop())
 
     strategy = DeduplicatingExternalUserTurnStopStrategy(timeout=0.05)
     await strategy.setup(task_manager)

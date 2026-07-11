@@ -53,7 +53,7 @@ from pipecat.frames.frames import (
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
-from pipecat_flows import (
+from pipecat.flows import (
     ContextStrategy,
     ContextStrategyConfig,
     FlowManager,

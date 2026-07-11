@@ -81,7 +81,7 @@ _patch_pipecat_websocket_client_double_connect()
 
 load_dotenv(override=True)
 
-logger.remove(0)
+logger.remove()
 logger.add(sys.stderr, level="DEBUG")
 
 scripts_file = Path(__file__).parent / "scripts.yml"

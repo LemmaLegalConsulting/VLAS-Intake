@@ -30,13 +30,12 @@ class MetadataWebSocketTransport extends WebSocketTransport {
         this.metadata = metadata;
     }
 
-    async _connect(connectParams?: any): Promise<void> {
-        await super._connect(connectParams);
-        // Access internal ReconnectingWebSocket -> native WebSocket
-        const rws: any = (this as any)._ws;
-        if (rws?._ws && rws._ws.readyState === WebSocket.OPEN) {
-            rws._ws.send(JSON.stringify(this.metadata));
-        }
+    initializeWebsocket() {
+        const websocket = super.initializeWebsocket();
+        websocket.on('open', () => {
+            websocket.send(JSON.stringify(this.metadata));
+        });
+        return websocket;
     }
 }
 

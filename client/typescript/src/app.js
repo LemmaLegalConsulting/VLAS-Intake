@@ -24,18 +24,12 @@ class MetadataWebSocketTransport extends WebSocketTransport {
         super(opts);
         this.metadata = metadata;
     }
-    _connect(connectParams) {
-        const _super = Object.create(null, {
-            _connect: { get: () => super._connect }
+    initializeWebsocket() {
+        const websocket = super.initializeWebsocket();
+        websocket.on('open', () => {
+            websocket.send(JSON.stringify(this.metadata));
         });
-        return __awaiter(this, void 0, void 0, function* () {
-            yield _super._connect.call(this, connectParams);
-            // Access internal ReconnectingWebSocket -> native WebSocket
-            const rws = this._ws;
-            if ((rws === null || rws === void 0 ? void 0 : rws._ws) && rws._ws.readyState === WebSocket.OPEN) {
-                rws._ws.send(JSON.stringify(this.metadata));
-            }
-        });
+        return websocket;
     }
 }
 class WebsocketClientApp {

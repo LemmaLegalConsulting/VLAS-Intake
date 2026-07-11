@@ -40,7 +40,7 @@ from intake_bot.nodes.validator import IntakeValidator
 from intake_bot.services.dialpad import REFERRAL
 from intake_bot.utils.node_prompts import NodePrompts
 from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
-from pipecat_flows import ContextStrategy
+from pipecat.flows import ContextStrategy
 
 ACKNOWLEDGMENT_BY_LANGUAGE = {
     "english": "Okay",

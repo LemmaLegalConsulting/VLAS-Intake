@@ -9,7 +9,7 @@ from intake_bot.models.intake_flow_result import Status
 from intake_bot.utils.ev import ev_is_true
 from intake_bot.utils.globals import DEBUG
 from loguru import logger
-from pipecat_flows import FlowManager
+from pipecat.flows import FlowManager
 from pydantic import BaseModel, ValidationError
 
 

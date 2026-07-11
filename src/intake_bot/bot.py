@@ -40,7 +40,7 @@ from pipecat.turns.user_start.external_user_turn_start_strategy import (
     ExternalUserTurnStartStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat_flows import ContextStrategy, FlowManager
+from pipecat.flows import ContextStrategy, FlowManager
 from pydantic import ValidationError
 
 from openai import (
