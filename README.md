@@ -150,6 +150,26 @@ The Federal Poverty Scale data is static and will need to be manually updated ea
     python ./client/python/client.py
     ```
 
+1. Run the in-process text pipeline tests:
+
+    ```bash
+    uv run pytest -q tests/test_text_pipeline.py
+    ```
+
+    These tests use Pipecat frames directly and do not require audio,
+    Deepgram, TTS, WebSocket, or external network access. `TextSession`
+    exercises the same FlowManager, node functions, state transitions, and
+    assistant context aggregation as the audio pipeline.
+
+For custom deterministic scenarios, inject a `NodeDependencies` instance and
+use `ScriptedLLMService` so Pipecat still dispatches the node function:
+
+```python
+async with TextSession(llm=llm, node_dependencies=deps) as session:
+    await session.start()
+    result = await session.send_user_turn("Amelia County")
+```
+
 1. Production on Pipecat Cloud:
 
     - Deploy this bot to Pipecat Cloud using the `pcc-deploy.toml`.

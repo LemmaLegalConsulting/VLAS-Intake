@@ -2,6 +2,7 @@ import asyncio
 import sys
 import unicodedata
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -74,6 +75,21 @@ from intake_bot.utils.node_prompts import NodePrompts
 prompts = NodePrompts()
 validator = IntakeValidator()
 sms_service = SMS()
+
+
+@dataclass(frozen=True)
+class NodeDependencies:
+    validator: IntakeValidator
+    sms_service: SMS
+
+
+def _node_dependencies(flow_manager: FlowManager) -> NodeDependencies:
+    dependencies = getattr(flow_manager, "__dict__", {}).get("_node_dependencies")
+    if dependencies is not None:
+        return cast(NodeDependencies, dependencies)
+    return NodeDependencies(validator=validator, sms_service=sms_service)
+
+
 _ADVERSE_PARTIES_FOLLOW_UP_KEY = "_adverse_parties_follow_up_requested"
 _HOUSEHOLD_COMPOSITION_PENDING_KEY = "_pending_household_composition"
 _SERVICE_AREA_PENDING_KEY = "_pending_service_area"
@@ -1205,13 +1221,14 @@ async def _send_referral_sms(
         return {"accepted": False, "reason": "invalid_phone"}
     phone_number = normalized
 
-    if not sms_service.is_configured:
+    dependencies = _node_dependencies(flow_manager)
+    if not dependencies.sms_service.is_configured:
         logger.warning("Skipping referral SMS because Dialpad SMS is not configured.")
         return {"accepted": False, "reason": "not_configured"}
 
     message_text = content.sms_text(_caller_language(flow_manager))
     try:
-        response = await sms_service.send(phone_number, message_text)
+        response = await dependencies.sms_service.send(phone_number, message_text)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
     except Exception:  # noqa: BLE001 - SMS delivery failure becomes result data
@@ -1233,9 +1250,9 @@ async def system_phone_number(
     flow_manager: FlowManager,
 ) -> tuple[dict[str, Any] | None, NodeConfig | None]:
     caller_id_phone_number = flow_manager.state.get("phone")
-    is_valid, validated_caller_id_phone_number = await validator.check_phone_number(
-        phone_number=str(caller_id_phone_number or "")
-    )
+    is_valid, validated_caller_id_phone_number = await _node_dependencies(
+        flow_manager
+    ).validator.check_phone_number(phone_number=str(caller_id_phone_number or ""))
 
     if is_valid:
         flow_manager.state["phone"] = {
@@ -1298,9 +1315,9 @@ async def record_language(
 async def record_phone_number(
     flow_manager: FlowManager, phone_number: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    is_valid, validated_phone_number = await validator.check_phone_number(
-        phone_number=phone_number
-    )
+    is_valid, validated_phone_number = await _node_dependencies(
+        flow_manager
+    ).validator.check_phone_number(phone_number=phone_number)
 
     status = status_helper(is_valid)
 
@@ -1393,7 +1410,9 @@ async def record_service_area(
         if _is_affirmative(trimmed):
             if len(pending_candidates) == 1:
                 candidate = pending_candidates[0]
-                resolved = await validator.check_service_area(location=candidate)
+                resolved = await _node_dependencies(
+                    flow_manager
+                ).validator.check_service_area(location=candidate)
                 outcome = resolved.get("outcome", "unknown")
                 if outcome in ("exact_match", "unserved"):
                     _clear_service_area_pending(flow_manager)
@@ -1432,13 +1451,17 @@ async def record_service_area(
         # A substantive answer replaces the pending suggestion. Resolve it before
         # changing state so a validation failure does not lose the old candidate.
         corrected = _strip_negative_prefix(location)
-        resolved = await validator.check_service_area(location=corrected)
+        resolved = await _node_dependencies(flow_manager).validator.check_service_area(
+            location=corrected
+        )
 
         _clear_service_area_pending(flow_manager)
         return _handle_service_area_resolution(flow_manager, resolved)
 
     _clear_service_area_pending(flow_manager)
-    resolved = await validator.check_service_area(location=location)
+    resolved = await _node_dependencies(flow_manager).validator.check_service_area(
+        location=location
+    )
 
     return _handle_service_area_resolution(flow_manager, resolved)
 
@@ -1587,7 +1610,7 @@ async def record_case_type(
         if isinstance(language_state, dict)
         else "English"
     )
-    case_response = await validator.check_case_type(
+    case_response = await _node_dependencies(flow_manager).validator.check_case_type(
         case_description=case_description, language=language
     )
 
@@ -1706,7 +1729,9 @@ async def record_household_composition(
         )
 
     number_of_adults = number_of_other_adults + 1
-    is_valid, _ = await validator.check_household_composition(
+    is_valid, _ = await _node_dependencies(
+        flow_manager
+    ).validator.check_household_composition(
         adults=number_of_adults, children=number_of_children
     )
 
@@ -1929,9 +1954,9 @@ async def record_income(
         adults = household_composition.get("number_of_adults", 0)
         children = household_composition.get("number_of_children", 0)
         household_size = adults + children
-        is_eligible, income_monthly, household_size = await validator.check_income(
-            income=income_validated, household_size=household_size
-        )
+        is_eligible, income_monthly, household_size = await _node_dependencies(
+            flow_manager
+        ).validator.check_income(income=income_validated, household_size=household_size)
     except ValidationError as e:
         cleaned_error = clean_pydantic_error_message(e)
         log_pydantic_validation_error("income", e)
@@ -2055,9 +2080,9 @@ async def record_assets_list(
         assets_input = IntakeValidator.assets_filter_countable_entries(assets_input)
 
         assets_validated = Assets.model_validate(assets_input)
-        is_eligible, assets_value = await validator.check_assets(
-            assets=assets_validated
-        )
+        is_eligible, assets_value = await _node_dependencies(
+            flow_manager
+        ).validator.check_assets(assets=assets_validated)
     except ValidationError as e:
         cleaned_error = clean_pydantic_error_message(e)
         log_pydantic_validation_error("assets", e)
@@ -2139,9 +2164,9 @@ async def record_ssn_last_4(
         status = Status.SUCCESS
         formatted_ssn = ""
     else:
-        is_valid, formatted_ssn = await validator.check_ssn_last_4(
-            ssn_last_4=ssn_last_4
-        )
+        is_valid, formatted_ssn = await _node_dependencies(
+            flow_manager
+        ).validator.check_ssn_last_4(ssn_last_4=ssn_last_4)
         status = status_helper(is_valid)
 
     result = SSNLast4Result(
@@ -2167,9 +2192,9 @@ async def record_date_of_birth(
         status = Status.SUCCESS
         formatted_dob = ""
     else:
-        is_valid, formatted_dob = await validator.check_date_of_birth(
-            dob_string=date_of_birth
-        )
+        is_valid, formatted_dob = await _node_dependencies(
+            flow_manager
+        ).validator.check_date_of_birth(dob_string=date_of_birth)
         status = status_helper(is_valid)
 
     result = DateOfBirthResult(

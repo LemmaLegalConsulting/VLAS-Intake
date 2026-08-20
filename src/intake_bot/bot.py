@@ -81,6 +81,7 @@ TransportSetup = Callable[
 
 class StateContextFlowManager(FlowManager):
     _transcript_handler: Any = None
+    _node_dependencies: Any = None
     _tts_services: dict[Language, Any] | None = None
     _STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS = frozenset(
         {
@@ -422,6 +423,35 @@ def _get_flux_settings(call_id: str) -> dict:
     }
 
 
+def build_context_aggregator(
+    *,
+    user_idle_timeout_secs: float,
+    external_turn_stop_timeout_secs: float,
+    strict_user_muting: bool = False,
+) -> LLMContextAggregatorPair:
+    """Build the shared user/assistant context pair for audio and text runtimes."""
+    context = LLMContext()
+    user_mute_strategies: list[Any] = [FunctionCallUserMuteStrategy()]
+    if strict_user_muting:
+        user_mute_strategies.append(AlwaysUserMuteStrategy())
+    return LLMContextAggregatorPair(
+        context,
+        assistant_params=LLMAssistantAggregatorParams(),
+        user_params=LLMUserAggregatorParams(
+            user_mute_strategies=user_mute_strategies,
+            user_idle_timeout=user_idle_timeout_secs,
+            user_turn_strategies=UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[
+                    DeduplicatingExternalUserTurnStopStrategy(
+                        timeout=external_turn_stop_timeout_secs
+                    )
+                ],
+            ),
+        ),
+    )
+
+
 async def run_bot(
     transport: BaseTransport,
     call_id: str,
@@ -487,28 +517,13 @@ async def run_bot(
                 get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
             )
 
-        context = LLMContext()
         external_turn_stop_timeout_secs = float(
             get_ev("EXTERNAL_TURN_STOP_TIMEOUT_SECS", "0.2")
         )
-        user_mute_strategies: list[Any] = [FunctionCallUserMuteStrategy()]
-        if strict_user_muting:
-            user_mute_strategies.append(AlwaysUserMuteStrategy())
-        context_aggregator = LLMContextAggregatorPair(
-            context,
-            assistant_params=LLMAssistantAggregatorParams(),
-            user_params=LLMUserAggregatorParams(
-                user_mute_strategies=user_mute_strategies,
-                user_idle_timeout=resolved_user_idle_timeout_secs,
-                user_turn_strategies=UserTurnStrategies(
-                    start=[ExternalUserTurnStartStrategy()],
-                    stop=[
-                        DeduplicatingExternalUserTurnStopStrategy(
-                            timeout=external_turn_stop_timeout_secs
-                        )
-                    ],
-                ),
-            ),
+        context_aggregator = build_context_aggregator(
+            user_idle_timeout_secs=resolved_user_idle_timeout_secs,
+            external_turn_stop_timeout_secs=external_turn_stop_timeout_secs,
+            strict_user_muting=strict_user_muting,
         )
 
         logger.info(
