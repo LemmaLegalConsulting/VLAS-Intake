@@ -36,9 +36,15 @@
 
 [build-system]
     requires      = [
-        "setuptools",
+        "uv_build>=0.12.5,<0.13",
     ]
-    build-backend = "setuptools.build_meta"
+    build-backend = "uv_build"
+
+[tool.pyrefly]
+    project-includes = [
+        "**/*.py*",
+        "**/*.ipynb",
+    ]
 
 [tool.pytest.ini_options]
     filterwarnings   = [
@@ -53,15 +59,4 @@
     ]
     testpaths        = [
         "tests",
-    ]
-
-[tool.setuptools.packages.find]
-    where = [
-        "src",
-    ]
-
-[tool.setuptools.package-data]
-    intake_bot = [
-        "data/*.json",
-        "data/*.yml",
     ]
