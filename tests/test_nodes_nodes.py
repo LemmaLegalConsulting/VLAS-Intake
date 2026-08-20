@@ -2,8 +2,14 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from pipecat.flows import ContextStrategy
-from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
+from pipecat.frames.frames import (
+    ManuallySwitchServiceFrame,
+    TTSSpeakFrame,
+    TTSUpdateSettingsFrame,
+)
 from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSSettings
+from pipecat.services.deepgram.tts import DeepgramTTSSettings
+from pipecat.transcriptions.language import Language
 
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.intake_flow_result import Status
@@ -111,6 +117,10 @@ def flow_manager():
     fm.state = {}
     fm.worker = MagicMock()
     fm.worker.queue_frame = AsyncMock()
+    fm._tts_services = {
+        Language.EN: MagicMock(name="english_tts"),
+        Language.ES: MagicMock(name="spanish_tts"),
+    }
     return fm
 
 
@@ -223,24 +233,33 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
         call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
 
-    assert len(queued_frames) == 5
+    assert len(queued_frames) == 8
     assert isinstance(queued_frames[0], TTSUpdateSettingsFrame)
     assert isinstance(queued_frames[0].delta, DeepgramFluxTTSSettings)
     assert queued_frames[0].delta.voice == "voice-en"
-    assert isinstance(queued_frames[1], TTSSpeakFrame)
-    assert queued_frames[1].text == prompt_loader.get_spoken_prompt(
+    assert queued_frames[0].service is flow_manager._tts_services[Language.EN]
+    assert isinstance(queued_frames[1], ManuallySwitchServiceFrame)
+    assert queued_frames[1].service is flow_manager._tts_services[Language.EN]
+    assert isinstance(queued_frames[2], TTSSpeakFrame)
+    assert queued_frames[2].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_english"
     )
-    assert isinstance(queued_frames[2], TTSUpdateSettingsFrame)
-    assert isinstance(queued_frames[2].delta, DeepgramFluxTTSSettings)
-    assert queued_frames[2].delta.voice == "voice-es"
-    assert isinstance(queued_frames[3], TTSSpeakFrame)
-    assert queued_frames[3].text == prompt_loader.get_spoken_prompt(
+    assert isinstance(queued_frames[3], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[3].delta, DeepgramTTSSettings)
+    assert queued_frames[3].delta.voice == "voice-es"
+    assert queued_frames[3].service is flow_manager._tts_services[Language.ES]
+    assert isinstance(queued_frames[4], ManuallySwitchServiceFrame)
+    assert queued_frames[4].service is flow_manager._tts_services[Language.ES]
+    assert isinstance(queued_frames[5], TTSSpeakFrame)
+    assert queued_frames[5].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_spanish"
     )
-    assert isinstance(queued_frames[4], TTSUpdateSettingsFrame)
-    assert isinstance(queued_frames[4].delta, DeepgramFluxTTSSettings)
-    assert queued_frames[4].delta.voice == "voice-en"
+    assert isinstance(queued_frames[6], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[6].delta, DeepgramFluxTTSSettings)
+    assert queued_frames[6].delta.voice == "voice-en"
+    assert queued_frames[6].service is flow_manager._tts_services[Language.EN]
+    assert isinstance(queued_frames[7], ManuallySwitchServiceFrame)
+    assert queued_frames[7].service is flow_manager._tts_services[Language.EN]
     assert (
         prompt_loader.get_spoken_prompt("record_language_prompt_english")
         == "Please say English or Spanish to choose your preferred language."
@@ -275,16 +294,19 @@ async def test_node_record_language_can_include_initial_greeting(
     assert isinstance(queued_frames[0], TTSSpeakFrame)
     assert queued_frames[0].text == prompt_loader.get_spoken_prompt("initial_greeting")
     assert isinstance(queued_frames[1], TTSUpdateSettingsFrame)
-    assert isinstance(queued_frames[2], TTSSpeakFrame)
-    assert queued_frames[2].text == prompt_loader.get_spoken_prompt(
+    assert isinstance(queued_frames[2], ManuallySwitchServiceFrame)
+    assert isinstance(queued_frames[3], TTSSpeakFrame)
+    assert queued_frames[3].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_english"
     )
-    assert isinstance(queued_frames[3], TTSUpdateSettingsFrame)
-    assert isinstance(queued_frames[4], TTSSpeakFrame)
-    assert queued_frames[4].text == prompt_loader.get_spoken_prompt(
+    assert isinstance(queued_frames[4], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[5], ManuallySwitchServiceFrame)
+    assert isinstance(queued_frames[6], TTSSpeakFrame)
+    assert queued_frames[6].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_spanish"
     )
-    assert isinstance(queued_frames[5], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[7], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[8], ManuallySwitchServiceFrame)
     transcript_handler.save_assistant_tts.assert_has_awaits(
         [
             call(prompt_loader.get_spoken_prompt("initial_greeting")),
@@ -305,13 +327,16 @@ async def test_record_language(flow_manager, prompt_loader):
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["language"]["language"] == "English"
     assert (
-        flow_manager.worker.queue_frame.await_count == 2
-    )  # STT + TTS language updates
+        flow_manager.worker.queue_frame.await_count == 3
+    )  # STT update + TTS configuration + provider switch
     queued_frames = [
         call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
     ]
     assert isinstance(queued_frames[1], TTSUpdateSettingsFrame)
     assert isinstance(queued_frames[1].delta, DeepgramFluxTTSSettings)
+    assert queued_frames[1].service is flow_manager._tts_services[Language.EN]
+    assert isinstance(queued_frames[2], ManuallySwitchServiceFrame)
+    assert queued_frames[2].service is flow_manager._tts_services[Language.EN]
     assert "record_phone_number_prompt" in next_node
     assert next_node["respond_immediately"] is False
 
@@ -333,6 +358,24 @@ async def test_record_language(flow_manager, prompt_loader):
     transcript_handler.save_assistant_tts.assert_awaited_once_with(
         queued_frames[-1].text
     )
+
+
+@pytest.mark.asyncio
+async def test_record_spanish_language_selects_aura_tts(flow_manager):
+    flow_manager.state["phone"] = "+18665345243"
+
+    result, _ = await record_language(flow_manager, "Spanish")
+
+    assert result["status"] == Status.SUCCESS
+    queued_frames = [
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[1], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[1].delta, DeepgramTTSSettings)
+    assert queued_frames[1].delta.voice == "aura-2-olivia-es"
+    assert queued_frames[1].service is flow_manager._tts_services[Language.ES]
+    assert isinstance(queued_frames[2], ManuallySwitchServiceFrame)
+    assert queued_frames[2].service is flow_manager._tts_services[Language.ES]
 
 
 @pytest.mark.asyncio

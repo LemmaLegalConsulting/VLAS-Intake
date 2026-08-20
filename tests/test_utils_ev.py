@@ -88,27 +88,27 @@ def test_get_deepgram_tts_voices_uses_language_default_without_env_override(
 
     voice = get_deepgram_tts_voices("ES")
 
-    assert voice == "flux-alexis-en"
+    assert voice == "aura-2-olivia-es"
 
 
 def test_get_deepgram_tts_voices_prefers_exact_language_code_match(monkeypatch):
     monkeypatch.setenv("DEEPGRAM_TTS_VOICE_EN", "flux-drew-en")
-    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES", "flux-drew-en")
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES", "aura-2-celeste-es")
 
     english_voice = get_deepgram_tts_voices("EN")
     spanish_voice = get_deepgram_tts_voices("ES")
 
     assert english_voice == "flux-drew-en"
-    assert spanish_voice == "flux-drew-en"
+    assert spanish_voice == "aura-2-celeste-es"
 
 
 def test_get_deepgram_tts_voices_matches_locale_suffix(monkeypatch):
     monkeypatch.delenv("DEEPGRAM_TTS_VOICE_EN", raising=False)
-    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES_US", "flux-drew-en")
+    monkeypatch.setenv("DEEPGRAM_TTS_VOICE_ES_US", "aura-2-celeste-es")
 
     voice = get_deepgram_tts_voices("ES")
 
-    assert voice == "flux-drew-en"
+    assert voice == "aura-2-celeste-es"
 
 
 def test_get_deepgram_tts_voices_returns_global_default_for_unknown_language(

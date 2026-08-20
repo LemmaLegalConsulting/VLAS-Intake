@@ -22,6 +22,7 @@ from pipecat.frames.frames import (
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.service_switcher import ServiceSwitcher
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
@@ -35,6 +36,7 @@ from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.daily.transport import (
@@ -439,8 +441,9 @@ async def run_bot(
         flux_eot_timeout_ms = flux_settings["eot_timeout_ms"]
         flux_min_confidence = flux_settings["min_confidence"]
 
+        deepgram_api_key = require_ev("DEEPGRAM_API_KEY")
         stt = DeepgramFluxSTTService(
-            api_key=require_ev("DEEPGRAM_API_KEY"),
+            api_key=deepgram_api_key,
             ttfs_p99_latency=float(get_ev("DEEPGRAM_STT_TTFS_P99_LATENCY", "0.35")),
             settings=DeepgramFluxSTTService.Settings(
                 model=get_ev("DEEPGRAM_STT_MODEL", "flux-general-multi"),
@@ -452,7 +455,8 @@ async def run_bot(
             ),
         )
 
-        tts_voice = get_deepgram_tts_voices(Language.EN)
+        english_tts_voice = get_deepgram_tts_voices(Language.EN)
+        spanish_tts_voice = get_deepgram_tts_voices(Language.ES)
 
         llm = AzureLLMService(
             api_key=require_ev("AZURE_API_KEY"),
@@ -462,12 +466,15 @@ async def run_bot(
             ),
         )
 
-        tts = DeepgramFluxTTSService(
-            api_key=require_ev("DEEPGRAM_API_KEY"),
-            settings=DeepgramFluxTTSService.Settings(
-                voice=tts_voice,
-            ),
+        english_tts = DeepgramFluxTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramFluxTTSService.Settings(voice=english_tts_voice),
         )
+        spanish_tts = DeepgramTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramTTSService.Settings(voice=spanish_tts_voice),
+        )
+        tts = ServiceSwitcher(services=[english_tts, spanish_tts])
 
         resolved_user_idle_timeout_secs = user_idle_timeout_secs
         if resolved_user_idle_timeout_secs is None:
@@ -582,6 +589,10 @@ async def run_bot(
         flow_manager.state["call_id"] = call_id
         flow_manager.state["phone"] = caller_phone_number
         flow_manager._transcript_handler = transcript_handler
+        flow_manager._tts_services = {
+            Language.EN: english_tts,
+            Language.ES: spanish_tts,
+        }
 
         idle_retry_handler = IdleRetryHandler()
         empty_turn_retry_handler = IdleRetryHandler(prompt_prefix="empty_turn_retry")

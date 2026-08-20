@@ -12,12 +12,14 @@ from pipecat.flows import (
     NodeConfig,
 )
 from pipecat.frames.frames import (
+    ManuallySwitchServiceFrame,
     STTUpdateSettingsFrame,
     TTSSpeakFrame,
     TTSUpdateSettingsFrame,
 )
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pydantic import ValidationError
 
@@ -597,6 +599,25 @@ async def _speak_dynamic_prompt(action: dict, flow_manager: FlowManager) -> None
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=text))
 
 
+async def _select_tts_language(flow_manager: FlowManager, language: Language) -> str:
+    tts_services = getattr(flow_manager, "_tts_services", None)
+    if not isinstance(tts_services, dict) or language not in tts_services:
+        raise RuntimeError(f"No TTS service configured for {language}")
+
+    service = tts_services[language]
+    voice = get_deepgram_tts_voices(language)
+    settings = (
+        DeepgramTTSService.Settings(voice=voice)
+        if language == Language.ES
+        else DeepgramFluxTTSService.Settings(voice=voice)
+    )
+    await flow_manager.worker.queue_frame(
+        TTSUpdateSettingsFrame(delta=settings, service=service)
+    )
+    await flow_manager.worker.queue_frame(ManuallySwitchServiceFrame(service=service))
+    return voice
+
+
 async def _speak_language_selection_prompt(
     action: dict, flow_manager: FlowManager
 ) -> None:
@@ -609,28 +630,13 @@ async def _speak_language_selection_prompt(
     english_prompt = prompts.get_spoken_prompt(action["english_prompt_key"])
     spanish_prompt = prompts.get_spoken_prompt(action["spanish_prompt_key"])
 
-    english_voice = get_deepgram_tts_voices(Language.EN)
-    spanish_voice = get_deepgram_tts_voices(Language.ES)
-
-    await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(
-            delta=DeepgramFluxTTSService.Settings(voice=english_voice)
-        )
-    )
+    await _select_tts_language(flow_manager, Language.EN)
     await _log_spoken_text(flow_manager, english_prompt)
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=english_prompt))
-    await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(
-            delta=DeepgramFluxTTSService.Settings(voice=spanish_voice)
-        )
-    )
+    await _select_tts_language(flow_manager, Language.ES)
     await _log_spoken_text(flow_manager, spanish_prompt)
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=spanish_prompt))
-    await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(
-            delta=DeepgramFluxTTSService.Settings(voice=english_voice)
-        )
-    )
+    await _select_tts_language(flow_manager, Language.EN)
 
 
 def node_record_language(include_initial_greeting: bool = False) -> NodeConfig:
@@ -1260,16 +1266,13 @@ async def record_language(
 
     stt_language_hint = Language.ES if canonical_language == "Spanish" else Language.EN
     language_hints = [stt_language_hint]
-    tts_voice = get_deepgram_tts_voices(stt_language_hint)
 
     await flow_manager.worker.queue_frame(
         STTUpdateSettingsFrame(
             delta=DeepgramFluxSTTService.Settings(language_hints=language_hints)
         )
     )
-    await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(delta=DeepgramFluxTTSService.Settings(voice=tts_voice))
-    )
+    tts_voice = await _select_tts_language(flow_manager, stt_language_hint)
     flow_manager.state["tts_voice"] = tts_voice
 
     result = LanguageResult(status=Status.SUCCESS, language=canonical_language)

@@ -31,6 +31,7 @@ from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
@@ -319,12 +320,16 @@ async def run_client(
         ),
     )
 
-    tts = DeepgramFluxTTSService(
-        api_key=deepgram_api_key,
-        settings=DeepgramFluxTTSService.Settings(
-            voice=client_tts_voice,
-        ),
-    )
+    if script_language == "Spanish":
+        tts = DeepgramTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramTTSService.Settings(voice=client_tts_voice),
+        )
+    else:
+        tts = DeepgramFluxTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramFluxTTSService.Settings(voice=client_tts_voice),
+        )
 
     system_prompt = build_client_system_prompt(script)
     messages = [{"role": "system", "content": system_prompt}]
