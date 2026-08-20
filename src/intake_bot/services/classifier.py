@@ -301,13 +301,14 @@ class Classifier:
         if top_legal_problem_code and top_legal_problem_code.startswith("00"):
             is_eligible = False
 
-        # If only keyword provider succeeded, never determine eligibility from it
-        completed_llm_providers = [
-            pr
+        # Keyword evidence may supplement an LLM classification, but must never
+        # determine eligibility without at least one recognized LLM label.
+        llm_label_contributed = any(
+            pr.model_name in ("gpt-4.1-mini", "gpt-5-nano")
+            and any(label.legal_problem_code in taxonomy_dict for label in pr.labels)
             for pr in successful_providers
-            if pr.model_name in ("gpt-4.1-mini", "gpt-5-nano")
-        ]
-        if not completed_llm_providers:
+        )
+        if not llm_label_contributed:
             if top_legal_problem_code is not None:
                 top_legal_problem_code = None
                 top_confidence = None
@@ -495,7 +496,7 @@ class Classifier:
         MAX_RETRIES = 5
         BASE_WAIT_TIME = 0.5  # seconds
         MAX_WAIT_TIME = 15.0  # 15 seconds max per retry
-        PROVIDER_TIMEOUT = 15.0  # 15 seconds max for any single provider call
+        PROVIDER_TIMEOUT = 45.0  # total budget for one provider's retry sequence
 
         client: Optional[AsyncAzureOpenAI] = None
         reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None

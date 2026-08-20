@@ -74,7 +74,6 @@ flowchart TD
     dv --> household
     household --> household_confirm
     household_confirm -- Yes --> household_members
-    household_confirm -- Correct counts --> household_confirm
     household_confirm -- Re-enter counts --> household
     household_members --> income
 

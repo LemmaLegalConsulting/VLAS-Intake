@@ -106,13 +106,13 @@ class ReferenceDataLoader:
     def _strip_va_suffix(words: list[str]) -> list[str]:
         if not words:
             return words
+        if len(words) >= 3:
+            suffix = " ".join(words[-3:]).strip(".,!?;:")
+            if suffix == "commonwealth of virginia":
+                return words[:-3]
         last = words[-1].strip(".,!?;:")
         if last in ("va", "virginia"):
             return words[:-1]
-        if len(words) >= 2:
-            pair = " ".join(words[-2:]).strip(".,!?;:")
-            if pair == "commonwealth of virginia":
-                return words[:-3]
         return words
 
     @staticmethod

@@ -359,7 +359,10 @@ class TestMatterLookupResult:
         session = _FakeClientSession(
             {
                 "GET": _FakeResponse(
-                    status=200, json_data={"data": [{"matter_uuid": "m-1"}]}
+                    status=200,
+                    json_data={
+                        "data": [{"external_id": "ext-1", "matter_uuid": "m-1"}]
+                    },
                 ),
             }
         )
@@ -430,6 +433,22 @@ class TestMatterLookupResult:
         result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
         assert result.result == MatterLookupResult.INDETERMINATE
         assert len(session.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_lookup_requires_matching_external_id(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    status=200,
+                    json_data={"data": [{"matter_uuid": "unverified"}]},
+                )
+            }
+        )
+
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+
+        assert result.result == MatterLookupResult.INDETERMINATE
+        assert result.matter_uuid is None
 
 
 class TestMatterCreationIdempotency:
@@ -532,8 +551,8 @@ class TestMatterCreationIdempotency:
             assert len(post_calls) == 1
 
     @pytest.mark.asyncio
-    async def test_2xx_without_uuid_reattempts(self):
-        """201 without UUID — ambiguous; relookup needed."""
+    async def test_2xx_without_uuid_polls_without_reposting(self):
+        """201 without UUID is reconciled without duplicating the create."""
         clock = _FakeClock(start=1000.0)
         session = _FakeClientSession(
             {"POST": _FakeResponse(status=201, json_data={"data": {}})}
@@ -545,7 +564,7 @@ class TestMatterCreationIdempotency:
         async def _fake_lookup(sess, ext_id, deadline):
             nonlocal call_count
             call_count += 1
-            if call_count <= 1:
+            if call_count <= 2:
                 return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
             return MatterLookupOutcome(MatterLookupResult.FOUND, "recovered")
 
@@ -560,7 +579,9 @@ class TestMatterCreationIdempotency:
             result = await _create_matter_guarded(
                 session, payload, "ext-123", clock.now() + 30.0
             )
-            assert result == "recovered"
+
+        assert result == "recovered"
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 1
 
     @pytest.mark.asyncio
     async def test_initial_lookup_found_skips_create(self):
@@ -568,7 +589,10 @@ class TestMatterCreationIdempotency:
         session = _FakeClientSession(
             {
                 "GET": _FakeResponse(
-                    status=200, json_data={"data": [{"matter_uuid": "existing"}]}
+                    status=200,
+                    json_data={
+                        "data": [{"external_id": "ext-123", "matter_uuid": "existing"}]
+                    },
                 ),
             }
         )
@@ -775,6 +799,38 @@ class TestChildReconciliation:
             for c in session.calls
             if c["method"] == "GET"
         ] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_repeated_final_child_page_is_indeterminate(self):
+        page = {
+            "data": [
+                {
+                    "amount": 1,
+                    "period": "Monthly",
+                    "type": {"lookup_value_name": "A"},
+                }
+            ],
+            "total_number_of_pages": 2,
+        }
+        url = "https://test-subdomain.legalserver.org/api/v2/matters/m-1/incomes"
+        session = _FakeClientSession(
+            {
+                ("GET", url): [
+                    _FakeResponse(200, page),
+                    _FakeResponse(200, page),
+                ]
+            }
+        )
+
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {"listing": {"J": {"C": {"amount": 3, "period": "Monthly"}}}},
+            _far_deadline(),
+        )
+
+        assert results[0].outcome == OperationOutcome.AMBIGUOUS
+        assert not [c for c in session.calls if c["method"] == "POST"]
 
     @pytest.mark.asyncio
     async def test_update_and_update_data_payloads_are_documented(self):
@@ -1016,7 +1072,37 @@ class TestChildReconciliation:
             call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
         )
         assert post_payload["active"] is True
-        assert "update" not in post_payload
+        assert post_payload["update"]["active"] is True
+
+    @pytest.mark.asyncio
+    async def test_changed_case_description_updates_stable_note(self):
+        existing = [
+            {
+                "subject": "Case Description",
+                "body": "old description",
+                "note_type": {"lookup_value_name": "General Notes"},
+                "active": True,
+            }
+        ]
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": existing}),
+                "POST": _FakeResponse(201),
+            }
+        )
+
+        result = await _save_case_description_note(
+            session,
+            "m-1",
+            {"case_description": "new description"},
+            _far_deadline(),
+        )
+
+        assert result.outcome == OperationOutcome.SUCCESS
+        post_payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert post_payload["update_data"]["body"] == "new description"
 
     @pytest.mark.asyncio
     async def test_changed_fallback_updates_stable_note(self):

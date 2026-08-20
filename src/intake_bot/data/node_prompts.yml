@@ -91,9 +91,9 @@ spoken_prompts:
     spanish: >-
       Parece que hay problemas con la conexión. No dude en volver a llamar. ¡Que tenga un buen día!
   record_language_prompt_english: >-
-    Would you like to continue in English, or Spanish?
+    Please say English or Spanish to choose your preferred language.
   record_language_prompt_spanish: >-
-    ¿Le gustaría continuar en español, o inglés?
+    Por favor, diga inglés o español para elegir su idioma preferido.
   processing_status_working:
     english: >-
       Let me look that up.
@@ -595,7 +595,7 @@ record_income:
         - If the function reports a structural error, correct the function argument using this exact shape. The household membership is already confirmed, so do NOT ask the caller to reconfirm who lives in the household.
         - If a household member has NO income at all, submit ONLY "No Household Income" as their single income category. Do NOT enumerate every category at $0.
         - Include ALL household members, not just those with income. Children with no income should have "No Household Income" recorded.
-        - Include public benefits (food stamps, Medicaid, TANF, SSI) for children or other household members if the caller reports them.
+        - Include public benefits (food stamps, TANF, SSI) for children or other household members if the caller reports them.
 
         Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the income category names in the function call.
 

@@ -104,7 +104,7 @@ _SPANISH_NEGATIVE = {
 
 def _is_affirmative(text: str) -> bool:
     t = text.strip().lower().rstrip(".,!?")
-    if t in {
+    return t in {
         "yes",
         "yeah",
         "yep",
@@ -114,26 +114,50 @@ def _is_affirmative(text: str) -> bool:
         "that is right",
         "that's correct",
         "that is correct",
+        "yes, that's right",
+        "yes that's right",
+        "yes, that is right",
+        "yes that is right",
+        "yes, that's correct",
+        "yes that's correct",
+        "yes sir",
+        "yes ma'am",
+        "yeah, correct",
+        "yeah correct",
         "sure",
         "confirm",
         "confirmed",
         "affirmative",
         "true",
         "y",
-    }:
-        return True
-    if t in _SPANISH_AFFIRMATIVE:
-        return True
-    return False
+        "sí, correcto",
+        "si, correcto",
+        "sí señor",
+        "si señor",
+        "sí, así es",
+        "si, asi es",
+        *_SPANISH_AFFIRMATIVE,
+    }
 
 
 def _is_negative(text: str) -> bool:
     t = text.strip().lower().rstrip(".,!?")
-    if t in {"no", "nope", "nah", "negative", "incorrect", "false", "wrong", "n"}:
-        return True
-    if t in _SPANISH_NEGATIVE:
-        return True
-    return False
+    return t in {
+        "no",
+        "nope",
+        "nah",
+        "negative",
+        "incorrect",
+        "false",
+        "wrong",
+        "n",
+        "no, that's not right",
+        "no that's not right",
+        "no, that's wrong",
+        "no that's wrong",
+        "no, eso no es correcto",
+        *_SPANISH_NEGATIVE,
+    }
 
 
 def _service_area_pending(flow_manager: FlowManager) -> dict | None:
@@ -185,26 +209,34 @@ def _reset_retry_count(flow_manager: FlowManager) -> None:
 
 
 def _strip_negative_prefix(text: str) -> str:
-    t = text.strip().lower().rstrip(".,!?")
+    stripped = text.strip()
+    normalized = stripped.lower().rstrip(".,!?")
     for prefix in (
         "no,",
         "no ",
         "nope,",
         "nope ",
-        "nah,",
-        "nah ",
-        "nop,",
-        "nop ",
+        "not ",
+        "wrong,",
+        "wrong ",
+        "incorrect,",
+        "incorrect ",
+        "actually,",
+        "actually ",
+        "sorry,",
+        "sorry ",
         "incorrecto,",
         "incorrecto ",
         "falso,",
         "falso ",
         "negativo,",
         "negativo ",
+        "correction,",
+        "correction ",
     ):
-        if t.startswith(prefix):
-            return text[len(prefix) :].strip()
-    return text
+        if normalized.startswith(prefix):
+            return stripped[len(prefix) :].strip()
+    return stripped
 
 
 ######################################################################

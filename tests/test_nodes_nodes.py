@@ -238,11 +238,11 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
     assert queued_frames[4].delta.voice == "voice-en"
     assert (
         prompt_loader.get_spoken_prompt("record_language_prompt_english")
-        == "Would you like to continue in English or Spanish?"
+        == "Please say English or Spanish to choose your preferred language."
     )
     assert (
         prompt_loader.get_spoken_prompt("record_language_prompt_spanish")
-        == "¿Le gustaría continuar en inglés o español?"
+        == "Por favor, diga inglés o español para elegir su idioma preferido."
     )
 
 
@@ -809,7 +809,7 @@ async def test_record_service_area_suggested_then_yes_confirm(
     pending = _service_area_pending(fm)
     assert pending and "Amelia County" in pending.get("candidates", [])
 
-    result, next_node = await record_service_area(fm, "yes")
+    result, next_node = await record_service_area(fm, "Yes, that's right")
     assert result["status"] == Status.SUCCESS
     assert result["location"] == "Amelia County"
     assert "record_case_type_prompt" in next_node
@@ -887,7 +887,7 @@ async def test_record_service_area_replaces_pending_suggestion_without_retry(
     assert result["outcome"] == "suggested"
     assert next_node is None
 
-    result, next_node = await record_service_area(flow_manager, "No. I meant Danville.")
+    result, next_node = await record_service_area(flow_manager, "No, Danville")
     assert result["outcome"] == "suggested"
     assert result["candidates"] == ["Danville City"]
     assert next_node is None
@@ -1203,6 +1203,9 @@ async def test_is_affirmative_english_and_spanish():
     assert _is_affirmative("correcto")
     assert _is_affirmative("that's right")
     assert _is_affirmative("confirm")
+    assert _is_affirmative("Yes, that's right")
+    assert _is_affirmative("Yes sir")
+    assert not _is_affirmative("Yes, but I live in Richmond")
 
 
 @pytest.mark.asyncio
@@ -1213,6 +1216,8 @@ async def test_is_negative():
     assert not _is_negative("yes")
     assert not _is_negative("Amelia")
     assert not _is_negative("not sure")
+    assert _is_negative("No, that's wrong")
+    assert not _is_negative("No, I live in Richmond")
 
 
 @pytest.mark.parametrize("text", ["incorrecto", "falso", "negativo"])

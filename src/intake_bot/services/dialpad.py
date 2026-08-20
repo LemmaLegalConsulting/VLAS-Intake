@@ -146,7 +146,6 @@ class SMS:
             return {"dry_run": True, **request}
 
         deadline = self._now() + self.MAX_TOTAL_DURATION
-        last_exception: Exception | None = None
 
         for attempt in range(self.MAX_RETRIES):
             remaining = deadline - self._now()
@@ -241,17 +240,8 @@ class SMS:
                         return {"status": response.status, "body": body}
 
             except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                last_exception = e
-                if attempt < self.MAX_RETRIES - 1:
-                    delay = self.BASE_RETRY_DELAY * (2**attempt) + random.uniform(
-                        0, 0.5
-                    )
-                    remaining = deadline - self._now()
-                    if remaining <= 0:
-                        raise RuntimeError("Dialpad SMS retry deadline exceeded") from e
-                    delay = min(delay, remaining)
-                    await self._sleep(delay)
-                    continue
+                # The server may have accepted this non-idempotent POST before
+                # the response was lost. Retrying could send the SMS twice.
                 raise RuntimeError(
-                    f"Dialpad SMS failed after {self.MAX_RETRIES} attempts: {last_exception}"
-                ) from last_exception
+                    "Dialpad SMS request outcome is unknown; not retrying"
+                ) from e

@@ -123,7 +123,10 @@ class AdverseParty(BaseModel):
     )
     @classmethod
     def normalize_names(cls, v):
-        return normalize_to_ascii(v)
+        normalized = normalize_to_ascii(v)
+        if isinstance(normalized, str):
+            return normalized.strip() or None
+        return normalized
 
     @field_validator(
         "first",

@@ -94,6 +94,18 @@ def test_adverse_party_rejects_organization_date_of_birth():
 
 
 @pytest.mark.parametrize(
+    "party",
+    [
+        {"organization_name": "   "},
+        {"first": " ", "last": " "},
+    ],
+)
+def test_adverse_party_rejects_whitespace_only_names(party):
+    with pytest.raises(ValidationError, match="Provide organization_name"):
+        AdverseParty(**party)
+
+
+@pytest.mark.parametrize(
     "raw_period,expected",
     [
         ("month", IncomePeriod.MONTHLY),

@@ -241,7 +241,7 @@ async def _find_matter_by_external_id(
         if not isinstance(entry, dict):
             return MatterLookupOutcome(MatterLookupResult.INDETERMINATE)
         returned_external_id = entry.get("external_id")
-        if returned_external_id is not None and returned_external_id != external_id:
+        if returned_external_id != external_id:
             continue
         matter_uuid = entry.get("matter_uuid")
         if isinstance(matter_uuid, str) and matter_uuid:
@@ -278,32 +278,36 @@ async def _create_matter_guarded(
 
     create_url = f"{_legalserver_api_base_url()}/matters"
 
+    result = await _request_once(
+        session,
+        "POST",
+        create_url,
+        json=payload,
+        deadline=deadline,
+        require_json=True,
+    )
+    if result.outcome == _HttpOutcome.SUCCESS and result.data is not None:
+        matter_data = result.data.get("data", result.data)
+        matter_uuid = (
+            matter_data.get("matter_uuid") if isinstance(matter_data, dict) else None
+        )
+        if isinstance(matter_uuid, str) and matter_uuid:
+            return matter_uuid
+
+    # A non-idempotent create may have succeeded even when its response was
+    # malformed, lost, or omitted the UUID. Never POST it again; wait for the
+    # external-id lookup to become consistent instead.
     attempt = 0
     while _now() < deadline:
-        result = await _request_once(
-            session,
-            "POST",
-            create_url,
-            json=payload,
-            deadline=deadline,
-            require_json=True,
-        )
-        if result.outcome == _HttpOutcome.SUCCESS and result.data is not None:
-            matter_data = result.data.get("data", result.data)
-            matter_uuid = (
-                matter_data.get("matter_uuid")
-                if isinstance(matter_data, dict)
-                else None
-            )
-            if isinstance(matter_uuid, str) and matter_uuid:
-                return matter_uuid
-
         lookup = await _find_matter_by_external_id(session, call_id, deadline)
         if lookup.result == MatterLookupResult.FOUND:
             return lookup.matter_uuid
         if lookup.result == MatterLookupResult.INDETERMINATE:
             return None
-        if result.outcome == _HttpOutcome.DETERMINISTIC_FAILURE:
+        if (
+            result.outcome == _HttpOutcome.DETERMINISTIC_FAILURE
+            and result.status not in (409, 422)
+        ):
             return None
         if not await _sleep_for_retry(attempt, deadline, result.retry_after):
             break
@@ -441,6 +445,11 @@ async def _list_child_records(
             not isinstance(item, dict) for item in page
         ):
             return None
+
+        page_signature = json.dumps(page, sort_keys=True, default=str)
+        if page_signature in seen_full_pages:
+            return None
+        seen_full_pages.add(page_signature)
         records.extend(page)
 
         total_pages = result.data.get("total_number_of_pages")
@@ -450,10 +459,6 @@ async def _list_child_records(
         elif len(page) < page_size:
             return records
 
-        page_signature = json.dumps(page, sort_keys=True, default=str)
-        if page_signature in seen_full_pages:
-            return None
-        seen_full_pages.add(page_signature)
         page_number += 1
     return None
 
@@ -993,7 +998,9 @@ async def _save_note(
     kind: OperationKind,
     description: str,
     fallback_content: str,
-    cache: _ChildCollectionCache | None,
+    cache: _ChildCollectionCache | None = None,
+    match_fields: tuple[str, ...] = ("subject", "note_type", "body"),
+    update_on_conflict: bool = False,
 ) -> RecordResult:
     payload_data = payload.model_dump(exclude_none=True)
     payload_data["active"] = True
@@ -1004,7 +1011,8 @@ async def _save_note(
         kind,
         description,
         fallback_content,
-        ("subject", "note_type", "body"),
+        match_fields,
+        update_on_conflict=update_on_conflict,
     )
 
 
@@ -1041,6 +1049,8 @@ async def _save_case_description_note(
         "case description",
         str(case_description),
         cache,
+        ("subject", "note_type", "active"),
+        update_on_conflict=True,
     )
 
 

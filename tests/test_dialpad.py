@@ -391,8 +391,8 @@ async def test_nonretryable_4xx_raises_immediately(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_timeout_retries_then_exhausts(monkeypatch):
-    """asyncio.TimeoutError is retried and eventually raises."""
+async def test_timeout_is_not_retried(monkeypatch):
+    """A timed-out POST may have succeeded, so it is not repeated."""
     call_count = 0
 
     class _TimeoutResponse(_FakeResponse):
@@ -424,16 +424,16 @@ async def test_timeout_retries_then_exhausts(monkeypatch):
         api_key="token", from_number="+14344553080", _sleep=clock.sleep, _now=clock.now
     )
 
-    with pytest.raises(RuntimeError, match=f"after {SMS.MAX_RETRIES} attempts"):
+    with pytest.raises(RuntimeError, match="outcome is unknown; not retrying"):
         await sms.send("+15096305855", "hello")
 
-    assert call_count == SMS.MAX_RETRIES
-    assert len(clock.sleeps) == SMS.MAX_RETRIES - 1
+    assert call_count == 1
+    assert len(clock.sleeps) == 0
 
 
 @pytest.mark.asyncio
-async def test_client_error_retries_then_exhausts(monkeypatch):
-    """aiohttp.ClientError is retried and eventually raises."""
+async def test_client_error_is_not_retried(monkeypatch):
+    """A failed response path may follow an accepted POST, so it is not repeated."""
     call_count = 0
 
     class _ErrorSession:
@@ -461,11 +461,11 @@ async def test_client_error_retries_then_exhausts(monkeypatch):
         api_key="token", from_number="+14344553080", _sleep=clock.sleep, _now=clock.now
     )
 
-    with pytest.raises(RuntimeError, match=f"after {SMS.MAX_RETRIES} attempts"):
+    with pytest.raises(RuntimeError, match="outcome is unknown; not retrying"):
         await sms.send("+15096305855", "hello")
 
-    assert call_count == SMS.MAX_RETRIES
-    assert len(clock.sleeps) == SMS.MAX_RETRIES - 1
+    assert call_count == 1
+    assert len(clock.sleeps) == 0
 
 
 # ---------------------------------------------------------------------------

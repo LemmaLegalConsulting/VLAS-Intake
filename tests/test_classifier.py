@@ -1,6 +1,6 @@
 import pytest
 import asyncio
-from intake_bot.models.classifier import ProviderResult, ProviderStatus
+from intake_bot.models.classifier import ProviderLabel, ProviderResult, ProviderStatus
 from intake_bot.services.classifier import Classifier
 
 
@@ -1375,6 +1375,33 @@ async def test_keyword_only_does_not_determine_eligibility():
     assert response.legal_problem_code is None
     assert response.is_eligible is None
     assert response.follow_up_questions is not None
+
+
+@pytest.mark.asyncio
+async def test_empty_llm_result_does_not_enable_keyword_eligibility(classifier):
+    response = await classifier._get_voted_results(
+        [
+            ProviderResult(
+                model_name="gpt-4.1-mini",
+                status=ProviderStatus.EMPTY,
+            ),
+            ProviderResult(
+                model_name="keyword",
+                status=ProviderStatus.SUCCESS,
+                labels=[
+                    ProviderLabel(
+                        legal_problem_code="Criminal Defense",
+                        confidence=0.8,
+                    )
+                ],
+            ),
+        ],
+        TEST_TAXONOMY,
+        "English",
+    )
+
+    assert response.legal_problem_code is None
+    assert response.is_eligible is None
 
 
 @pytest.mark.asyncio

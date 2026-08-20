@@ -50,7 +50,7 @@ This exercises the current websocket transport directly:
 
 - client connects to `/ws` and immediately sends a first-frame JSON
   metadata object with `caller_phone_number`, `call_id`, and optional
-  `idle_timeout_secs` / `strict_user_muting` fields
+  `idle_timeout_secs`
 - transport uses the protobuf websocket serializer
 - caller simulation uses Deepgram Flux STT, Azure OpenAI, and Deepgram
   Aura 2 TTS

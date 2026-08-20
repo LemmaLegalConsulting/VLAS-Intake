@@ -194,6 +194,14 @@ def test_va_suffix_resolves_city(loader):
     assert result2.get("canonical_name") is None
 
 
+def test_commonwealth_of_virginia_suffix_resolves_locality(loader):
+    result = loader.resolve_service_area("Amelia County, Commonwealth of Virginia")
+
+    assert result["outcome"] == "exact_match"
+    assert result["canonical_name"] == "Amelia County"
+    assert result["fips"] == 51007
+
+
 def test_bare_virginia_does_not_suggest(loader):
     result = loader.resolve_service_area("Virginia")
     assert result["outcome"] == "unresolved_service_area"
