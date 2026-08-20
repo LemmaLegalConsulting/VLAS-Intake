@@ -1,30 +1,43 @@
-# Service areas served by VLAS - county/city name to FIPS code mapping
-service_areas:
-  "Amelia County": 51007
-  "Amherst County": 51009
-  "Appomattox County": 51011
-  "Brunswick County": 51025
-  "Buckingham County": 51029
-  "Campbell County": 51031
-  "Cumberland County": 51049
-  "Danville City": 51595
-  "Emporia City": 51600
-  "Franklin City": 51630
-  "Greensville County": 51081
-  "Halifax County": 51083
-  "Henry County": 51089
-  "Isle of Wight County": 51093
-  "Lunenburg County": 51111
-  "Lynchburg City": 51680
-  "Martinsville City": 51690
-  "Mecklenburg County": 51117
-  "Nottoway County": 51135
-  "Patrick County": 51141
-  "Pittsylvania County": 51143
-  "Prince Edward County": 51147
-  "Southampton County": 51175
-  "Suffolk City": 51800
-  "Sussex County": 51183
+# Virginia localities known to be covered
+# Maps canonical locality name to {fips, is_eligible}
+virginia_localities:
+  "Amelia County": {fips: 51007, is_eligible: true}
+  "Amherst County": {fips: 51009, is_eligible: true}
+  "Appomattox County": {fips: 51011, is_eligible: true}
+  "Brunswick County": {fips: 51025, is_eligible: true}
+  "Buckingham County": {fips: 51029, is_eligible: true}
+  "Campbell County": {fips: 51031, is_eligible: true}
+  "Cumberland County": {fips: 51049, is_eligible: true}
+  "Danville City": {fips: 51595, is_eligible: true}
+  "Emporia City": {fips: 51600, is_eligible: true}
+  "Franklin City": {fips: 51630, is_eligible: true}
+  "Greensville County": {fips: 51081, is_eligible: true}
+  "Halifax County": {fips: 51083, is_eligible: true}
+  "Henry County": {fips: 51089, is_eligible: true}
+  "Isle of Wight County": {fips: 51093, is_eligible: true}
+  "Lunenburg County": {fips: 51111, is_eligible: true}
+  "Lynchburg City": {fips: 51680, is_eligible: true}
+  "Martinsville City": {fips: 51690, is_eligible: true}
+  "Mecklenburg County": {fips: 51117, is_eligible: true}
+  "Nottoway County": {fips: 51135, is_eligible: true}
+  "Patrick County": {fips: 51141, is_eligible: true}
+  "Pittsylvania County": {fips: 51143, is_eligible: true}
+  "Prince Edward County": {fips: 51147, is_eligible: true}
+  "Southampton County": {fips: 51175, is_eligible: true}
+  "Suffolk City": {fips: 51800, is_eligible: true}
+  "Sussex County": {fips: 51183, is_eligible: true}
+  "Virginia Beach City": {fips: 51810, is_eligible: true}
+
+# Official-name normalizations only. Bare locality names are suggestions,
+# not exact matches, and require caller confirmation before coverage is stored.
+official_name_normalizations:
+  "Virginia Beach": "Virginia Beach City"
+
+# Ambiguous names — short names that map to multiple possible Virginia localities
+# When a user gives an ambiguous name, the system prompts them to disambiguate
+# Only Franklin County here is not a configured locality; it will follow unresolved referral behavior
+ambiguous_names:
+  "franklin": ["Franklin City", "Franklin County"]
 
 # Income category names for LegalServer matter_income field
 # Used as category labels in income records
@@ -37,6 +50,7 @@ income_categories:
   - "Trust/Dividends/Annuity"
   - "Child Support"
   - "Employment"
+  - "Food Stamps"
   - "Other"
   - "Pension/Retirement (Not Soc. Sec.)"
   - "Social Security Disability"
@@ -109,7 +123,7 @@ legal_problem_codes:
   "Other Juvenile": "49 Other Juvenile"
   "Medicaid": "51 Medicaid"
   "Medicare": "52 Medicare"
-  "Goverment Children's Health Insurance Programs": "53 Goverment Children's Health Insurance Programs"
+  "Government Children's Health Insurance Programs": "53 Government Children's Health Insurance Programs"
   "Home and Community Based Care": "54 Home and Community Based Care"
   "Private Health Insurance": "55 Private Health Insurance"
   "Long Term Health Care Facilities": "56 Long Term Health Care Facilities"
@@ -132,7 +146,7 @@ legal_problem_codes:
   "Unemployment Compensation": "76 Unemployment Compensation"
   "Veterans Benefits": "77 Veterans Benefits"
   "State and Local Income Maintenance": "78 State and Local Income Maintenance"
-  "Other Income Maintenence": "79 Other Income Maintenence"
+  "Other Income Maintenance": "79 Other Income Maintenance"
   "Immigration/Naturalization": "81 Immigration/Naturalization"
   "Mental Health": "82 Mental Health"
   "Disability Rights": "84 Disability Rights"

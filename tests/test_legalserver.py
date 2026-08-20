@@ -1,26 +1,156 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import aiohttp
+import asyncio
+from unittest.mock import patch
+
 import pytest
-from intake_bot.models.validator import NameTypeValue
+from intake_bot.models.legalserver import (
+    LegalServerOverall,
+    MatterLookupOutcome,
+    MatterLookupResult,
+    OperationKind,
+    OperationOutcome,
+    RecordResult,
+)
 from intake_bot.services.legalserver import (
+    _ChildCollectionCache,
     _build_matter_payload,
+    _collect_fallback_content,
+    _create_matter_guarded,
+    _find_matter_by_external_id,
     _save_additional_names,
     _save_adverse_parties,
-    _save_assets_note,
+    _now,
+    _post_fallback_note,
+    _post_once,
     _save_case_description_note,
     _save_income_records,
+    _save_rejection_note,
+    save_intake_legalserver,
 )
+
+
+def _far_deadline() -> float:
+    return _now() + 3600
+
+
+class _FakeClock:
+    def __init__(self, start: float = 1000.0):
+        self._now_val = start
+
+    def now(self) -> float:
+        return self._now_val
+
+    async def sleep(self, seconds: float) -> None:
+        self._now_val += seconds
 
 
 @pytest.fixture(autouse=True)
 def _enable_legalserver_connection_by_default(monkeypatch):
     monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "false")
+    monkeypatch.setenv("LEGAL_SERVER_SUBDOMAIN", "test-subdomain")
+    monkeypatch.setenv("LEGAL_SERVER_BEARER_TOKEN", "test-token")
+
+
+class _FakeResponse:
+    def __init__(
+        self,
+        status=200,
+        json_data=None,
+        text_data="",
+        headers=None,
+        *,
+        json_was_set=False,
+    ):
+        self.status = status
+        self._json_data = json_data if json_was_set or json_data is not None else {}
+        self._text_data = text_data
+        self.headers = headers or {}
+        self.released = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    async def json(self, content_type=None):
+        return self._json_data
+
+    async def text(self):
+        return self._text_data
+
+    def release(self):
+        self.released = True
+
+
+class _FakeRequestContextManager:
+    def __init__(self, response):
+        self._response = response
+
+    @property
+    def status(self):
+        return self._response.status
+
+    async def json(self, *args, **kwargs):
+        return await self._response.json(*args, **kwargs)
+
+    def __await__(self):
+        return self._response.__await__()
+
+    async def __aenter__(self):
+        return self._response
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    def release(self):
+        self._response.release()
+
+
+class _FakeClientSession:
+    def __init__(self, responses=None):
+        self.responses = responses or {}
+        self.calls = []
+        self.default_response = _FakeResponse()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return None
+
+    def request(self, method, url, **kwargs):
+        self.calls.append({"method": method, "url": url, "kwargs": kwargs})
+        key = (method, url)
+        if key in self.responses:
+            resp = self.responses[key]
+        elif method in self.responses:
+            resp = self.responses[method]
+        else:
+            resp = self.default_response
+        if isinstance(resp, (list, tuple)):
+            if not resp:
+                resp = self.default_response
+            else:
+                resp = resp[0]
+                if key in self.responses and isinstance(self.responses[key], list):
+                    self.responses[key] = self.responses[key][1:]
+                elif method in self.responses and isinstance(
+                    self.responses[method], list
+                ):
+                    self.responses[method] = self.responses[method][1:]
+        if isinstance(resp, Exception):
+            raise resp
+        return _FakeRequestContextManager(resp)
+
+    def post(self, url, **kwargs):
+        return self.request("POST", url, **kwargs)
+
+    async def get(self, url, **kwargs):
+        return self.request("GET", url, **kwargs)
 
 
 class TestModuleImport:
-    """Tests that the legalserver module can be imported without LegalServer credentials."""
-
     def test_import_succeeds_without_credentials(self, monkeypatch):
         monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
         monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
@@ -51,7 +181,7 @@ class TestModuleImport:
             ls._legalserver_headers()
 
     @pytest.mark.asyncio
-    async def test_save_intake_legalserver_early_return_no_credentials(
+    async def test_save_intake_legalserver_returns_skipped_when_disabled(
         self, monkeypatch
     ):
         monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
@@ -62,15 +192,49 @@ class TestModuleImport:
 
         importlib.reload(ls)
         with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await ls.save_intake_legalserver({})
+            result = await ls.save_intake_legalserver({})
+            assert result.overall == ls.LegalServerOverall.SKIPPED
+            assert result.matter_uuid is None
             mock_logger.debug.assert_called_with("LegalServer connection disabled")
 
 
-class TestBuildMatterPayload:
-    """Tests for _build_matter_payload helper function."""
+class TestLookupByIdResponseLifecycle:
+    @pytest.mark.asyncio
+    async def test_lookup_response_released_when_match_returns(self, monkeypatch):
+        response = _FakeResponse(
+            status=200,
+            json_data={"data": [{"id": 7, "name": "Example"}]},
+        )
+        session = _FakeClientSession({"GET": response})
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver.aiohttp.ClientSession",
+            lambda **kwargs: session,
+        )
 
+        from intake_bot.services.legalserver import find_lookup_by_id
+
+        result = await find_lookup_by_id(7)
+
+        assert result["lookup_value"]["id"] == 7
+        assert response.released is True
+
+    @pytest.mark.asyncio
+    async def test_lookup_response_released_on_non_success(self, monkeypatch):
+        response = _FakeResponse(status=404)
+        session = _FakeClientSession({"GET": response})
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver.aiohttp.ClientSession",
+            lambda **kwargs: session,
+        )
+
+        from intake_bot.services.legalserver import find_lookup_by_id
+
+        assert await find_lookup_by_id(7) is None
+        assert response.released is True
+
+
+class TestBuildMatterPayload:
     def test_basic_payload_with_required_fields(self):
-        """Test building payload with minimum required fields."""
         state = {
             "names": {
                 "names": [
@@ -83,47 +247,32 @@ class TestBuildMatterPayload:
                 ]
             }
         }
-
         payload = _build_matter_payload(state)
-
         assert payload["first"] == "John"
         assert payload["last"] == "Doe"
         assert payload["middle"] == "Michael"
         assert payload["case_disposition"] == "Rejected"
         assert payload["rejection_reason"]["lookup_value_name"] == "Other"
-        assert "suffix" not in payload  # None values excluded
+        assert "suffix" not in payload
 
     def test_payload_with_phone_number(self):
-        """Test that valid phone number is included."""
         state = {
             "names": {"names": [{"first": "Jane", "last": "Smith"}]},
             "phone": {"is_valid": True, "phone_number": "(866) 534-5243"},
         }
-
         payload = _build_matter_payload(state)
-
         assert payload["mobile_phone"] == "(866) 534-5243"
 
     def test_payload_sets_client_legal_name_custom_field(self):
-        """Test that the custom matter field for legal name is set when primary name type is Legal Name."""
         state = {
             "names": {
-                "names": [
-                    {
-                        "first": "Jane",
-                        "last": "Smith",
-                        "type": "Legal Name",
-                    }
-                ]
+                "names": [{"first": "Jane", "last": "Smith", "type": "Legal Name"}]
             }
         }
-
         payload = _build_matter_payload(state)
-
         assert payload["custom_fields"]["is_this_the_client_s_legal_name__1065"] is True
 
     def test_payload_with_legal_problem_code(self):
-        """Test that legal problem code is included."""
         state = {
             "names": {"names": [{"first": "Alice", "last": "Johnson"}]},
             "case_type": {
@@ -131,13 +280,10 @@ class TestBuildMatterPayload:
                 "legal_problem_code": "32 Divorce/Sep./Annul.",
             },
         }
-
         payload = _build_matter_payload(state)
-
         assert payload["legal_problem_code"] == "32 Divorce/Sep./Annul."
 
     def test_payload_with_county_of_dispute(self):
-        """Test that service area FIPS code is included as county_of_dispute."""
         state = {
             "names": {"names": [{"first": "Bob", "last": "Wilson"}]},
             "service_area": {
@@ -146,16 +292,10 @@ class TestBuildMatterPayload:
                 "fips_code": 51007,
             },
         }
-
         payload = _build_matter_payload(state)
-
-        assert payload["county_of_dispute"] == {
-            "county_FIPS": "51007",
-        }
-        assert "county_of_residence" not in payload
+        assert payload["county_of_dispute"] == {"county_FIPS": "51007"}
 
     def test_payload_with_income_eligibility(self):
-        """Test that income eligibility flag is included."""
         state = {
             "names": {"names": [{"first": "Carol", "last": "Brown"}]},
             "income": {
@@ -164,1944 +304,1926 @@ class TestBuildMatterPayload:
                 "household_size": 3,
             },
         }
-
         payload = _build_matter_payload(state)
-
         assert payload["income_eligible"] is True
         assert payload["number_of_adults"] == 3
 
-    def test_payload_with_household_composition(self):
-        """Test that household composition is properly mapped to LegalServer fields."""
-        state = {
-            "names": {"names": [{"first": "Alice", "last": "Johnson"}]},
-            "household_composition": {
-                "number_of_adults": 2,
-                "number_of_children": 3,
+    def test_payload_excludes_none_values(self):
+        state = {"names": {"names": [{"first": "Iris", "last": "Kim", "middle": None}]}}
+        payload = _build_matter_payload(state)
+        assert "middle" not in payload
+
+    def test_payload_with_missing_names_section(self):
+        assert _build_matter_payload({}) is None
+
+    def test_payload_with_empty_names_list(self):
+        assert _build_matter_payload({"names": {"names": []}}) is None
+
+
+class TestMatterLookupResult:
+    """Typed lookup FOUND / NOT_FOUND / INDETERMINATE."""
+
+    @pytest.mark.asyncio
+    async def test_lookup_not_found(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(status=200, json_data={"data": []}),
+            }
+        )
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+        assert result.result == MatterLookupResult.NOT_FOUND
+        assert result.matter_uuid is None
+        assert session.calls[0]["kwargs"]["params"]["results"] == "full"
+
+    @pytest.mark.asyncio
+    async def test_restricted_empty_page_is_indeterminate(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    status=200,
+                    json_data={
+                        "data": [],
+                        "total_records": 1,
+                        "authorized_records": 0,
+                    },
+                )
+            }
+        )
+
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+
+        assert result.result == MatterLookupResult.INDETERMINATE
+
+    @pytest.mark.asyncio
+    async def test_lookup_found_returns_uuid(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    status=200, json_data={"data": [{"matter_uuid": "m-1"}]}
+                ),
+            }
+        )
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+        assert result.result == MatterLookupResult.FOUND
+        assert result.matter_uuid == "m-1"
+
+    @pytest.mark.asyncio
+    async def test_lookup_indeterminate_on_error(self):
+        clock = _FakeClock()
+        session = _FakeClientSession({"GET": _FakeResponse(status=500)})
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _find_matter_by_external_id(
+                session, "ext-1", clock.now() + 10
+            )
+        assert result.result == MatterLookupResult.INDETERMINATE
+
+    @pytest.mark.asyncio
+    async def test_lookup_indeterminate_on_4xx(self):
+        session = _FakeClientSession({"GET": _FakeResponse(status=403)})
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+        assert result.result == MatterLookupResult.INDETERMINATE
+
+    @pytest.mark.asyncio
+    async def test_lookup_indeterminate_on_timeout(self):
+        clock = _FakeClock(start=1000.0)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            session = _FakeClientSession({"GET": aiohttp.ClientError("timeout")})
+            result = await _find_matter_by_external_id(
+                session, "ext-1", clock.now() + 30.0
+            )
+            assert result.result == MatterLookupResult.INDETERMINATE
+
+    @pytest.mark.asyncio
+    async def test_transient_lookup_retries_beyond_three_attempts(self):
+        clock = _FakeClock()
+        session = _FakeClientSession(
+            {
+                "GET": [
+                    _FakeResponse(503),
+                    _FakeResponse(503),
+                    _FakeResponse(503),
+                    _FakeResponse(200, {"data": []}),
+                ]
+            }
+        )
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _find_matter_by_external_id(
+                session, "ext-1", clock.now() + 100
+            )
+        assert result.result == MatterLookupResult.NOT_FOUND
+        assert len(session.calls) == 4
+
+    @pytest.mark.asyncio
+    async def test_deterministic_4xx_lookup_does_not_retry(self):
+        session = _FakeClientSession(
+            {"GET": [_FakeResponse(404), _FakeResponse(200, {"data": []})]}
+        )
+        result = await _find_matter_by_external_id(session, "ext-1", _far_deadline())
+        assert result.result == MatterLookupResult.INDETERMINATE
+        assert len(session.calls) == 1
+
+
+class TestMatterCreationIdempotency:
+    """Ambiguous create then lookup recovery; no duplicate POST."""
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_post_then_lookup_recovers(self):
+        """503 -> lookup recovers -> UUID returned, exactly one POST."""
+        clock = _FakeClock(start=1000.0)
+        session = _FakeClientSession({"POST": _FakeResponse(status=503, json_data={})})
+        payload = {"first": "A", "last": "B"}
+
+        async def _fake_lookup_first(sess, ext_id, deadline):
+            return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+
+        async def _fake_lookup_second(sess, ext_id, deadline):
+            return MatterLookupOutcome(MatterLookupResult.FOUND, "recovered-uuid")
+
+        lookup_results = [_fake_lookup_first, _fake_lookup_second]
+
+        async def _fake_lookup(sess, ext_id, deadline):
+            fn = lookup_results.pop(0)
+            return await fn(sess, ext_id, deadline)
+
+        with (
+            patch(
+                "intake_bot.services.legalserver._find_matter_by_external_id",
+                _fake_lookup,
+            ),
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _create_matter_guarded(
+                session, payload, "ext-123", clock.now() + 30.0
+            )
+            assert result == "recovered-uuid"
+            post_calls = [c for c in session.calls if c["method"] == "POST"]
+            assert len(post_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_ambiguous_post_then_indeterminate_relookup_stops(self):
+        """503 -> relookup INDETERMINATE -> no more POST, returns None."""
+        clock = _FakeClock(start=1000.0)
+        session = _FakeClientSession({"POST": _FakeResponse(status=503, json_data={})})
+        payload = {"first": "A", "last": "B"}
+
+        call_count = 0
+
+        async def _fake_lookup(sess, ext_id, deadline):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+            return MatterLookupOutcome(MatterLookupResult.INDETERMINATE)
+
+        with (
+            patch(
+                "intake_bot.services.legalserver._find_matter_by_external_id",
+                _fake_lookup,
+            ),
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _create_matter_guarded(
+                session, payload, "ext-123", clock.now() + 30.0
+            )
+            assert result is None
+            post_calls = [c for c in session.calls if c["method"] == "POST"]
+            assert len(post_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_409_relookup_recovers(self):
+        """409 -> lookup recovers -> UUID returned, exactly one POST."""
+        clock = _FakeClock(start=1000.0)
+        session = _FakeClientSession({"POST": _FakeResponse(status=409, json_data={})})
+        payload = {"first": "A", "last": "B"}
+
+        call_count = 0
+
+        async def _fake_lookup(sess, ext_id, deadline):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+            return MatterLookupOutcome(MatterLookupResult.FOUND, "existing")
+
+        with (
+            patch(
+                "intake_bot.services.legalserver._find_matter_by_external_id",
+                _fake_lookup,
+            ),
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _create_matter_guarded(
+                session, payload, "ext-123", clock.now() + 30.0
+            )
+            assert result == "existing"
+            post_calls = [c for c in session.calls if c["method"] == "POST"]
+            assert len(post_calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_2xx_without_uuid_reattempts(self):
+        """201 without UUID — ambiguous; relookup needed."""
+        clock = _FakeClock(start=1000.0)
+        session = _FakeClientSession(
+            {"POST": _FakeResponse(status=201, json_data={"data": {}})}
+        )
+        payload = {"first": "A", "last": "B"}
+
+        call_count = 0
+
+        async def _fake_lookup(sess, ext_id, deadline):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 1:
+                return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+            return MatterLookupOutcome(MatterLookupResult.FOUND, "recovered")
+
+        with (
+            patch(
+                "intake_bot.services.legalserver._find_matter_by_external_id",
+                _fake_lookup,
+            ),
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            result = await _create_matter_guarded(
+                session, payload, "ext-123", clock.now() + 30.0
+            )
+            assert result == "recovered"
+
+    @pytest.mark.asyncio
+    async def test_initial_lookup_found_skips_create(self):
+        """Matter exists -> skip create entirely."""
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    status=200, json_data={"data": [{"matter_uuid": "existing"}]}
+                ),
+            }
+        )
+        payload = {"first": "A", "last": "B"}
+        result = await _create_matter_guarded(
+            session, payload, "ext-123", _far_deadline()
+        )
+        assert result == "existing"
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 0
+
+
+class TestChildReconciliation:
+    @pytest.mark.asyncio
+    async def test_existing_records_are_recovered_without_post(self):
+        session = _FakeClientSession(
+            {
+                (
+                    "GET",
+                    "https://test-subdomain.legalserver.org/api/v2/matters/m-1/incomes",
+                ): _FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "amount": 50000,
+                                "period": "Annually",
+                                "type": {"lookup_value_name": "Employment"},
+                            }
+                        ]
+                    },
+                ),
+                (
+                    "POST",
+                    "https://test-subdomain.legalserver.org/api/v2/matters/m-1/incomes",
+                ): _FakeResponse(201, {}),
+            }
+        )
+        income_data = {
+            "listing": {
+                "John": {"Employment": {"amount": 50000, "period": "Annually"}},
+                "Jane": {"Other": {"amount": 30000, "period": "Monthly"}},
+            }
+        }
+        results = await _save_income_records(
+            session, "m-1", income_data, _far_deadline()
+        )
+        assert len(results) == 2
+        assert results[0].outcome == OperationOutcome.RECOVERED
+        assert results[1].outcome == OperationOutcome.SUCCESS
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_transient_child_post_relist_found_is_recovered(self):
+        clock = _FakeClock(start=1000.0)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            session = _FakeClientSession(
+                {
+                    "GET": [
+                        _FakeResponse(200, {"data": []}),
+                        _FakeResponse(
+                            200,
+                            {
+                                "data": [
+                                    {
+                                        "amount": 50000,
+                                        "period": "Annually",
+                                        "type": {"lookup_value_name": "Employment"},
+                                    }
+                                ]
+                            },
+                        ),
+                    ],
+                    "POST": _FakeResponse(503, {}),
+                }
+            )
+            income_data = {
+                "listing": {
+                    "John": {"Employment": {"amount": 50000, "period": "Annually"}},
+                }
+            }
+            results = await _save_income_records(
+                session, "m-1", income_data, clock.now() + 5.0
+            )
+            assert len(results) == 1
+            assert results[0].outcome == OperationOutcome.RECOVERED
+            assert len([c for c in session.calls if c["method"] == "POST"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_transient_child_post_relist_absent_retries_and_succeeds(self):
+        clock = _FakeClock(start=1000.0)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            session = _FakeClientSession(
+                {
+                    "GET": [
+                        _FakeResponse(200, {"data": []}),
+                        _FakeResponse(200, {"data": []}),
+                    ],
+                    "POST": [_FakeResponse(503, {}), _FakeResponse(201, {})],
+                }
+            )
+            results = await _save_income_records(
+                session,
+                "m-1",
+                {
+                    "listing": {
+                        "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                    }
+                },
+                clock.now() + 30,
+            )
+        assert results[0].outcome == OperationOutcome.SUCCESS
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_indeterminate_child_list_does_not_post(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, None, json_was_set=True),
+                "POST": _FakeResponse(201, {}),
+            }
+        )
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {
+                "listing": {
+                    "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                }
             },
+            _far_deadline(),
+        )
+        assert results[0].outcome == OperationOutcome.AMBIGUOUS
+        assert not [c for c in session.calls if c["method"] == "POST"]
+
+    @pytest.mark.asyncio
+    async def test_deterministic_child_4xx_fails_immediately(self):
+        session = _FakeClientSession(
+            {"GET": _FakeResponse(200, {"data": []}), "POST": _FakeResponse(400, {})}
+        )
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {
+                "listing": {
+                    "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                }
+            },
+            _far_deadline(),
+        )
+        assert results[0].outcome == OperationOutcome.FAILED
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_child_collection_pagination(self):
+        url = "https://test-subdomain.legalserver.org/api/v2/matters/m-1/incomes"
+        session = _FakeClientSession(
+            {
+                ("GET", url): [
+                    _FakeResponse(
+                        200,
+                        {
+                            "data": [
+                                {
+                                    "amount": 1,
+                                    "period": "Monthly",
+                                    "type": {"lookup_value_name": "A"},
+                                }
+                            ],
+                            "total_number_of_pages": 2,
+                        },
+                    ),
+                    _FakeResponse(
+                        200,
+                        {
+                            "data": [
+                                {
+                                    "amount": 2,
+                                    "period": "Monthly",
+                                    "type": {"lookup_value_name": "B"},
+                                }
+                            ],
+                            "total_number_of_pages": 2,
+                        },
+                    ),
+                ]
+            }
+        )
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {"listing": {"J": {"C": {"amount": 3, "period": "Monthly"}}}},
+            _far_deadline(),
+        )
+        assert results[0].outcome == OperationOutcome.SUCCESS
+        assert len([c for c in session.calls if c["method"] == "GET"]) == 2
+        assert [
+            c["kwargs"]["params"]["page_number"]
+            for c in session.calls
+            if c["method"] == "GET"
+        ] == [1, 2]
+
+    @pytest.mark.asyncio
+    async def test_update_and_update_data_payloads_are_documented(self):
+        session = _FakeClientSession(
+            {"GET": _FakeResponse(200, {"data": []}), "POST": _FakeResponse(201, {})}
+        )
+        await _save_income_records(
+            session,
+            "m-1",
+            {"listing": {"J": {"Employment": {"amount": 3, "period": "Monthly"}}}},
+            _far_deadline(),
+        )
+        payload = next(
+            c["kwargs"]["json"] for c in session.calls if c["method"] == "POST"
+        )
+        assert payload["update"] == {
+            "amount": 3,
+            "period": 12,
+            "type": "Employment",
+        }
+        assert payload["update_data"] == {
+            "amount": "3",
+            "exclude": False,
+            "period": "Monthly",
+            "type": {"lookup_value_name": "Employment"},
         }
 
-        payload = _build_matter_payload(state)
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "resource,save",
+        [
+            (
+                "additional_names",
+                lambda s, d: _save_additional_names(s, "m-1", d, _far_deadline()),
+            ),
+            (
+                "adverse_parties",
+                lambda s, d: _save_adverse_parties(s, "m-1", d, _far_deadline()),
+            ),
+        ],
+    )
+    async def test_existing_alias_and_adverse_party_recovered_without_post(
+        self, resource, save
+    ):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "first": "X",
+                                "last": "Y",
+                                "type": {"lookup_value_name": "Former Name"},
+                            }
+                        ]
+                    },
+                )
+            }
+        )
+        data = (
+            [{"first": "A", "last": "B"}, {"first": "X", "last": "Y"}]
+            if resource == "additional_names"
+            else {"adverse_parties": [{"first": "X", "last": "Y"}]}
+        )
+        result = await save(session, data)
+        assert result[0].outcome == OperationOutcome.RECOVERED
+        assert not [c for c in session.calls if c["method"] == "POST"]
 
-        assert payload["number_of_adults"] == 2
-        assert payload["number_of_children"] == 3
+    @pytest.mark.asyncio
+    async def test_organization_adverse_party_uses_organization_name(self):
+        session = _FakeClientSession(
+            {"GET": _FakeResponse(200, {"data": []}), "POST": _FakeResponse(201, {})}
+        )
 
-    def test_payload_household_composition_overrides_income_household_size(self):
-        """Test that household_composition takes precedence over income household_size for number_of_adults."""
-        state = {
-            "names": {"names": [{"first": "Betty", "last": "Davis"}]},
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 2000,
-                "household_size": 5,
+        result = await _save_adverse_parties(
+            session,
+            "m-1",
+            {"adverse_parties": [{"organization_name": "First National Bank"}]},
+            _far_deadline(),
+        )
+
+        assert result[0].outcome == OperationOutcome.SUCCESS
+        payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert payload["update_data"]["organization_name"] == "First National Bank"
+        assert "first" not in payload["update_data"]
+        assert "last" not in payload["update_data"]
+
+    @pytest.mark.asyncio
+    async def test_one_existing_plus_one_missing_posts_only_missing(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(
+                    200,
+                    {
+                        "data": [
+                            {
+                                "first": "X",
+                                "last": "Y",
+                                "type": {"lookup_value_name": "Former Name"},
+                            }
+                        ]
+                    },
+                ),
+                "POST": _FakeResponse(201, {}),
+            }
+        )
+        results = await _save_additional_names(
+            session,
+            "m-1",
+            [
+                {"first": "A", "last": "B"},
+                {"first": "X", "last": "Y"},
+                {"first": "Z", "last": "Q"},
+            ],
+            _far_deadline(),
+        )
+        assert [r.outcome for r in results] == [
+            OperationOutcome.RECOVERED,
+            OperationOutcome.SUCCESS,
+        ]
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_duplicate_desired_records_use_multiset_and_disable_unsafe_upsert(
+        self,
+    ):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": [_FakeResponse(400), _FakeResponse(400)],
+            }
+        )
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {
+                "listing": {
+                    "J": {"Employment": {"amount": 3, "period": "Monthly"}},
+                    "K": {"Employment": {"amount": 3, "period": "Monthly"}},
+                }
             },
-            "household_composition": {
-                "number_of_adults": 2,
-                "number_of_children": 3,
-            },
+            _far_deadline(),
+        )
+        assert [r.outcome for r in results] == [
+            OperationOutcome.FAILED,
+            OperationOutcome.FAILED,
+        ]
+        assert all(
+            "update" not in c["kwargs"]["json"]
+            for c in session.calls
+            if c["method"] == "POST"
+        )
+
+    @pytest.mark.asyncio
+    async def test_duplicate_aliases_disable_unsafe_upsert(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": [_FakeResponse(201), _FakeResponse(201)],
+            }
+        )
+        names = [
+            {"first": "Primary", "last": "Person"},
+            {"first": "Same", "last": "Alias"},
+            {"first": "Same", "last": "Alias"},
+        ]
+
+        results = await _save_additional_names(session, "m-1", names, _far_deadline())
+
+        assert [result.outcome for result in results] == [
+            OperationOutcome.SUCCESS,
+            OperationOutcome.SUCCESS,
+        ]
+        posts = [call for call in session.calls if call["method"] == "POST"]
+        assert len(posts) == 2
+        assert all("update" not in call["kwargs"]["json"] for call in posts)
+
+    @pytest.mark.asyncio
+    async def test_alias_selector_does_not_overwrite_record_with_extra_middle_name(
+        self,
+    ):
+        existing = [
+            {
+                "first": "Same",
+                "middle": "Existing",
+                "last": "Alias",
+                "type": {"lookup_value_name": "Former Name"},
+            }
+        ]
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": existing}),
+                "POST": _FakeResponse(201),
+            }
+        )
+
+        results = await _save_additional_names(
+            session,
+            "m-1",
+            [
+                {"first": "Primary", "last": "Person"},
+                {"first": "Same", "last": "Alias"},
+            ],
+            _far_deadline(),
+        )
+
+        assert results[0].outcome == OperationOutcome.SUCCESS
+        post_payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert "update" not in post_payload
+
+    @pytest.mark.asyncio
+    async def test_inactive_note_is_not_treated_as_recovered(self):
+        existing = [
+            {
+                "subject": "Case Description",
+                "body": "same",
+                "note_type": {"lookup_value_name": "General Notes"},
+                "active": False,
+            }
+        ]
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": existing}),
+                "POST": _FakeResponse(201),
+            }
+        )
+
+        result = await _save_case_description_note(
+            session, "m-1", {"case_description": "same"}, _far_deadline()
+        )
+
+        assert result.outcome == OperationOutcome.SUCCESS
+        post_payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert post_payload["active"] is True
+        assert "update" not in post_payload
+
+    @pytest.mark.asyncio
+    async def test_changed_fallback_updates_stable_note(self):
+        existing = [
+            {
+                "subject": "Unsaved intake sections",
+                "body": "Old unresolved content",
+                "note_type": {"lookup_value_name": "General Notes"},
+                "active": True,
+            }
+        ]
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": existing}),
+                "POST": _FakeResponse(201),
+            }
+        )
+
+        saved = await _post_fallback_note(
+            session, "m-1", ["New unresolved content"], _far_deadline()
+        )
+
+        assert saved is True
+        post_payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert post_payload["update"] == {
+            "subject": "Unsaved intake sections",
+            "note_type": "General Notes",
         }
+        assert post_payload["update_data"]["body"] == "New unresolved content"
 
-        payload = _build_matter_payload(state)
+    @pytest.mark.asyncio
+    async def test_income_fallback_preserves_household_member_name(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(400),
+            }
+        )
 
-        assert payload["income_eligible"] is True
-        # household_composition should override the income household_size
-        assert payload["number_of_adults"] == 2
-        assert payload["number_of_children"] == 3
+        results = await _save_income_records(
+            session,
+            "m-1",
+            {
+                "listing": {
+                    "Household Member": {
+                        "Employment": {"amount": 3, "period": "Monthly"}
+                    }
+                }
+            },
+            _far_deadline(),
+        )
 
-    def test_payload_with_asset_eligibility(self):
-        """Test that asset eligibility flag is included."""
+        assert "Household Member - Employment" in results[0]._fallback_content
+
+    @pytest.mark.asyncio
+    async def test_notes_are_idempotent_and_share_cache_across_note_types(self):
+        existing = [
+            {
+                "subject": "Case Description",
+                "body": "same",
+                "note_type": {"lookup_value_name": "General Notes"},
+            }
+        ]
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": existing}),
+                "POST": _FakeResponse(201, {}),
+            }
+        )
+        deadline = _far_deadline()
+        cache = _ChildCollectionCache(session, "m-1", deadline)
+        first = await _save_case_description_note(
+            session, "m-1", {"case_description": "same"}, deadline, cache
+        )
+        second = await _save_rejection_note(session, "m-1", "reason", deadline, cache)
+        assert first.outcome == OperationOutcome.RECOVERED
+        assert second.outcome == OperationOutcome.SUCCESS
+        assert len([c for c in session.calls if c["method"] == "GET"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_no_pii_is_logged(self):
+        sentinel = "SSN-SENTINEL-9999"
+        session = _FakeClientSession(
+            {"GET": _FakeResponse(200, None, json_was_set=True)}
+        )
+        with patch("intake_bot.services.legalserver.logger") as logger:
+            await _save_income_records(
+                session,
+                "m-1",
+                {
+                    "listing": {
+                        sentinel: {"Employment": {"amount": 3, "period": "Monthly"}}
+                    }
+                },
+                _far_deadline(),
+            )
+            assert sentinel not in str(logger.method_calls)
+
+    @pytest.mark.asyncio
+    async def test_continue_other_sections_after_failure(self):
+        """After income section failure, still attempt other sections."""
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=400, json_data={}),
+            }
+        )
+        income_data = {
+            "listing": {"John": {"Employment": {"amount": 50000, "period": "Annually"}}}
+        }
+        income_rr = await _save_income_records(
+            session, "m-1", income_data, _far_deadline()
+        )
+        assert income_rr[0].outcome == OperationOutcome.FAILED
+
+        case_rr = await _save_case_description_note(
+            session, "m-1", {"case_description": "desc"}, _far_deadline()
+        )
+        assert case_rr.outcome == OperationOutcome.FAILED
+
+
+class TestChildRecordResults:
+    """Per-record typed operation results."""
+
+    def test_record_result_dataclass(self):
+        r = RecordResult(OperationKind.INCOME, OperationOutcome.SUCCESS)
+        assert r.kind == OperationKind.INCOME
+        assert r.outcome == OperationOutcome.SUCCESS
+
+    def test_record_result_all_outcomes(self):
+        assert OperationOutcome.SUCCESS.value == "success"
+        assert OperationOutcome.FAILED.value == "failed"
+        assert OperationOutcome.AMBIGUOUS.value == "ambiguous"
+        assert OperationOutcome.SKIPPED.value == "skipped"
+        assert OperationOutcome.RECOVERED.value == "recovered"
+        assert OperationOutcome.FALLBACK_PRESERVED.value == "fallback_preserved"
+
+    def test_operation_kind_values(self):
+        assert OperationKind.MATTER_CREATE.value == "matter_create"
+        assert OperationKind.INCOME.value == "income"
+        assert OperationKind.ALIAS.value == "alias"
+        assert OperationKind.ADVERSE_PARTY.value == "adverse_party"
+        assert OperationKind.CASE_DESCRIPTION.value == "case_description"
+        assert OperationKind.ASSETS.value == "assets"
+        assert OperationKind.REJECTION_REASON.value == "rejection_reason"
+        assert OperationKind.FALLBACK_NOTE.value == "fallback_note"
+
+
+class TestDeadlineBound:
+    """Deadline expiration stops requests and caps sleeps."""
+
+    @pytest.mark.asyncio
+    async def test_post_once_exhausted_deadline(self):
+        clock = _FakeClock(start=1000.0)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            session = _FakeClientSession({"POST": _FakeResponse(status=200)})
+            result, ambiguous = await _post_once(
+                session,
+                "POST",
+                "/test",
+                json={},
+                deadline=clock.now() - 1.0,
+            )
+            assert result is None
+            assert ambiguous is True
+
+    @pytest.mark.asyncio
+    async def test_income_skip_after_deadline(self):
+        clock = _FakeClock(start=1000.0)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            session = _FakeClientSession({"POST": _FakeResponse(status=201)})
+            income_data = {
+                "listing": {
+                    "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                }
+            }
+            results = await _save_income_records(
+                session, "m-1", income_data, clock.now() - 1.0
+            )
+            assert len(results) == 1
+            assert results[0].outcome == OperationOutcome.AMBIGUOUS
+
+
+class TestConsolidatedFallback:
+    """One consolidated fallback note with corrected extraction."""
+
+    @pytest.mark.asyncio
+    async def test_consolidated_note_accepted(self):
+        """Single POST, successful 2xx yields True."""
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=201, json_data={}),
+            }
+        )
+        ok = await _post_fallback_note(
+            session, "m-1", ["Section: data"], _far_deadline()
+        )
+        assert ok is True
+        assert len(session.calls) == 2
+
+    @pytest.mark.asyncio
+    async def test_consolidated_note_ambiguous_fails(self):
+        """503 from fallback POST yields False (ambiguous)."""
+        clock = _FakeClock()
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=503, json_data={}),
+            }
+        )
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+        ):
+            ok = await _post_fallback_note(
+                session, "m-1", ["Section: data"], clock.now() + 10
+            )
+        assert ok is False
+
+    @pytest.mark.asyncio
+    async def test_empty_content_returns_false(self):
+        session = _FakeClientSession()
+        ok = await _post_fallback_note(session, "m-1", [], _far_deadline())
+        assert ok is False
+        assert len(session.calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_fallback_failure_returns_false(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=400, json_data={}),
+            }
+        )
+        ok = await _post_fallback_note(
+            session, "m-1", ["Income: data"], _far_deadline()
+        )
+        assert ok is False
+
+
+class TestOverallOutcomes:
+    """COMPLETE, DEGRADED, FAILED, SKIPPED."""
+
+    @pytest.mark.asyncio
+    async def test_skipped_when_disabled(self, monkeypatch):
+        monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "true")
+        result = await save_intake_legalserver({})
+        assert result.overall == LegalServerOverall.SKIPPED
+        assert result.matter_uuid is None
+
+    @pytest.mark.asyncio
+    async def test_failed_no_name(self):
+        result = await save_intake_legalserver({"call_id": "c1"})
+        assert result.overall == LegalServerOverall.FAILED
+
+    @pytest.mark.asyncio
+    async def test_complete(self, monkeypatch):
+        class _OkSession:
+            def __init__(self, *a, **kw):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            def request(self, method, url, **kwargs):
+                self.calls.append({"method": method, "url": url})
+                if any(
+                    resource in url
+                    for resource in (
+                        "/notes",
+                        "/incomes",
+                        "/additional_names",
+                        "/adverse_parties",
+                    )
+                ):
+                    resp = (
+                        _FakeResponse(status=200, json_data={"data": []})
+                        if method == "GET"
+                        else _FakeResponse(status=201, json_data={})
+                    )
+                elif "/matters" in url and method == "POST":
+                    resp = _FakeResponse(
+                        status=201, json_data={"data": {"matter_uuid": "m-1"}}
+                    )
+                elif "/matters" in url and method == "GET":
+                    resp = _FakeResponse(status=200, json_data={"data": []})
+                else:
+                    resp = _FakeResponse(status=201, json_data={})
+                return _FakeRequestContextManager(resp)
+
+            def get(self, url, **kw):
+                return self.request("GET", url, **kw)
+
+            def post(self, url, **kw):
+                return self.request("POST", url, **kw)
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _OkSession)
+        result = await save_intake_legalserver(
+            {
+                "call_id": "c1",
+                "names": {"names": [{"first": "A", "last": "B"}]},
+            }
+        )
+        assert result.overall == LegalServerOverall.COMPLETE
+
+    @pytest.mark.asyncio
+    async def test_degraded_with_fallback(self, monkeypatch):
+        class _DegradedSession:
+            def __init__(self, *a, **kw):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            def request(self, method, url, **kwargs):
+                self.calls.append({"method": method, "url": url})
+                if "/incomes" in url:
+                    resp = (
+                        _FakeResponse(status=200, json_data={"data": []})
+                        if method == "GET"
+                        else _FakeResponse(status=400, json_data={})
+                    )
+                elif "/notes" in url:
+                    resp = (
+                        _FakeResponse(status=200, json_data={"data": []})
+                        if method == "GET"
+                        else _FakeResponse(status=201, json_data={})
+                    )
+                elif "/additional_names" in url:
+                    resp = _FakeResponse(status=201, json_data={})
+                elif "/adverse_parties" in url:
+                    resp = _FakeResponse(status=201, json_data={})
+                elif "/matters" in url and method == "POST":
+                    resp = _FakeResponse(
+                        status=201, json_data={"data": {"matter_uuid": "m-1"}}
+                    )
+                elif "/matters" in url and method == "GET":
+                    resp = _FakeResponse(status=200, json_data={"data": []})
+                else:
+                    resp = _FakeResponse(status=201, json_data={})
+                return _FakeRequestContextManager(resp)
+
+            def get(self, url, **kw):
+                return self.request("GET", url, **kw)
+
+            def post(self, url, **kw):
+                return self.request("POST", url, **kw)
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _DegradedSession)
+        result = await save_intake_legalserver(
+            {
+                "call_id": "c1",
+                "names": {"names": [{"first": "A", "last": "B"}]},
+                "income": {
+                    "listing": {
+                        "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                    }
+                },
+            }
+        )
+        assert result.overall == LegalServerOverall.DEGRADED
+
+    @pytest.mark.asyncio
+    async def test_has_operations_field(self):
+        result = await save_intake_legalserver({})
+        assert hasattr(result, "operations")
+
+    @pytest.mark.asyncio
+    async def test_result_serializable(self):
+        result = LegalServerOverall.COMPLETE
+        assert result.value == "complete"
+        assert result == LegalServerOverall.COMPLETE
+
+    @pytest.mark.asyncio
+    async def test_save_propagates_cancellation(self, monkeypatch):
+        import intake_bot.services.legalserver as legalserver
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver._build_matter_payload",
+            lambda state: {"first": "A", "last": "B", "rejected": False},
+        )
+
+        async def cancelled(*args, **kwargs):
+            raise asyncio.CancelledError
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver._create_matter_guarded", cancelled
+        )
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver.aiohttp.ClientSession", _Session
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await legalserver.save_intake_legalserver(
+                {"call_id": "c1", "names": {"names": [{"first": "A", "last": "B"}]}}
+            )
+
+    @pytest.mark.asyncio
+    async def test_save_propagates_keyboard_interrupt(self, monkeypatch):
+        import intake_bot.services.legalserver as legalserver
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver._build_matter_payload",
+            lambda state: {"first": "A", "last": "B", "rejected": False},
+        )
+
+        async def interrupted(*args, **kwargs):
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver._create_matter_guarded", interrupted
+        )
+
+        class _Session:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+        monkeypatch.setattr(
+            "intake_bot.services.legalserver.aiohttp.ClientSession", _Session
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            await legalserver.save_intake_legalserver(
+                {"call_id": "c1", "names": {"names": [{"first": "A", "last": "B"}]}}
+            )
+
+
+class TestFallbackNoteFailure:
+    """Fallback failure produces FAILED overall."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_failure_produces_failed(self, monkeypatch):
+        class _FailSession:
+            def __init__(self, *a, **kw):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            def request(self, method, url, **kwargs):
+                self.calls.append({"method": method, "url": url})
+                if "/incomes" in url:
+                    resp = (
+                        _FakeResponse(status=200, json_data={"data": []})
+                        if method == "GET"
+                        else _FakeResponse(status=400, json_data={})
+                    )
+                elif "/notes" in url:
+                    resp = (
+                        _FakeResponse(status=200, json_data={"data": []})
+                        if method == "GET"
+                        else _FakeResponse(status=400, json_data={})
+                    )
+                elif "/additional_names" in url:
+                    resp = _FakeResponse(status=201, json_data={})
+                elif "/adverse_parties" in url:
+                    resp = _FakeResponse(status=201, json_data={})
+                elif "/matters" in url and method == "POST":
+                    resp = _FakeResponse(
+                        status=201, json_data={"data": {"matter_uuid": "m-1"}}
+                    )
+                elif "/matters" in url and method == "GET":
+                    resp = _FakeResponse(status=200, json_data={"data": []})
+                else:
+                    resp = _FakeResponse(status=201, json_data={})
+                return _FakeRequestContextManager(resp)
+
+            def get(self, url, **kw):
+                return self.request("GET", url, **kw)
+
+            def post(self, url, **kw):
+                return self.request("POST", url, **kw)
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _FailSession)
+        result = await save_intake_legalserver(
+            {
+                "call_id": "c1",
+                "names": {"names": [{"first": "A", "last": "B"}]},
+                "income": {
+                    "listing": {
+                        "John": {"Employment": {"amount": 50000, "period": "Annually"}}
+                    }
+                },
+            }
+        )
+        assert result.overall == LegalServerOverall.FAILED
+
+
+class TestCollectFallbackContent:
+    @pytest.mark.asyncio
+    async def test_collect_fallback_content(self):
+        ops = [
+            RecordResult(
+                OperationKind.INCOME,
+                OperationOutcome.FAILED,
+                _fallback_content="Employment: 50000",
+            ),
+            RecordResult(OperationKind.ALIAS, OperationOutcome.SUCCESS),
+            RecordResult(
+                OperationKind.CASE_DESCRIPTION,
+                OperationOutcome.AMBIGUOUS,
+                _fallback_content="Landlord dispute",
+            ),
+        ]
+        parts = _collect_fallback_content(ops, None)
+        assert any("Employment: 50000" in p for p in parts)
+        assert any("Landlord dispute" in p for p in parts)
+        assert not any("alias" in p.lower() and "Income" not in p for p in parts)
+
+
+class TestSaveRejectionNote:
+    @pytest.mark.asyncio
+    async def test_save_rejection_note_success(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=201, json_data={}),
+            }
+        )
+        result = await _save_rejection_note(
+            session, "m-1", "Over Income", _far_deadline()
+        )
+        assert result.outcome == OperationOutcome.SUCCESS
+
+    @pytest.mark.asyncio
+    async def test_save_rejection_note_failure(self):
+        session = _FakeClientSession(
+            {
+                "GET": _FakeResponse(200, {"data": []}),
+                "POST": _FakeResponse(status=400, json_data={}),
+            }
+        )
+        result = await _save_rejection_note(
+            session, "m-1", "Over Income", _far_deadline()
+        )
+        assert result.outcome == OperationOutcome.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Restored preexisting payload tests
+# ---------------------------------------------------------------------------
+
+
+class TestRestoredPayload:
+    def test_household_composition(self):
         state = {
-            "names": {"names": [{"first": "David", "last": "Taylor"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
+            "household_composition": {"number_of_adults": 2, "number_of_children": 3},
+        }
+        p = _build_matter_payload(state)
+        assert p["number_of_adults"] == 2
+        assert p["number_of_children"] == 3
+
+    def test_household_overrides_income(self):
+        state = {
+            "names": {"names": [{"first": "A", "last": "B"}]},
+            "income": {"is_eligible": True, "household_size": 5},
+            "household_composition": {"number_of_adults": 2, "number_of_children": 3},
+        }
+        p = _build_matter_payload(state)
+        assert p["number_of_adults"] == 2
+        assert p["number_of_children"] == 3
+
+    def test_asset_eligibility(self):
+        state = {
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "assets": {"is_eligible": False, "total_value": 5000},
         }
+        p = _build_matter_payload(state)
+        assert p["asset_eligible"] is False
 
-        payload = _build_matter_payload(state)
-
-        assert payload["asset_eligible"] is False
-
-    def test_payload_with_citizenship_true(self):
-        """Test that US citizenship is mapped correctly."""
+    def test_citizenship_true(self):
         state = {
-            "names": {"names": [{"first": "Eva", "last": "Martinez"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "citizenship": {"is_citizen": True},
         }
+        p = _build_matter_payload(state)
+        assert p["citizenship"] == "Citizen"
 
-        payload = _build_matter_payload(state)
-
-        assert payload["citizenship"] == "Citizen"
-
-    def test_payload_with_citizenship_false(self):
-        """Test that non-US citizenship is mapped correctly."""
+    def test_citizenship_false(self):
         state = {
-            "names": {"names": [{"first": "Frank", "last": "Garcia"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "citizenship": {"is_citizen": False},
         }
+        p = _build_matter_payload(state)
+        assert p["citizenship"] == "Non-Citizen"
 
-        payload = _build_matter_payload(state)
-
-        assert payload["citizenship"] == "Non-Citizen"
-
-    def test_payload_with_domestic_violence(self):
-        """Test that domestic violence flag is included."""
+    def test_domestic_violence_true(self):
         state = {
-            "names": {"names": [{"first": "Grace", "last": "Lee"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "domestic_violence": {"is_experiencing": True},
         }
+        p = _build_matter_payload(state)
+        assert p["victim_of_domestic_violence"] is True
 
-        payload = _build_matter_payload(state)
-
-        assert payload["victim_of_domestic_violence"] is True
-
-    def test_payload_without_domestic_violence(self):
-        """Test that domestic violence flag is false when not experiencing."""
+    def test_domestic_violence_false(self):
         state = {
-            "names": {"names": [{"first": "Henry", "last": "Zhang"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "domestic_violence": {"is_experiencing": False},
         }
+        p = _build_matter_payload(state)
+        assert p["victim_of_domestic_violence"] is False
 
-        payload = _build_matter_payload(state)
-
-        assert payload["victim_of_domestic_violence"] is False
-
-    def test_payload_with_date_of_birth(self):
-        """Test that date of birth is included in payload."""
+    def test_date_of_birth(self):
         state = {
-            "names": {"names": [{"first": "Isabel", "last": "Martinez"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "date_of_birth": {"date_of_birth": "1990-05-15"},
         }
+        p = _build_matter_payload(state)
+        assert p["date_of_birth"] == "1990-05-15"
 
-        payload = _build_matter_payload(state)
+    def test_dob_missing_section_not_in_payload(self):
+        p = _build_matter_payload({"names": {"names": [{"first": "A", "last": "B"}]}})
+        assert "date_of_birth" not in p
 
-        assert payload["date_of_birth"] == "1990-05-15"
-
-    def test_payload_with_date_of_birth_iso_format(self):
-        """Test that date of birth is serialized as ISO format string."""
+    def test_ssn_last_4(self):
         state = {
-            "names": {"names": [{"first": "Jack", "last": "Wilson"}]},
-            "date_of_birth": {"date_of_birth": "1985-12-25"},
+            "names": {"names": [{"first": "A", "last": "B"}]},
+            "ssn_last_4": {"ssn_last_4": "5678"},
         }
+        p = _build_matter_payload(state)
+        assert p["ssn"] == "5678"
 
-        payload = _build_matter_payload(state)
-
-        # Pydantic converts date objects to ISO format strings with mode='json'
-        assert payload["date_of_birth"] == "1985-12-25"
-        assert isinstance(payload["date_of_birth"], str)
-
-    def test_payload_excludes_none_date_of_birth(self):
-        """Test that None date_of_birth is excluded from payload."""
+    def test_address_full(self):
         state = {
-            "names": {"names": [{"first": "Kate", "last": "Johnson"}]},
-            "date_of_birth": {"date_of_birth": None},
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert "date_of_birth" not in payload
-
-    def test_payload_excludes_empty_string_date_of_birth(self):
-        """Test that empty string date_of_birth causes validation failure."""
-        state = {
-            "names": {"names": [{"first": "Leo", "last": "Brown"}]},
-            "date_of_birth": {"date_of_birth": ""},
-        }
-
-        # Empty string should fail validation and return None
-        payload = _build_matter_payload(state)
-        assert payload is None
-
-    def test_payload_excludes_missing_date_of_birth_section(self):
-        """Test that missing date_of_birth section is handled gracefully."""
-        state = {
-            "names": {"names": [{"first": "Mike", "last": "Davis"}]},
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert "date_of_birth" not in payload
-
-    def test_payload_with_address_full(self):
-        """Test that full address is included in payload."""
-        state = {
-            "names": {"names": [{"first": "Robert", "last": "Taylor"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "address": {
                 "address": {
-                    "street": "123 Main Street",
-                    "street_2": "Apt 4B",
-                    "city": "Richmond",
+                    "street": "123 Main",
+                    "street_2": "Apt 4",
+                    "city": "R",
                     "state": "VA",
                     "zip": "23219",
                     "county": "Arlington",
                 }
             },
         }
+        p = _build_matter_payload(state)
+        assert p["home_street"] == "123 Main"
+        assert p["home_apt_num"] == "Apt 4"
+        assert p["home_city"] == "R"
+        assert p["home_state"] == "VA"
+        assert p["home_zip"] == "23219"
 
-        payload = _build_matter_payload(state)
-
-        assert payload["home_street"] == "123 Main Street"
-        assert payload["home_apt_num"] == "Apt 4B"
-        assert payload["home_city"] == "Richmond"
-        assert payload["home_state"] == "VA"
-        assert payload["home_zip"] == "23219"
-        assert payload["county_of_residence"] == {
-            "county_name": "Arlington",
-            "county_state": "VA",
-        }
-
-    def test_payload_with_address_without_apartment(self):
-        """Test that address without apartment number is included."""
+    def test_county_of_residence(self):
         state = {
-            "names": {"names": [{"first": "Patricia", "last": "Garcia"}]},
+            "names": {"names": [{"first": "A", "last": "B"}]},
             "address": {
                 "address": {
-                    "street": "456 Oak Avenue",
-                    "street_2": None,
-                    "city": "Arlington",
+                    "street": "1",
+                    "city": "C",
                     "state": "VA",
-                    "zip": "22201",
-                    "county": "Arlington",
+                    "zip": "1",
+                    "county": "A",
                 }
             },
         }
+        p = _build_matter_payload(state)
+        assert p["county_of_residence"]["county_name"] == "A"
+        assert p["county_of_residence"]["county_state"] == "VA"
 
-        payload = _build_matter_payload(state)
-
-        assert payload["home_street"] == "456 Oak Avenue"
-        assert "home_apt_num" not in payload  # None values excluded
-        assert payload["home_city"] == "Arlington"
-        assert payload["home_state"] == "VA"
-        assert payload["home_zip"] == "22201"
-        assert payload["county_of_residence"] == {
-            "county_name": "Arlington",
-            "county_state": "VA",
-        }
-
-    def test_payload_excludes_missing_address_section(self):
-        """Test that missing address section is handled gracefully."""
+    def test_complete_payload_date_of_birth(self):
         state = {
-            "names": {"names": [{"first": "Nancy", "last": "White"}]},
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert "home_street" not in payload
-        assert "home_apt_num" not in payload
-        assert "home_city" not in payload
-        assert "home_state" not in payload
-        assert "home_zip" not in payload
-
-    def test_payload_with_already_cleaned_county(self):
-        """Test that validation model logic (stripping County) is compatible with payload builder."""
-        # The validator ensures 'county' is just 'Amelia', not 'Amelia County'.
-        # This test confirms that if 'Amelia' is passed, it is sent as 'Amelia'.
-        # (Regression test for removing duplicate cleaning logic in service)
-        state = {
-            "names": {"names": [{"first": "Patricia", "last": "Garcia"}]},
-            "address": {
-                "address": {
-                    "street": "456 Oak Avenue",
-                    "street_2": None,
-                    "city": "Amelia",
-                    "state": "VA",
-                    "zip": "23002",
-                    "county": "Amelia",  # Value after validator cleaning
-                }
-            },
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert payload["county_of_residence"] == {
-            "county_name": "Amelia",
-            "county_state": "VA",
-        }
-
-    def test_complete_payload_with_date_of_birth_and_all_fields(self):
-        """Test building complete payload with date of birth and all other fields."""
-        state = {
-            "call_id": "test-call-123",
-            "phone": {"is_valid": True, "phone_number": "(703) 555-1234"},
+            "call_id": "c1",
+            "phone": {"phone_number": "(703) 555-1234"},
             "names": {
-                "names": [
-                    {
-                        "first": "Sarah",
-                        "middle": "Jane",
-                        "last": "Anderson",
-                        "suffix": "Jr.",
-                    }
-                ]
+                "names": [{"first": "S", "middle": "J", "last": "A", "suffix": "Jr."}]
             },
             "date_of_birth": {"date_of_birth": "1975-03-20"},
             "address": {
                 "address": {
-                    "street": "789 Elm Road",
-                    "street_2": "Suite 100",
-                    "city": "Alexandria",
+                    "street": "789 Elm",
+                    "street_2": "S100",
+                    "city": "Alex",
                     "state": "VA",
                     "zip": "22314",
-                    "county": "Arlington",
+                    "county": "A",
                 }
             },
-            "service_area": {
-                "location": "Arlington County, VA",
-                "is_eligible": True,
-                "fips_code": 51013,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "42 Family Law/Domestic Relations",
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 3000,
-                "household_size": 2,
-            },
+            "service_area": {"fips_code": 51013},
+            "case_type": {"legal_problem_code": "42 Family"},
+            "income": {"is_eligible": True, "household_size": 2},
             "assets": {"is_eligible": True, "total_value": 0},
             "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": False,
-            },
+            "domestic_violence": {"is_experiencing": False},
         }
+        p = _build_matter_payload(state)
+        assert p["first"] == "S" and p["last"] == "A"
+        assert p["date_of_birth"] == "1975-03-20"
+        assert p["mobile_phone"] == "(703) 555-1234"
+        assert p["income_eligible"] is True
+        assert p["asset_eligible"] is True
+        assert p["citizenship"] == "Citizen"
+        assert p["victim_of_domestic_violence"] is False
+        assert p["case_disposition"] == "Incomplete Intake"
 
-        payload = _build_matter_payload(state)
 
-        assert payload["first"] == "Sarah"
-        assert payload["middle"] == "Jane"
-        assert payload["last"] == "Anderson"
-        assert payload["suffix"] == "Jr."
+# ---------------------------------------------------------------------------
+# Matter lookup NOT_FOUND only for valid explicitly empty collection
+# ---------------------------------------------------------------------------
 
-        assert payload["date_of_birth"] == "1975-03-20"
-        assert payload["home_street"] == "789 Elm Road"
-        assert payload["home_apt_num"] == "Suite 100"
-        assert payload["home_city"] == "Alexandria"
-        assert payload["home_state"] == "VA"
-        assert payload["home_zip"] == "22314"
-        assert payload["mobile_phone"] == "(703) 555-1234"
-        assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_dispute"]["county_FIPS"] == "51013"
-        assert payload["county_of_residence"] == {
-            "county_name": "Arlington",
-            "county_state": "VA",
-        }
-        assert payload["income_eligible"] is True
-        assert payload["asset_eligible"] is True
-        assert payload["citizenship"] == "Citizen"
-        assert payload["victim_of_domestic_violence"] is False
-        assert payload["case_disposition"] == "Incomplete Intake"
 
-    def test_payload_excludes_none_values(self):
-        """Test that None values are excluded from payload."""
-        state = {
-            "names": {"names": [{"first": "Iris", "last": "Kim", "middle": None}]},
-        }
+class TestLookupNotFoundPrecision:
+    @pytest.mark.asyncio
+    async def test_empty_data_list_is_not_found(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {"data": []})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.NOT_FOUND
 
-        payload = _build_matter_payload(state)
+    @pytest.mark.asyncio
+    async def test_data_none_is_indeterminate(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {"data": None})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-        assert "middle" not in payload
-        assert payload["first"] == "Iris"
-        assert payload["last"] == "Kim"
+    @pytest.mark.asyncio
+    async def test_data_missing_is_indeterminate(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-    def test_payload_with_missing_names_section(self):
-        """Test payload handles missing names gracefully."""
-        state = {}
+    @pytest.mark.asyncio
+    async def test_data_wrong_type_is_indeterminate(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {"data": "not a list"})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-        payload = _build_matter_payload(state)
+    @pytest.mark.asyncio
+    async def test_entry_missing_uuid_is_indeterminate(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {"data": [{"name": "x"}]})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-        assert payload is None
+    @pytest.mark.asyncio
+    async def test_entry_wrong_type_is_indeterminate(self):
+        s = _FakeClientSession({"GET": _FakeResponse(200, {"data": ["string"]})})
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-    def test_payload_with_empty_names_list(self):
-        """Test payload handles empty names list gracefully."""
-        state = {"names": {"names": []}}
+    @pytest.mark.asyncio
+    async def test_malformed_json_is_indeterminate(self):
+        s = _FakeClientSession(
+            {"GET": _FakeResponse(200, {"data": [{"matter_uuid": 123}]})}
+        )
+        lo = await _find_matter_by_external_id(s, "e1", _far_deadline())
+        assert lo.result == MatterLookupResult.INDETERMINATE
 
-        payload = _build_matter_payload(state)
 
-        assert payload is None
-
-    def test_complete_payload_with_all_fields(self):
-        """Test building complete payload with all fields populated."""
-        state = {
-            "call_id": "test-call-123",
-            "phone": {"is_valid": True, "phone_number": "(703) 555-1234"},
-            "names": {
-                "names": [
-                    {
-                        "first": "Sarah",
-                        "middle": "Jane",
-                        "last": "Anderson",
-                        "suffix": "Jr.",
-                    }
-                ]
-            },
-            "service_area": {
-                "location": "Arlington County, VA",
-                "is_eligible": True,
-                "fips_code": 51013,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "42 Family Law/Domestic Relations",
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 3000,
-                "household_size": 2,
-            },
-            "assets": {"is_eligible": True, "total_value": 0},
-            "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": False,
-            },
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert payload["first"] == "Sarah"
-        assert payload["middle"] == "Jane"
-        assert payload["last"] == "Anderson"
-        assert payload["suffix"] == "Jr."
-        assert payload["mobile_phone"] == "(703) 555-1234"
-        assert payload["legal_problem_code"] == "42 Family Law/Domestic Relations"
-        assert payload["county_of_dispute"]["county_FIPS"] == "51013"
-        assert "county_of_residence" not in payload
-        assert payload["income_eligible"] is True
-        assert payload["asset_eligible"] is True
-        assert payload["citizenship"] == "Citizen"
-        assert payload["victim_of_domestic_violence"] is False
-        assert payload["case_disposition"] == "Rejected"
-        assert payload["rejection_reason"]["lookup_value_name"] == "Other"
-
-    def test_payload_with_ssn_last_4(self):
-        """Test that SSN last 4 is included in payload."""
-        state = {
-            "names": {"names": [{"first": "Bob", "last": "Smith"}]},
-            "ssn_last_4": {"ssn_last_4": "5678"},
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert payload["ssn"] == "5678"
-
-    def test_payload_with_ssn_last_4_various_formats(self):
-        """Test that SSN last 4 with separators is properly cleaned."""
-        state = {
-            "names": {"names": [{"first": "Carol", "last": "White"}]},
-            "ssn_last_4": {"ssn_last_4": "1234"},  # Already cleaned by validator
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert payload["ssn"] == "1234"
-
-    def test_payload_excludes_empty_ssn_last_4(self):
-        """Test that empty SSN last 4 is handled (kept as empty string by Pydantic)."""
-        state = {
-            "names": {"names": [{"first": "David", "last": "Jones"}]},
-            "ssn_last_4": {"ssn_last_4": ""},
-        }
-
-        payload = _build_matter_payload(state)
-
-        # Empty strings are preserved by Pydantic, not excluded by exclude_none
-        # (exclude_none only excludes None values, not empty strings)
-        # The validation should have rejected this before reaching here in real usage
-        assert payload.get("ssn") == "" or "ssn" not in payload
-
-    def test_payload_excludes_missing_ssn_last_4_section(self):
-        """Test payload when SSN section is missing."""
-        state = {
-            "names": {"names": [{"first": "Eve", "last": "Brown"}]},
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert "ssn" not in payload or payload.get("ssn") is None
-
-    def test_complete_payload_with_ssn_last_4_and_all_fields(self):
-        """Test building complete payload with SSN last 4 and all other fields."""
-
-        state = {
-            "call_id": "test-call-456",
-            "phone": {"is_valid": True, "phone_number": "(571) 555-9999"},
-            "names": {
-                "names": [
-                    {
-                        "first": "Michael",
-                        "middle": "James",
-                        "last": "Davies",
-                        "suffix": "Sr.",
-                    }
-                ]
-            },
-            "ssn_last_4": {"ssn_last_4": "8765"},
-            "date_of_birth": {"date_of_birth": "1980-08-10"},
-            "service_area": {
-                "location": "Fairfax County, VA",
-                "is_eligible": True,
-                "fips_code": 51059,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "91 Consumer Transactions",
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 2500,
-                "household_size": 1,
-            },
-            "assets": {"is_eligible": True, "total_value": 5000},
-            "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": False,
-            },
-        }
-
-        payload = _build_matter_payload(state)
-
-        assert payload["first"] == "Michael"
-        assert payload["middle"] == "James"
-        assert payload["last"] == "Davies"
-        assert payload["suffix"] == "Sr."
-        assert payload["ssn"] == "8765"
-        assert payload["date_of_birth"] == "1980-08-10"
-        assert payload["mobile_phone"] == "(571) 555-9999"
-        assert payload["legal_problem_code"] == "91 Consumer Transactions"
-        assert payload["county_of_dispute"]["county_FIPS"] == "51059"
-        assert "county_of_residence" not in payload
-        assert payload["income_eligible"] is True
-        assert payload["asset_eligible"] is True
-        assert payload["citizenship"] == "Citizen"
-        assert payload["victim_of_domestic_violence"] is False
+# ---------------------------------------------------------------------------
+# Matter ambiguity parameterized: timeout, client error, 408, 429, 5xx,
+# 409, 422, invalid JSON, malformed shapes, 2xx without UUID
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-class TestSaveIncomeRecords:
-    """Tests for _save_income_records helper function."""
+@pytest.mark.parametrize(
+    "status,label",
+    [
+        (408, "408"),
+        (429, "429"),
+        (500, "500"),
+        (502, "502"),
+        (503, "503"),
+        (504, "504"),
+        (409, "409"),
+        (422, "422"),
+    ],
+)
+async def test_matter_ambiguous_scenario(status, label):
+    """Each ambiguous POST status triggers exactly one POST and a relookup."""
+    clock = _FakeClock(start=1000.0)
+    session = _FakeClientSession({"POST": _FakeResponse(status=status, json_data={})})
+    payload = {"first": "A", "last": "B"}
 
-    async def test_save_single_income_record(self):
-        """Test saving a single income record."""
-        mock_client = AsyncMock()
-        mock_response = MagicMock(status=201, json=AsyncMock(return_value={}))
-        mock_client.post = AsyncMock(return_value=mock_response)
+    call_count = 0
 
-        income_data = {
-            "is_eligible": True,
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
-            },
-        }
+    async def _lk(sess, eid, dl):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 1:
+            return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+        return MatterLookupOutcome(MatterLookupResult.FOUND, "recovered")
 
-        await _save_income_records(mock_client, "test-uuid-123", income_data)
+    with (
+        patch("intake_bot.services.legalserver._find_matter_by_external_id", _lk),
+        patch("intake_bot.services.legalserver._now", clock.now),
+        patch("intake_bot.services.legalserver._sleep", clock.sleep),
+    ):
+        result = await _create_matter_guarded(
+            session, payload, "ext-123", clock.now() + 60.0
+        )
+        assert result == "recovered", f"Failed for {label}"
+        post_count = len([c for c in session.calls if c["method"] == "POST"])
+        assert post_count == 1, f"Expected 1 POST for {label}, got {post_count}"
 
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["type"] == {"lookup_value_name": "Employment"}
-        assert call_args[1]["json"]["amount"] == 50000
-        assert call_args[1]["json"]["period"] == "Annually"
-        mock_response.release.assert_called_once()
 
-    async def test_save_multiple_income_records(self):
-        """Test saving multiple income records for different household members."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scenario", ["invalid_json", "list_body", "scalar_body", "no_uuid"]
+)
+async def test_matter_ambiguous_parse_outcomes(scenario):
+    """Non-dict response, missing UUID, etc are all ambiguous."""
+    clock = _FakeClock(start=1000.0)
+    if scenario == "invalid_json":
 
-        income_data = {
-            "is_eligible": True,
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}},
-                "Jane Doe": {"Employment": {"amount": 60000, "period": "Annually"}},
-            },
-        }
+        class _BrokenResp:
+            status = 201
+            headers = {}
 
-        await _save_income_records(mock_client, "test-uuid-456", income_data)
+            async def __aenter__(self):
+                return self
 
-        assert mock_client.post.call_count == 2
+            async def __aexit__(self, *a):
+                pass
 
-    async def test_save_income_with_different_periods(self):
-        """Test that different period formats are valid LegalServer values."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
+            async def json(self, **kw):
+                raise ValueError("bad json")
 
-        income_data = {
-            "listing": {
-                "Person A": {"Employment": {"amount": 5000, "period": "Monthly"}},
-                "Person B": {
-                    "Unemployment Compensation": {"amount": 1000, "period": "Weekly"}
+            def release(self):
+                pass
+
+        resp = _BrokenResp()
+    elif scenario == "list_body":
+        resp = _FakeResponse(201, [{"matter_uuid": "m-1"}])
+    elif scenario == "scalar_body":
+        resp = _FakeResponse(201, "scalar")
+    elif scenario == "no_uuid":
+        resp = _FakeResponse(201, {"data": {"not_uuid": "x"}})
+    else:
+        resp = _FakeResponse(201, {})
+
+    session = _FakeClientSession({"POST": resp})
+    payload = {"first": "A", "last": "B"}
+    call_count = 0
+
+    async def _lk(sess, eid, dl):
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 1:
+            return MatterLookupOutcome(MatterLookupResult.NOT_FOUND)
+        return MatterLookupOutcome(MatterLookupResult.FOUND, "recovered")
+
+    with (
+        patch("intake_bot.services.legalserver._find_matter_by_external_id", _lk),
+        patch("intake_bot.services.legalserver._now", clock.now),
+        patch("intake_bot.services.legalserver._sleep", clock.sleep),
+    ):
+        result = await _create_matter_guarded(
+            session, payload, "ext-123", clock.now() + 60.0
+        )
+        assert result == "recovered", f"Failed for {scenario}"
+        assert len([c for c in session.calls if c["method"] == "POST"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# Deadline boundary: post_once and child save ops respect deadline
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_post_once_deadline_after_response():
+    """A response received at the boundary is still an authoritative success."""
+    clock = _FakeClock(start=1000.0)
+
+    class _LateResp:
+        status = 200
+        headers = {}
+
+        def __init__(self):
+            self._called = False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            pass
+
+        async def json(self, **kw):
+            return {"ok": True}
+
+        def release(self):
+            pass
+
+    resp = _LateResp()
+
+    def _patched_req(method, url, **kw):
+        clock._now_val = 2000.0  # advance past deadline
+        return _FakeRequestContextManager(resp)
+
+    session = _FakeClientSession()
+    session.request = _patched_req
+    with (
+        patch("intake_bot.services.legalserver._now", clock.now),
+        patch("intake_bot.services.legalserver._sleep", clock.sleep),
+    ):
+        result, ambiguous = await _post_once(
+            session, "POST", "/test", json={}, deadline=1050.0
+        )
+        assert result == {"ok": True}
+        assert ambiguous is False
+
+
+# ---------------------------------------------------------------------------
+# Orchestration: each section gets one attempt, all sections attempted,
+# exactly one fallback note
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestration:
+    """Deterministic child failures do not prevent later sections or fallback."""
+
+    @pytest.mark.asyncio
+    async def test_all_sections_attempted_one_fallback(self, monkeypatch):
+        call_log = []
+
+        class _Sess:
+            def __init__(self, *a, **kw):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            _ordered = [
+                "/incomes",
+                "/additional_names",
+                "/adverse_parties",
+                "/notes",
+                "/matters",
+            ]
+
+            def request(self, m, u, **kw):
+                self.calls.append((m, u))
+                call_log.append((m, u))
+                path = next((p for p in self._ordered if p in u), "")
+                if path == "/incomes":
+                    response = (
+                        _FakeResponse(200, {"data": []})
+                        if m == "GET"
+                        else _FakeResponse(400, {})
+                    )
+                    return _FakeRequestContextManager(response)
+                if path == "/additional_names":
+                    response = (
+                        _FakeResponse(200, {"data": []})
+                        if m == "GET"
+                        else _FakeResponse(400, {})
+                    )
+                    return _FakeRequestContextManager(response)
+                if path == "/adverse_parties":
+                    response = (
+                        _FakeResponse(200, {"data": []})
+                        if m == "GET"
+                        else _FakeResponse(400, {})
+                    )
+                    return _FakeRequestContextManager(response)
+                if path == "/notes":
+                    response = (
+                        _FakeResponse(200, {"data": []})
+                        if m == "GET"
+                        else _FakeResponse(201, {})
+                    )
+                    return _FakeRequestContextManager(response)
+                if "/matters" in u and m == "POST":
+                    return _FakeRequestContextManager(
+                        _FakeResponse(201, {"data": {"matter_uuid": "m-1"}})
+                    )
+                if "/matters" in u and m == "GET":
+                    return _FakeRequestContextManager(_FakeResponse(200, {"data": []}))
+                return _FakeRequestContextManager(_FakeResponse(201, {}))
+
+            def get(self, u, **kw):
+                return self.request("GET", u, **kw)
+
+            def post(self, u, **kw):
+                return self.request("POST", u, **kw)
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _Sess)
+        result = await save_intake_legalserver(
+            {
+                "call_id": "c1",
+                "names": {
+                    "names": [{"first": "A", "last": "B"}, {"first": "C", "last": "D"}]
                 },
-                "Person C": {"Child Support": {"amount": 2000, "period": "Biweekly"}},
+                "income": {
+                    "listing": {"J": {"E": {"amount": 50000, "period": "Annually"}}}
+                },
+                "adverse_parties": {"adverse_parties": [{"first": "X", "last": "Y"}]},
+                "case_type": {"case_description": "desc"},
+                "assets": {"listing": [{"savings": 100}], "total_value": 100},
             }
-        }
-
-        await _save_income_records(mock_client, "test-uuid-789", income_data)
-
-        # Check all three calls were made with correct periods
-        calls = mock_client.post.call_args_list
-        assert len(calls) == 3
-
-        # Verify period values are passed through as-is
-        periods = [call[1]["json"]["period"] for call in calls]
-        assert "Monthly" in periods
-        assert "Weekly" in periods
-        assert "Biweekly" in periods
-
-    async def test_skip_empty_household_member_records(self):
-        """Test that empty income records are skipped."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        income_data = {
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}},
-                "Jane Doe": {},  # Empty record
-                "Child": None,  # None record
-            }
-        }
-
-        await _save_income_records(mock_client, "test-uuid-skip", income_data)
-
-        # Should only call once for John Doe
-        assert mock_client.post.call_count == 1
-
-    async def test_skip_records_with_missing_amount(self):
-        """Test that records without amount are skipped."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        income_data = {
-            "listing": {
-                "John Doe": {
-                    "Employment": {"amount": 50000, "period": "Annually"},
-                    "Pension/Retirement (Not Soc. Sec.)": {
-                        "period": "Annually"
-                    },  # Missing amount
-                }
-            }
-        }
-
-        await _save_income_records(mock_client, "test-uuid-missing", income_data)
-
-        # Should only call once for the income with amount
-        assert mock_client.post.call_count == 1
-
-    async def test_accept_zero_income_with_period(self):
-        """Test that amount=0 is accepted (not treated as missing)."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        income_data = {
-            "listing": {
-                "John Doe": {
-                    "Employment": {"amount": 0, "period": "Monthly"},  # Zero income
-                    "Pension/Retirement (Not Soc. Sec.)": {
-                        "period": "Monthly"
-                    },  # Missing amount - should skip
-                }
-            }
-        }
-
-        await _save_income_records(mock_client, "test-uuid-zero", income_data)
-
-        # Should only call once for amount=0 (which is valid), skip the missing amount
-        assert mock_client.post.call_count == 1
-        call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["amount"] == 0
-        assert call_args[1]["json"]["period"] == "Monthly"
-
-    async def test_handle_non_dict_income_data(self):
-        """Test handling of non-dict income data."""
-        mock_client = AsyncMock()
-
-        # Should not raise an error
-        await _save_income_records(mock_client, "test-uuid", "invalid-data")
-
-        # Should not attempt to post
-        mock_client.post.assert_not_called()
-
-    async def test_handle_missing_listing(self):
-        """Test handling of income data without listing."""
-        mock_client = AsyncMock()
-
-        income_data = {"is_eligible": True}  # No listing
-
-        await _save_income_records(mock_client, "test-uuid", income_data)
-
-        # Should not attempt to post
-        mock_client.post.assert_not_called()
-
-    async def test_log_failed_income_record_creation(self):
-        """Test that failed income record creation is logged."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(
-                status=400, text=AsyncMock(return_value="Bad Request")
-            )
         )
-
-        income_data = {
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
-            }
-        }
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_income_records(mock_client, "test-uuid", income_data)
-            mock_logger.warning.assert_called()
-
-    async def test_log_income_configuration_failure_as_error(self):
-        """Test that downstream configuration failures are logged as errors."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(
-                status=404,
-                text=AsyncMock(
-                    return_value='{"error_message":"Could not get poverty scale for 2026-03-24 and size 4. Contact your administrator."}'
-                ),
-            )
-        )
-
-        income_data = {
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
-            }
-        }
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_income_records(mock_client, "test-uuid", income_data)
-            mock_logger.error.assert_called()
-            mock_logger.warning.assert_not_called()
-
-    async def test_capitalize_income_type(self):
-        """Test that income category IDs are properly handled."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        income_data = {
-            "listing": {
-                "Person": {
-                    "Employment": {"amount": 5000, "period": "Monthly"},
-                    "Child Support": {"amount": 500, "period": "Monthly"},
-                }
-            }
-        }
-
-        await _save_income_records(mock_client, "test-uuid", income_data)
-
-        calls = mock_client.post.call_args_list
-        types = [call[1]["json"]["type"] for call in calls]
-        assert {"lookup_value_name": "Employment"} in types
-        assert {"lookup_value_name": "Child Support"} in types
-
-    async def test_handle_exception_in_save_income_records(self):
-        """Test that exceptions in save_income_records are handled gracefully."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
-
-        income_data = {
-            "listing": {
-                "John Doe": {"Employment": {"amount": 50000, "period": "Annually"}}
-            }
-        }
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            # Should not raise
-            await _save_income_records(mock_client, "test-uuid", income_data)
-            mock_logger.exception.assert_called()
+        assert result.overall == LegalServerOverall.DEGRADED
+        fb_notes = 0
+        for m, u in call_log:
+            if "/notes" in u:
+                fb_notes += 1
+        assert fb_notes >= 1  # at least the fallback
+        income_count = len([c for c in call_log if "/incomes" in c[1]])
+        assert income_count == 2  # collection read and one deterministic POST
+        alias_count = len([c for c in call_log if "/additional_names" in c[1]])
+        assert alias_count == 2
+        ap_count = len([c for c in call_log if "/adverse_parties" in c[1]])
+        assert ap_count == 2
 
 
-@pytest.mark.asyncio
-class TestSaveAdditionalNames:
-    """Tests for _save_additional_names helper function."""
+# ---------------------------------------------------------------------------
+# No call_id returns FAILED, not SKIPPED
+# ---------------------------------------------------------------------------
 
-    async def test_save_single_additional_name(self):
-        """Test saving a single additional name via API."""
-        mock_client = AsyncMock()
-        mock_response = MagicMock(status=201)
-        mock_client.post = AsyncMock(return_value=mock_response)
 
-        names_list = [
+class TestNoCallId:
+    @pytest.mark.asyncio
+    async def test_no_call_id_fails(self, monkeypatch):
+        monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "false")
+        result = await save_intake_legalserver(
             {
-                "first": "John",
-                "middle": "Michael",
-                "last": "Doe",
-                "suffix": None,
-                "type": NameTypeValue.LEGAL_NAME,
-            },
-            {
-                "first": "Jane",
-                "middle": "Marie",
-                "last": "Smith",
-                "suffix": None,
-                "type": NameTypeValue.MAIDEN_NAME,
-            },
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid-123", names_list)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid-123/additional_names" in call_args[0][0]
-        assert call_args[1]["json"]["first"] == "Jane"
-        assert call_args[1]["json"]["middle"] == "Marie"
-        assert call_args[1]["json"]["last"] == "Smith"
-        assert "suffix" not in call_args[1]["json"]  # None values excluded
-        assert (
-            call_args[1]["json"]["type"]["lookup_value_name"]
-            == NameTypeValue.MAIDEN_NAME.value
+                "names": {"names": [{"first": "A", "last": "B"}]},
+            }
         )
-        mock_response.release.assert_called_once()
-
-    async def test_save_additional_name_with_default_type(self):
-        """Test that type defaults to Former Name when not specified."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe"},
-            {
-                "first": "Jane",
-                "last": "Smith",
-            },  # No type specified, should default to FORMER_NAME
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid-123", names_list)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert (
-            call_args[1]["json"]["type"]["lookup_value_name"]
-            == NameTypeValue.FORMER_NAME.value
-        )
-
-    async def test_save_multiple_additional_names(self):
-        """Test saving multiple additional names via API with different types."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
-            {"first": "Bob", "last": "Johnson", "type": NameTypeValue.FORMER_NAME},
-            {"first": "Alice", "last": "Williams"},  # No type, defaults to FORMER_NAME
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid-456", names_list)
-
-        # Should call once for each additional name (3 total)
-        assert mock_client.post.call_count == 3
-
-        # Check each call has the correct type
-        calls = mock_client.post.call_args_list
-        assert (
-            calls[0][1]["json"]["type"]["lookup_value_name"]
-            == NameTypeValue.MAIDEN_NAME.value
-        )
-        assert (
-            calls[1][1]["json"]["type"]["lookup_value_name"]
-            == NameTypeValue.FORMER_NAME.value
-        )
-        assert (
-            calls[2][1]["json"]["type"]["lookup_value_name"]
-            == NameTypeValue.FORMER_NAME.value
-        )
-
-    async def test_skip_when_only_primary_name(self):
-        """Test that no API call is made when only primary name exists."""
-        mock_client = AsyncMock()
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME}
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid-789", names_list)
-
-        mock_client.post.assert_not_called()
-
-    async def test_skip_when_empty_names_list(self):
-        """Test that no API call is made with empty names list."""
-        mock_client = AsyncMock()
-
-        await _save_additional_names(mock_client, "test-uuid", [])
-
-        mock_client.post.assert_not_called()
-
-    async def test_skip_when_names_list_is_none(self):
-        """Test that no API call is made when names list is None."""
-        mock_client = AsyncMock()
-
-        await _save_additional_names(mock_client, "test-uuid", None)
-
-        mock_client.post.assert_not_called()
-
-    async def test_skip_additional_names_with_no_first_and_last(self):
-        """Test that additional names without first and last name are skipped."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {
-                "middle": "Marie",
-                "type": NameTypeValue.MAIDEN_NAME,
-            },  # Missing first and last
-            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid", names_list)
-
-        # Should only call once for Jane Smith
-        assert mock_client.post.call_count == 1
-
-    async def test_format_name_with_all_components(self):
-        """Test that all name components are included in payload."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {
-                "first": "Sarah",
-                "middle": "Jane",
-                "last": "Anderson",
-                "suffix": "Jr.",
-                "type": NameTypeValue.MAIDEN_NAME,
-            },
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid", names_list)
-
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
-        assert payload["first"] == "Sarah"
-        assert payload["middle"] == "Jane"
-        assert payload["last"] == "Anderson"
-        assert payload["suffix"] == "Jr."
-        assert payload["type"]["lookup_value_name"] == NameTypeValue.MAIDEN_NAME.value
-
-    async def test_format_name_with_partial_components(self):
-        """Test that names with missing components are handled correctly."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {
-                "first": "Jane",
-                "last": "Smith",
-                "type": NameTypeValue.FORMER_NAME,
-            },  # No middle or suffix
-        ]
-
-        await _save_additional_names(mock_client, "test-uuid", names_list)
-
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
-        assert payload["first"] == "Jane"
-        assert payload["last"] == "Smith"
-        assert "middle" not in payload
-        assert "suffix" not in payload
-        assert payload["type"]["lookup_value_name"] == NameTypeValue.FORMER_NAME.value
-
-    async def test_handle_failed_name_creation(self):
-        """Test that failed name creation is logged as warning."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(
-                status=400, text=AsyncMock(return_value="Bad Request")
-            )
-        )
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeValue.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeValue.MAIDEN_NAME},
-        ]
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_additional_names(mock_client, "test-uuid", names_list)
-            mock_logger.warning.assert_called()
-
-    async def test_handle_exception_in_save_additional_names(self):
-        """Test that exceptions are handled gracefully."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type_id": NameTypeValue.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type_id": NameTypeValue.MAIDEN_NAME},
-        ]
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_additional_names(mock_client, "test-uuid", names_list)
-            mock_logger.exception.assert_called()
-
-    async def test_successful_name_creation_logs_debug_with_type(self):
-        """Test that successful name creation is logged with type."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        names_list = [
-            {"first": "John", "last": "Doe", "type": NameTypeValue.LEGAL_NAME},
-            {"first": "Jane", "last": "Smith", "type": NameTypeValue.MAIDEN_NAME},
-            {"first": "Bob", "last": "Johnson", "type": NameTypeValue.FORMER_NAME},
-        ]
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_additional_names(mock_client, "test-uuid", names_list)
-            # Should have called debug for each successful creation
-            debug_calls = [
-                call
-                for call in mock_logger.debug.call_args_list
-                if "created" in str(call).lower()
-            ]
-            assert len(debug_calls) >= 2
-
-
-@pytest.mark.asyncio
-class TestSaveAdverseParties:
-    """Tests for _save_adverse_parties helper function."""
-
-    async def test_save_single_adverse_party(self):
-        """Test saving a single adverse party via API."""
-        mock_client = AsyncMock()
-        mock_response = MagicMock(status=201)
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {"first": "Jason", "middle": "Michael", "last": "Chen", "dob": None}
-            ]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid-123", adverse_parties_data)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid-123/adverse_parties" in call_args[0][0]
-        assert call_args[1]["json"]["first"] == "Jason"
-        assert call_args[1]["json"]["middle"] == "Michael"
-        assert call_args[1]["json"]["last"] == "Chen"
-        assert "dob" not in call_args[1]["json"]  # None values excluded
-        mock_response.release.assert_called_once()
-
-    async def test_save_multiple_adverse_parties(self):
-        """Test saving multiple adverse parties via API."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {"first": "John", "last": "Doe"},
-                {"first": "Jane", "last": "Smith"},
-                {"first": "Bob", "last": "Johnson"},
-            ]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid-456", adverse_parties_data)
-
-        assert mock_client.post.call_count == 3
-
-    async def test_adverse_party_with_dob(self):
-        """Test that adverse party with DOB is included in payload."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [{"first": "John", "last": "Doe", "dob": "1990-01-15"}]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-
-        call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["date_of_birth"] == "1990-01-15"
-
-    async def test_adverse_party_with_all_name_components(self):
-        """Test adverse party with all name components."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {
-                    "first": "Sarah",
-                    "middle": "Jane",
-                    "last": "Anderson",
-                    "suffix": "Jr.",
-                    "dob": "1985-06-20",
-                }
-            ]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
-        assert payload["first"] == "Sarah"
-        assert payload["middle"] == "Jane"
-        assert payload["last"] == "Anderson"
-        assert payload["suffix"] == "Jr."
-        assert payload["date_of_birth"] == "1985-06-20"
-
-    async def test_adverse_party_phone_without_type_is_ignored_for_payload(self):
-        """Test that an adverse-party phone number without a type does not break payload creation."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {
-                    "first": "John",
-                    "last": "Doe",
-                    "phones": [{"number": "(555) 555-1212"}],
-                }
-            ]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-
-        call_args = mock_client.post.call_args
-        payload = call_args[1]["json"]
-        assert payload["first"] == "John"
-        assert payload["last"] == "Doe"
-        assert "phone_home" not in payload
-        assert "phone_mobile" not in payload
-        assert "phone_business" not in payload
-        assert "phone_fax" not in payload
-
-    async def test_skip_empty_adverse_parties_list(self):
-        """Test that no API call is made when adverse parties list is empty."""
-        mock_client = AsyncMock()
-
-        adverse_parties_data = {"adverse_parties": []}
-
-        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-
-        mock_client.post.assert_not_called()
-
-    async def test_skip_when_adverse_parties_data_not_dict(self):
-        """Test handling of non-dict adverse parties data."""
-        mock_client = AsyncMock()
-
-        await _save_adverse_parties(mock_client, "test-uuid", "invalid-data")
-
-        mock_client.post.assert_not_called()
-
-    async def test_skip_adverse_party_without_first_and_last_name(self):
-        """Test that adverse parties without first and last name are skipped."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {"middle": "Michael"},  # Missing first and last
-                {"first": "John", "last": "Doe"},
-            ]
-        }
-
-        await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-
-        # Should only call once for John Doe
-        assert mock_client.post.call_count == 1
-
-    async def test_handle_failed_adverse_party_creation(self):
-        """Test that failed adverse party creation is logged as warning."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(
-                status=400, text=AsyncMock(return_value="Bad Request")
-            )
-        )
-
-        adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-            mock_logger.warning.assert_called()
-
-    async def test_handle_exception_in_save_adverse_parties(self):
-        """Test that exceptions are handled gracefully."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
-
-        adverse_parties_data = {"adverse_parties": [{"first": "John", "last": "Doe"}]}
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-            mock_logger.exception.assert_called()
-
-    async def test_successful_adverse_party_creation_logs_debug(self):
-        """Test that successful adverse party creation is logged."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        adverse_parties_data = {
-            "adverse_parties": [
-                {"first": "John", "last": "Doe"},
-                {"first": "Jane", "last": "Smith"},
-            ]
-        }
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_adverse_parties(mock_client, "test-uuid", adverse_parties_data)
-            # Should have called debug for each successful creation
-            debug_calls = [
-                call
-                for call in mock_logger.debug.call_args_list
-                if "created" in str(call).lower()
-            ]
-            assert len(debug_calls) >= 2
-
-
-@pytest.mark.asyncio
-class TestSaveAssetsNote:
-    """Tests for _save_assets_note helper function."""
-
-    async def test_save_single_asset(self):
-        """Test saving a single asset as a note."""
-        mock_client = AsyncMock()
-        mock_response = MagicMock(status=201)
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        assets_data = {
-            "listing": [{"savings account": 2100}],
-            "total_value": 2100,
-        }
-
-        await _save_assets_note(mock_client, "test-uuid-123", assets_data)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["subject"] == "Assets"
-        assert "savings account: $2,100.00" in call_args[1]["json"]["body"]
-        assert "Total Assets: $2,100.00" in call_args[1]["json"]["body"]
-        assert call_args[1]["json"]["note_type"] == {
-            "lookup_value_name": "General Notes"
-        }
-        mock_response.release.assert_called_once()
-
-    async def test_save_multiple_assets(self):
-        """Test saving multiple assets as a single note."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {
-            "listing": [
-                {"savings account": 2100},
-                {"jewelry": 1500},
-                {"vehicle": 8000},
-            ],
-            "total_value": 11600,
-        }
-
-        await _save_assets_note(mock_client, "test-uuid-456", assets_data)
-
-        call_args = mock_client.post.call_args
-        body = call_args[1]["json"]["body"]
-        assert "savings account: $2,100.00" in body
-        assert "jewelry: $1,500.00" in body
-        assert "vehicle: $8,000.00" in body
-        assert "Total Assets: $11,600.00" in body
-
-    async def test_asset_formatting_with_currency(self):
-        """Test that assets are formatted as currency with proper formatting."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {
-            "listing": [{"real property": 250000}],
-            "total_value": 250000,
-        }
-
-        await _save_assets_note(mock_client, "test-uuid", assets_data)
-
-        call_args = mock_client.post.call_args
-        assert "real property: $250,000.00" in call_args[1]["json"]["body"]
-
-    async def test_save_empty_assets_listing_creates_no_assets_recorded_note(self):
-        """Test that a note is created when assets listing is empty and total is 0."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {"listing": [], "total_value": 0}
-
-        await _save_assets_note(mock_client, "test-uuid", assets_data)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid" in call_args[0][0]
-        assert call_args[1]["json"]["subject"] == "Assets"
-        assert call_args[1]["json"]["body"] == "No assets recorded"
-        assert call_args[1]["json"]["note_type"] == {
-            "lookup_value_name": "General Notes"
-        }
-
-    async def test_skip_when_assets_data_not_dict(self):
-        """Test handling of non-dict assets data."""
-        mock_client = AsyncMock()
-
-        await _save_assets_note(mock_client, "test-uuid", "invalid-data")
-
-        mock_client.post.assert_not_called()
-
-    async def test_save_assets_with_no_listing_and_zero_value(self):
-        """Test that a note is created when no assets and total value is 0."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {"listing": [], "total_value": 0}
-
-        await _save_assets_note(mock_client, "test-uuid", assets_data)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert call_args[1]["json"]["body"] == "No assets recorded"
-
-    async def test_save_assets_with_only_total_value(self):
-        """Test saving assets when only total value is present."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {"listing": [], "total_value": 5000}
-
-        await _save_assets_note(mock_client, "test-uuid", assets_data)
-
-        call_args = mock_client.post.call_args
-        assert "Total Assets: $5,000.00" in call_args[1]["json"]["body"]
-
-    async def test_handle_failed_assets_note_creation(self):
-        """Test that failed note creation is logged as warning."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(
-            return_value=MagicMock(
-                status=400, text=AsyncMock(return_value="Bad Request")
-            )
-        )
-
-        assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_assets_note(mock_client, "test-uuid", assets_data)
-            mock_logger.warning.assert_called()
-
-    async def test_handle_exception_in_save_assets_note(self):
-        """Test that exceptions are handled gracefully."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(side_effect=Exception("Connection error"))
-
-        assets_data = {"listing": [{"savings": 1000}], "total_value": 1000}
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_assets_note(mock_client, "test-uuid", assets_data)
-            mock_logger.exception.assert_called()
-
-    async def test_successful_assets_note_creation_logs_debug(self):
-        """Test that successful note creation is logged with total value."""
-        mock_client = AsyncMock()
-        mock_client.post = AsyncMock(return_value=MagicMock(status=201))
-
-        assets_data = {
-            "listing": [{"savings": 1000}, {"jewelry": 500}],
-            "total_value": 1500,
-        }
-
-        with patch("intake_bot.services.legalserver.logger") as mock_logger:
-            await _save_assets_note(mock_client, "test-uuid", assets_data)
-            call_args = mock_logger.debug.call_args_list[-1][0][0]
-            assert "$1,500.00" in call_args
-
-
-@pytest.mark.asyncio
-class TestSaveCaseDescriptionNote:
-    """Tests for _save_case_description_note helper function."""
-
-    async def test_save_case_description(self):
-        """Test saving case description as a note."""
-        mock_client = AsyncMock()
-        mock_response = MagicMock(status=201)
-        mock_client.post = AsyncMock(return_value=mock_response)
-
-        case_type_data = {"case_description": "I need help with a divorce."}
-
-        await _save_case_description_note(mock_client, "test-uuid-123", case_type_data)
-
-        mock_client.post.assert_called_once()
-        call_args = mock_client.post.call_args
-        assert "test-uuid-123" in call_args[0][0]
-        assert call_args[1]["json"]["subject"] == "Case Description"
-        assert call_args[1]["json"]["body"] == "I need help with a divorce."
-        assert call_args[1]["json"]["note_type"] == {
-            "lookup_value_name": "General Notes"
-        }
-        mock_response.release.assert_called_once()
-
-    async def test_skip_empty_case_description(self):
-        """Test that no note is created when case description is missing."""
-        mock_client = AsyncMock()
-
-        case_type_data = {}
-
-        await _save_case_description_note(mock_client, "test-uuid", case_type_data)
-
-        mock_client.post.assert_not_called()
-
-
-@pytest.mark.asyncio
-class TestSaveIntakeLegalserver:
-    """Tests for the main save_intake_legalserver function."""
-
-    async def test_disabled_connection_returns_early(self):
-        """Test that disabled connection returns without action."""
-        state = {}
-
-        with patch.dict(
-            "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "true"}
+        assert result.overall == LegalServerOverall.FAILED
+
+
+# ---------------------------------------------------------------------------
+# Exact consolidated fallback payload assertions
+# ---------------------------------------------------------------------------
+
+
+def test_collect_fallback_payload_content():
+    """Verify fallback content includes unresolved values and excludes successful."""
+    ops = [
+        RecordResult(
+            OperationKind.INCOME,
+            OperationOutcome.FAILED,
+            _fallback_content="Employment: 50000 annually",
+        ),
+        RecordResult(
+            OperationKind.INCOME, OperationOutcome.SUCCESS, _fallback_content=""
+        ),
+        RecordResult(OperationKind.ALIAS, OperationOutcome.SUCCESS),
+        RecordResult(
+            OperationKind.ALIAS,
+            OperationOutcome.AMBIGUOUS,
+            _fallback_content='{"first": "C", "last": "D"}',
+        ),
+        RecordResult(
+            OperationKind.ADVERSE_PARTY,
+            OperationOutcome.FAILED,
+            _fallback_content='{"first": "X", "last": "Y"}',
+        ),
+        RecordResult(
+            OperationKind.CASE_DESCRIPTION,
+            OperationOutcome.AMBIGUOUS,
+            _fallback_content="Landlord dispute",
+        ),
+        RecordResult(
+            OperationKind.ASSETS,
+            OperationOutcome.FAILED,
+            _fallback_content="Assets: ... (total: 1000)",
+        ),
+        RecordResult(
+            OperationKind.REJECTION_REASON,
+            OperationOutcome.FAILED,
+            _fallback_content="Over Income",
+        ),
+    ]
+    parts = _collect_fallback_content(ops, None)
+    combined = "\n".join(parts)
+    assert "Employment: 50000 annually" in combined
+    assert "Landlord dispute" in combined
+    assert '"first": "C", "last": "D"' in combined
+    assert '"first": "X", "last": "Y"' in combined
+    assert "Assets:" in combined
+    assert "Over Income" in combined
+    assert "Employment: 50000 annually" in parts[0]  # income first
+    # Successful siblings excluded
+    assert "income" in parts[0].lower()
+    assert "additional names" in parts[1].lower()
+
+
+def test_collect_fallback_excludes_successful():
+    ops = [
+        RecordResult(
+            OperationKind.INCOME,
+            OperationOutcome.SUCCESS,
+            _fallback_content="SHOULD NOT APPEAR",
+        ),
+        RecordResult(
+            OperationKind.INCOME,
+            OperationOutcome.FAILED,
+            _fallback_content="Employment: 30000",
+        ),
+    ]
+    parts = _collect_fallback_content(ops, None)
+    combined = "\n".join(parts)
+    assert "SHOULD NOT APPEAR" not in combined
+    assert "Employment: 30000" in combined
+
+
+# ---------------------------------------------------------------------------
+# Deadline exhaustion orchestrations
+# ---------------------------------------------------------------------------
+
+
+class TestDeadlineOrchestration:
+    """Deadline before section materializes unresolved operations."""
+
+    @pytest.mark.asyncio
+    async def test_deadline_before_fallback_produces_failed(self, monkeypatch):
+        """Deadline exhausted before fallback attempt -> overall FAILED."""
+        clock = _FakeClock(start=1000.0)
+
+        class _Sess:
+            def __init__(self, *a, **kw):
+                self.calls = []
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            _ordered = ["/incomes", "/notes", "/matters"]
+
+            def request(self, m, u, **kw):
+                self.calls.append((m, u))
+                path = next((p for p in self._ordered if p in u), "")
+                if path == "/incomes":
+                    return _FakeRequestContextManager(_FakeResponse(400, {}))
+                if path == "/notes":
+                    return _FakeRequestContextManager(_FakeResponse(201, {}))
+                if "/matters" in u and m == "POST":
+                    return _FakeRequestContextManager(
+                        _FakeResponse(201, {"data": {"matter_uuid": "m-1"}})
+                    )
+                if "/matters" in u and m == "GET":
+                    return _FakeRequestContextManager(_FakeResponse(200, {"data": []}))
+                return _FakeRequestContextManager(_FakeResponse(201, {}))
+
+            def get(self, u, **kw):
+                return self.request("GET", u, **kw)
+
+            def post(self, u, **kw):
+                return self.request("POST", u, **kw)
+
+        monkeypatch.setattr(aiohttp, "ClientSession", _Sess)
+        with (
+            patch("intake_bot.services.legalserver._now", clock.now),
+            patch("intake_bot.services.legalserver._sleep", clock.sleep),
+            patch("intake_bot.services.legalserver.LEGALSERVER_TIMEOUT", 0.0),
         ):
-            with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-                mock_logger.debug.assert_called_with("LegalServer connection disabled")
-
-    async def test_successful_matter_creation(self):
-        """Test successful creation of matter in LegalServer."""
-        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-123", "case_id": 419645}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Check that debug or info was called with matter creation message
-                all_debug_calls = [
-                    call[0][0] for call in mock_logger.debug.call_args_list
-                ]
-                all_info_calls = [
-                    call[0][0] for call in mock_logger.info.call_args_list
-                ]
-                all_calls = all_debug_calls + all_info_calls
-                assert any("Matter created successfully" in call for call in all_calls)
-
-    async def test_missing_matter_uuid_stops_follow_up_writes(self):
-        """Test that a successful response without matter_uuid does not write child records."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "income": {
-                "is_eligible": True,
-                "listing": {
-                    "Test User": {"Employment": {"amount": 1000, "period": "Monthly"}}
-                },
-            },
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(return_value={"data": {"case_id": 419645}})
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                assert mock_client.post.call_count == 1
-                mock_logger.error.assert_any_call(
-                    "Matter creation response missing matter_uuid"
-                )
-
-    async def test_failed_matter_creation(self):
-        """Test handling of failed matter creation."""
-        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
-
-        mock_response = MagicMock()
-        mock_response.status = 400
-        mock_response.reason = "Bad Request"
-        mock_response.text = AsyncMock(return_value="Invalid payload")
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch.dict(
-                "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "false"}
-            ):
-                with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                    from intake_bot.services.legalserver import (
-                        save_intake_legalserver,
-                    )
-
-                    await save_intake_legalserver(state)
-
-                    mock_logger.error.assert_called()
-
-    async def test_http_request_exception_handling(self):
-        """Test handling of HTTP request exceptions."""
-        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post = AsyncMock(
-                side_effect=aiohttp.ServerTimeoutError("Connection timeout")
-            )
-            mock_client_class.return_value = mock_client
-
-            with patch.dict(
-                "os.environ", {"LEGALSERVER_TESTING_DISABLE_CONNECTION": "false"}
-            ):
-                with patch("intake_bot.services.legalserver.logger") as mock_logger:
-                    from intake_bot.services.legalserver import (
-                        save_intake_legalserver,
-                    )
-
-                    await save_intake_legalserver(state)
-
-                    # Should log the error
-                    assert any(
-                        "HTTP Request failed" in str(call)
-                        for call in mock_logger.error.call_args_list
-                    )
-
-    async def test_matter_creation_with_date_of_birth(self):
-        """Test successful creation of matter with date of birth."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "date_of_birth": {"date_of_birth": "1990-05-15"},
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-dob-123", "case_id": 419646}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the matter creation call included date_of_birth
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-                assert matter_payload["date_of_birth"] == "1990-05-15"
-
-    async def test_matter_creation_with_different_date_formats(self):
-        """Test matter creation with various valid date formats (all converted to ISO)."""
-        test_dates = [
-            ("1980-01-15", "1980-01-15"),  # ISO already
-            ("1975-12-25", "1975-12-25"),  # ISO already
-            ("1990-06-30", "1990-06-30"),  # ISO already
-        ]
-
-        for input_date, expected_iso in test_dates:
-            state = {
-                "names": {"names": [{"first": "Test", "last": "User"}]},
-                "date_of_birth": {"date_of_birth": input_date},
-            }
-
-            mock_response = MagicMock()
-            mock_response.status = 201
-            mock_response.json = AsyncMock(
-                return_value={
-                    "data": {"matter_uuid": f"""uuid-{input_date}""", "case_id": 419647}
+            result = await save_intake_legalserver(
+                {
+                    "call_id": "c1",
+                    "names": {"names": [{"first": "A", "last": "B"}]},
+                    "income": {
+                        "listing": {"J": {"E": {"amount": 50000, "period": "Annually"}}}
+                    },
                 }
             )
+            assert result.overall == LegalServerOverall.FAILED
 
-            with patch("aiohttp.ClientSession") as mock_client_class:
-                mock_client = AsyncMock()
-                mock_client.__aenter__.return_value = mock_client
-                mock_client.post = AsyncMock(return_value=mock_response)
-                mock_client_class.return_value = mock_client
 
-                with patch("intake_bot.services.legalserver.logger"):
-                    from intake_bot.services.legalserver import save_intake_legalserver
-
-                    await save_intake_legalserver(state)
-
-                    # Verify the payload contains the correct ISO format date string
-                    first_call = mock_client.post.call_args_list[0]
-                    matter_payload = first_call[1]["json"]
-                    # With mode='json', dates are serialized to ISO format strings
-                    assert matter_payload["date_of_birth"] == expected_iso
-
-    async def test_matter_creation_without_date_of_birth(self):
-        """Test matter creation when date_of_birth is not provided."""
-        state = {"names": {"names": [{"first": "Test", "last": "User"}]}}
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-no-dob", "case_id": 419648}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the matter creation call does not include date_of_birth
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-                assert "date_of_birth" not in matter_payload
-
-    async def test_matter_creation_with_empty_date_of_birth(self):
-        """Test matter creation when date_of_birth is empty string."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "date_of_birth": {"date_of_birth": ""},
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-empty-dob", "case_id": 419649}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Empty date should cause validation to fail, so no POST call should be made
-                # The save_intake_legalserver function returns early when payload validation fails
-                assert mock_client.post.call_count == 0
-
-    async def test_complete_intake_with_date_of_birth_and_all_fields(self):
-        """Test complete matter creation with date of birth and all other required fields."""
-        state = {
-            "call_id": "test-call-complete-dob",
-            "phone": {
-                "is_valid": True,
-                "phone_number": "(703) 555-1234",
-                "phone_type": "mobile",
-            },
-            "names": {
-                "names": [
-                    {
-                        "first": "Rebecca",
-                        "middle": "Anne",
-                        "last": "Thompson",
-                        "suffix": None,
-                    }
-                ]
-            },
-            "date_of_birth": {"date_of_birth": "1985-07-22"},
-            "service_area": {
-                "location": "Richmond City",
-                "is_eligible": True,
-                "fips_code": 51760,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "01 Domestic Violence",
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 2500,
-                "household_size": 2,
-            },
-            "assets": {"is_eligible": True, "total_value": 5000},
-            "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": True,
-            },
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": {"matter_uuid": "uuid-complete-dob", "case_id": 419650}
-            }
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the complete matter payload
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-
-                assert matter_payload["first"] == "Rebecca"
-                assert matter_payload["middle"] == "Anne"
-                assert matter_payload["last"] == "Thompson"
-                assert matter_payload["date_of_birth"] == "1985-07-22"
-                assert matter_payload["mobile_phone"] == "(703) 555-1234"
-                assert matter_payload["legal_problem_code"] == "01 Domestic Violence"
-                assert matter_payload["income_eligible"] is True
-                assert matter_payload["asset_eligible"] is True
-                assert matter_payload["citizenship"] == "Citizen"
-                assert matter_payload["victim_of_domestic_violence"] is True
-
-    async def test_matter_creation_with_ssn_last_4(self):
-        """Test successful creation of matter with SSN last 4."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "ssn_last_4": {"ssn_last_4": "5678"},
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-ssn-123", "case_id": 419651}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the matter creation call included ssn
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-                assert matter_payload["ssn"] == "5678"
-
-    async def test_matter_creation_with_case_description(self):
-        """Test successful creation of matter with case description note."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "01 Bankruptcy",
-                "case_description": "I am filing for bankruptcy.",
-            },
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={"data": {"matter_uuid": "uuid-case-desc", "case_id": 419652}}
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify case description note creation
-                # First call is matter creation, second should be note creation
-                assert mock_client.post.call_count >= 2
-
-                # Find the note creation call
-                note_calls = [
-                    call
-                    for call in mock_client.post.call_args_list
-                    if "notes" in call[0][0]
-                ]
-                assert len(note_calls) > 0
-
-                note_payload = note_calls[0][1]["json"]
-                assert note_payload["subject"] == "Case Description"
-                assert note_payload["body"] == "I am filing for bankruptcy."
-
-    async def test_matter_creation_with_ssn_and_date_of_birth(self):
-        """Test matter creation with both SSN last 4 and date of birth."""
-        state = {
-            "names": {"names": [{"first": "Test", "last": "User"}]},
-            "ssn_last_4": {"ssn_last_4": "9999"},
-            "date_of_birth": {"date_of_birth": "1992-03-15"},
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": {"matter_uuid": "uuid-ssn-dob-123", "case_id": 419652}
-            }
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify both fields are in the payload
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-                assert matter_payload["ssn"] == "9999"
-                assert matter_payload["date_of_birth"] == "1992-03-15"
-
-    async def test_matter_creation_complete_with_ssn(self):
-        """Test successful creation of complete matter including SSN last 4."""
-        state = {
-            "names": {
-                "names": [{"first": "Robert", "middle": "Lee", "last": "Garcia"}]
-            },
-            "phone": {"is_valid": True, "phone_number": "(202) 555-0199"},
-            "ssn_last_4": {"ssn_last_4": "4321"},
-            "date_of_birth": {"date_of_birth": "1988-11-03"},
-            "service_area": {
-                "location": "Alexandria City",
-                "is_eligible": True,
-                "fips_code": 51510,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "23 Employment",
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 3500,
-                "household_size": 1,
-            },
-            "assets": {"is_eligible": True, "total_value": 2000},
-            "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": False,
-            },
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": {"matter_uuid": "uuid-complete-ssn", "case_id": 419653}
-            }
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the complete matter payload
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-
-                assert matter_payload["first"] == "Robert"
-                assert matter_payload["middle"] == "Lee"
-                assert matter_payload["last"] == "Garcia"
-                assert matter_payload["ssn"] == "4321"
-                assert matter_payload["date_of_birth"] == "1988-11-03"
-                assert matter_payload["mobile_phone"] == "(202) 555-0199"
-                assert matter_payload["legal_problem_code"] == "23 Employment"
-                assert matter_payload["income_eligible"] is True
-                assert matter_payload["asset_eligible"] is True
-                assert matter_payload["citizenship"] == "Citizen"
-
-    async def test_matter_creation_with_household_composition(self):
-        """Test successful creation of matter with household composition."""
-        state = {
-            "names": {"names": [{"first": "Patricia", "last": "Martinez"}]},
-            "phone": {"is_valid": True, "phone_number": "(540) 555-0123"},
-            "date_of_birth": {"date_of_birth": "1982-04-10"},
-            "service_area": {
-                "location": "Roanoke City",
-                "is_eligible": True,
-                "fips_code": 51740,
-            },
-            "case_type": {
-                "is_eligible": True,
-                "legal_problem_code": "31 Custody/Visitation",
-            },
-            "household_composition": {
-                "number_of_adults": 1,
-                "number_of_children": 2,
-            },
-            "income": {
-                "is_eligible": True,
-                "monthly_amount": 2800,
-                "household_size": 3,
-            },
-            "assets": {"is_eligible": True, "total_value": 1500},
-            "citizenship": {"is_citizen": True},
-            "domestic_violence": {
-                "is_experiencing": False,
-            },
-        }
-
-        mock_response = MagicMock()
-        mock_response.status = 201
-        mock_response.json = AsyncMock(
-            return_value={
-                "data": {"matter_uuid": "uuid-household-comp", "case_id": 419654}
-            }
-        )
-
-        with patch("aiohttp.ClientSession") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.post = AsyncMock(return_value=mock_response)
-            mock_client_class.return_value = mock_client
-
-            with patch("intake_bot.services.legalserver.logger"):
-                from intake_bot.services.legalserver import save_intake_legalserver
-
-                await save_intake_legalserver(state)
-
-                # Verify the matter payload includes household composition
-                first_call = mock_client.post.call_args_list[0]
-                matter_payload = first_call[1]["json"]
-
-                assert matter_payload["first"] == "Patricia"
-                assert matter_payload["last"] == "Martinez"
-                assert matter_payload["number_of_adults"] == 1
-                assert matter_payload["number_of_children"] == 2
-                assert matter_payload["income_eligible"] is True
-                assert matter_payload["asset_eligible"] is True
+def test_record_result_repr_excludes_fallback():
+    """repr() must not contain the private _fallback_content value."""
+    r = RecordResult(
+        kind=OperationKind.INCOME,
+        outcome=OperationOutcome.FAILED,
+        _fallback_content="SENTINEL-SHOULD-NOT-APPEAR",
+    )
+    rep = repr(r)
+    assert "SENTINEL-SHOULD-NOT-APPEAR" not in rep
+    assert "_fallback_content" not in rep

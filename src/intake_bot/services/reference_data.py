@@ -1,10 +1,24 @@
+from __future__ import annotations
+
 import re
+import unicodedata
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 import yaml
 from intake_bot.utils.globals import DATA_DIR
 from loguru import logger
+
+LocalityInfo = Dict[str, Any]
+
+
+def normalize_text(text: str) -> str:
+    ascii_text = (
+        unicodedata.normalize("NFKD", str(text))
+        .encode("ascii", "ignore")
+        .decode("ascii")
+    )
+    return re.sub(r"\s+", " ", ascii_text.strip().lower())
 
 
 class ReferenceDataLoader:
@@ -37,83 +51,44 @@ class ReferenceDataLoader:
             with open(ref_file) as f:
                 ReferenceDataLoader._data = yaml.safe_load(f)
             logger.debug(f"""Loaded reference data from {ref_file}""")
-        except Exception as e:
-            logger.error(f"""Error loading reference data from {ref_file}: {e}""")
+        except Exception:
+            logger.error("Error loading reference data")
             ReferenceDataLoader._data = {}
 
-    @staticmethod
-    def _normalize_service_area_text(location: str) -> str:
-        return re.sub(r"""\s+""", " ", location.strip().lower())
-
-    @classmethod
-    def _build_service_area_aliases(
-        cls, service_areas: Dict[str, int]
-    ) -> Dict[str, tuple[str, int]]:
-        aliases: Dict[str, tuple[str, int]] = {}
-
-        for canonical_name, fips_code in service_areas.items():
-            normalized_name = cls._normalize_service_area_text(canonical_name)
-            aliases.setdefault(normalized_name, (canonical_name, fips_code))
-
-            for suffix in (" city", " county"):
-                if normalized_name.endswith(suffix):
-                    alias = normalized_name[: -len(suffix)].strip()
-                    if alias:
-                        aliases.setdefault(alias, (canonical_name, fips_code))
-
-        return aliases
+    @property
+    def virginia_localities(self) -> Dict[str, LocalityInfo]:
+        return ReferenceDataLoader._data.get("virginia_localities", {})
 
     @property
-    def service_areas(self) -> Dict[str, int]:
-        """Get service areas mapping (county/city name to FIPS code)."""
-        return ReferenceDataLoader._data.get("service_areas", {})
+    def official_name_normalizations(self) -> Dict[str, str]:
+        raw = ReferenceDataLoader._data.get("official_name_normalizations", {})
+        return {normalize_text(k): v for k, v in raw.items()}
 
     @property
-    def service_area_aliases(self) -> Dict[str, tuple[str, int]]:
-        """Get normalized service-area aliases mapped to canonical names and FIPS codes."""
-        return self._build_service_area_aliases(self.service_areas)
+    def ambiguous_names(self) -> Dict[str, list[str]]:
+        raw = ReferenceDataLoader._data.get("ambiguous_names", {})
+        return {normalize_text(k): v for k, v in raw.items()}
 
     @property
     def income_categories(self) -> list[str]:
-        """Get income categories as a list of category names."""
         return ReferenceDataLoader._data.get("income_categories", [])
 
     @property
     def legal_problem_codes(self) -> Dict[str, str]:
-        """
-        Get legal problem codes as dictionary.
-
-        Returns mapping where:
-        - key: normalized label without code (e.g., "Private Landlord/Tenant")
-        - value: full original entry (e.g., "63 Private Landlord/Tenant")
-        """
         return ReferenceDataLoader._data.get("legal_problem_codes", {})
 
     def get_all(self) -> Dict:
-        """Get all loaded reference data."""
         return ReferenceDataLoader._data or {}
 
     @property
     def classifier_taxonomy(self) -> list[str]:
-        """Get the classifier taxonomy as a sorted list of labels."""
         return sorted(self.legal_problem_codes.keys())
 
     def label_for_legal_problem_code(self, code: str) -> str | None:
-        """Resolve a legal problem code to its label.
-
-        Args:
-            code: The full legal problem code string (e.g. ``"63 Private Landlord/Tenant"``)
-                  or just the numeric prefix (e.g. ``"63"``).
-
-        Returns:
-            The label portion (e.g. ``"Private Landlord/Tenant"``) or None if not found.
-        """
         code = code.strip()
-        # Search by full entry value (e.g. "63 Private Landlord/Tenant")
         for label, full_entry in self.legal_problem_codes.items():
             if full_entry == code:
                 return label
-        # Search by numeric prefix
         for label, full_entry in self.legal_problem_codes.items():
             entry_prefix, _, _ = full_entry.partition(" ")
             if entry_prefix == code:
@@ -121,12 +96,339 @@ class ReferenceDataLoader:
         return None
 
     def legal_problem_code_from_label(self, label: str) -> str | None:
-        """Resolve a label to its full legal problem code.
-
-        Args:
-            label: The label portion (e.g. ``"Private Landlord/Tenant"``).
-
-        Returns:
-            The full entry (e.g. ``"63 Private Landlord/Tenant"``) or None if not found.
-        """
         return self.legal_problem_codes.get(label.strip())
+
+    @staticmethod
+    def _strip_trailing_punctuation(text: str) -> str:
+        return text.strip(".,!?;:")
+
+    @staticmethod
+    def _strip_va_suffix(words: list[str]) -> list[str]:
+        if not words:
+            return words
+        last = words[-1].strip(".,!?;:")
+        if last in ("va", "virginia"):
+            return words[:-1]
+        if len(words) >= 2:
+            pair = " ".join(words[-2:]).strip(".,!?;:")
+            if pair == "commonwealth of virginia":
+                return words[:-3]
+        return words
+
+    @staticmethod
+    def _is_out_of_state(normalized: str) -> bool:
+        words = ReferenceDataLoader._clean_words(normalized)
+        NON_VA_STATES = frozenset(
+            {
+                "alabama",
+                "alaska",
+                "arizona",
+                "arkansas",
+                "california",
+                "colorado",
+                "connecticut",
+                "delaware",
+                "florida",
+                "georgia",
+                "hawaii",
+                "idaho",
+                "illinois",
+                "indiana",
+                "iowa",
+                "kansas",
+                "kentucky",
+                "louisiana",
+                "maine",
+                "maryland",
+                "massachusetts",
+                "michigan",
+                "minnesota",
+                "mississippi",
+                "missouri",
+                "montana",
+                "nebraska",
+                "nevada",
+                "new hampshire",
+                "new jersey",
+                "new mexico",
+                "new york",
+                "north carolina",
+                "north dakota",
+                "ohio",
+                "oklahoma",
+                "oregon",
+                "pennsylvania",
+                "rhode island",
+                "south carolina",
+                "south dakota",
+                "tennessee",
+                "texas",
+                "utah",
+                "vermont",
+                "washington",
+                "west virginia",
+                "wisconsin",
+                "wyoming",
+                "district of columbia",
+                "puerto rico",
+                "guam",
+                "u.s. virgin islands",
+                "us virgin islands",
+                "american samoa",
+                "northern mariana islands",
+            }
+        )
+        NON_VA_ABBREVS = frozenset(
+            {
+                "al",
+                "ak",
+                "az",
+                "ar",
+                "ca",
+                "co",
+                "ct",
+                "de",
+                "fl",
+                "ga",
+                "hi",
+                "id",
+                "il",
+                "in",
+                "ia",
+                "ks",
+                "ky",
+                "la",
+                "me",
+                "md",
+                "ma",
+                "mi",
+                "mn",
+                "ms",
+                "mo",
+                "mt",
+                "ne",
+                "nv",
+                "nh",
+                "nj",
+                "nm",
+                "ny",
+                "nc",
+                "nd",
+                "oh",
+                "ok",
+                "or",
+                "pa",
+                "ri",
+                "sc",
+                "sd",
+                "tn",
+                "tx",
+                "ut",
+                "vt",
+                "wa",
+                "wv",
+                "wi",
+                "wy",
+                "dc",
+                "pr",
+                "gu",
+                "vi",
+                "as",
+                "mp",
+            }
+        )
+
+        for n in range(4, 0, -1):
+            for i in range(len(words) - n + 1):
+                phrase = " ".join(words[i : i + n])
+                if phrase in NON_VA_STATES:
+                    return True
+        for w in words:
+            if w in NON_VA_STATES:
+                return True
+        if words and words[-1] in NON_VA_ABBREVS:
+            return True
+        return False
+
+    @staticmethod
+    def _clean_words(normalized: str) -> list[str]:
+        return [w.strip(".,!?;:,") for w in normalized.split()]
+
+    def _match_anchored(self, normalized: str) -> str | None:
+        """Full-input anchored matching.  Returns canonical name or None."""
+        words = self._clean_words(normalized.replace(",", " "))
+        words = self._strip_va_suffix(words)
+        if not words:
+            return None
+        stripped = " ".join(words)
+
+        # 1. Exact canonical
+        for canonical in self.virginia_localities:
+            if normalize_text(canonical) == stripped:
+                return canonical
+
+        # 2. Official-name normalization (not a generic bare-name alias).
+        alias_match = self.official_name_normalizations.get(stripped)
+        if alias_match and alias_match in self.virginia_localities:
+            return alias_match
+
+        # 3. "<name> County" / "<name> City" — anchored at end
+        if len(words) >= 2:
+            suffix = words[-1]
+            if suffix in ("county", "city"):
+                name_words = words[:-1]
+                candidate = " ".join(name_words).title() + " " + suffix.title()
+                for canonical in self.virginia_localities:
+                    if normalize_text(canonical) == normalize_text(candidate):
+                        return canonical
+
+        # 4. "County of <name>" / "City of <name>"
+        if len(words) >= 3 and words[0] in ("county", "city") and words[1] == "of":
+            name_words = words[2:]
+            candidate = " ".join(name_words).title() + " " + words[0].title()
+            for canonical in self.virginia_localities:
+                if normalize_text(canonical) == normalize_text(candidate):
+                    return canonical
+
+        return None
+
+    def _has_anchor_term(self, normalized: str) -> bool:
+        words = normalized.strip(".,!?;:,").split()
+        return any(w.strip(".,!?;:") in ("county", "city") for w in words)
+
+    def resolve_service_area(self, location: str) -> dict:
+        result = {
+            "outcome": "unknown",
+            "canonical_name": None,
+            "fips": None,
+            "is_eligible": None,
+            "candidates": [],
+            "match_type": None,
+        }
+
+        normalized = normalize_text(location)
+        if not normalized:
+            return result
+
+        # 1. Full-input anchored matching. This must precede state-token checks so
+        # canonical localities such as Virginia Beach are not mistaken for a state.
+        anchored = self._match_anchored(normalized)
+        if anchored:
+            info = self.virginia_localities[anchored]
+            result.update(
+                outcome="exact_match",
+                canonical_name=anchored,
+                fips=info["fips"],
+                is_eligible=info["is_eligible"],
+                match_type="canonical",
+            )
+            return result
+
+        # 2. Check for explicit non-Virginia states (with punctuation stripped).
+        state_cleaned = self._strip_trailing_punctuation(normalized)
+        if self._is_out_of_state(state_cleaned):
+            result["outcome"] = "unserved"
+            return result
+
+        # 3. Check ambiguous names (only bare ambiguous names, not county/city forms)
+        ambig_match = self.ambiguous_names.get(
+            self._strip_trailing_punctuation(normalized)
+        )
+        if ambig_match and not self._has_anchor_term(normalized):
+            result.update(
+                outcome="ambiguous",
+                fips=None,
+                is_eligible=None,
+                candidates=ambig_match,
+                match_type="ambiguous",
+            )
+            return result
+
+        # 4. If input contains county/city anchor and anchored forms didn't match, unresolved
+        if self._has_anchor_term(normalized):
+            result["outcome"] = "unresolved_service_area"
+            return result
+
+        # 5. Bare "Virginia" must not fuzzy-suggest anything
+        bare = self._strip_trailing_punctuation(normalized)
+        if bare in ("virginia", "va"):
+            result["outcome"] = "unresolved_service_area"
+            return result
+
+        # 6. Bare names of covered localities are suggestions, not exact matches.
+        bare_matches = [
+            canonical
+            for canonical in self.virginia_localities
+            if normalize_text(canonical.rsplit(" ", 1)[0]) == bare
+        ]
+        if len(bare_matches) == 1:
+            result.update(
+                outcome="suggested",
+                canonical_name=bare_matches[0],
+                fips=None,
+                is_eligible=None,
+                candidates=bare_matches,
+                match_type="bare_name",
+            )
+            return result
+
+        # 7. Fuzzy match — rank suggestions only
+        from rapidfuzz import fuzz, process, utils
+
+        locality_names = list(self.virginia_localities.keys())
+        fuzzy_matches = process.extract(
+            location,
+            locality_names,
+            scorer=fuzz.WRatio,
+            score_cutoff=50,
+            limit=5,
+            processor=utils.default_process,
+        )
+
+        if not fuzzy_matches:
+            result["outcome"] = "unresolved_service_area"
+            return result
+
+        strong_matches = [
+            (name, score) for name, score, _ in fuzzy_matches if score >= 75
+        ]
+
+        if len(strong_matches) == 1:
+            name, score = strong_matches[0]
+            info = self.virginia_localities[name]
+            result.update(
+                outcome="suggested",
+                canonical_name=name,
+                fips=None,
+                is_eligible=None,
+                candidates=[name],
+                match_type="fuzzy",
+            )
+        elif len(strong_matches) == 2:
+            candidates = [name for name, _ in strong_matches]
+            result.update(
+                outcome="ambiguous",
+                fips=None,
+                is_eligible=None,
+                candidates=candidates,
+                match_type="fuzzy",
+            )
+        elif len(strong_matches) > 2:
+            candidates = [name for name, _ in strong_matches[:2]]
+            result.update(
+                outcome="ambiguous",
+                fips=None,
+                is_eligible=None,
+                candidates=candidates,
+                match_type="fuzzy",
+            )
+        else:
+            result.update(
+                outcome="unresolved_service_area",
+                fips=None,
+                is_eligible=None,
+                candidates=[],
+                match_type="fuzzy",
+            )
+
+        return result

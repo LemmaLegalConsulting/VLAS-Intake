@@ -1,5 +1,7 @@
+import asyncio
 import sys
 import unicodedata
+from collections.abc import Callable
 from datetime import datetime, timezone
 
 from intake_bot.models.intake_flow_result import (
@@ -13,6 +15,7 @@ from intake_bot.models.intake_flow_result import (
     DateOfBirthResult,
     DomesticViolenceResult,
     HouseholdCompositionResult,
+    HouseholdMembersResult,
     IncomeResult,
     IntakeFlowResult,
     LanguageResult,
@@ -29,11 +32,13 @@ from intake_bot.models.validator import (
     CallerName,
     CallerNames,
     HouseholdIncome,
+    HouseholdMembers,
     PhoneTypeCaller,
 )
 from intake_bot.nodes.utils import (
     clean_pydantic_error_message,
     convert_and_log_result,
+    log_pydantic_validation_error,
     status_helper,
 )
 from intake_bot.nodes.validator import IntakeValidator
@@ -42,6 +47,7 @@ from intake_bot.services.dialpad import (
     SMS,
     ReferralContent,
 )
+from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.utils.ev import get_deepgram_tts_voices, get_ev
 from intake_bot.utils.node_prompts import NodePrompts
 from loguru import logger
@@ -61,14 +67,144 @@ from pipecat.flows import (
 )
 from pydantic import ValidationError
 
-# Initialize
 prompts = NodePrompts()
 validator = IntakeValidator()
 sms_service = SMS()
 _ADVERSE_PARTIES_FOLLOW_UP_KEY = "_adverse_parties_follow_up_requested"
+_HOUSEHOLD_COMPOSITION_PENDING_KEY = "_pending_household_composition"
+_SERVICE_AREA_PENDING_KEY = "_pending_service_area"
+_SERVICE_AREA_RETRY_KEY = "_service_area_unresolved_count"
 
 _ACKNOWLEDGMENT_CONFIRMATION = "confirmation"
 _ACKNOWLEDGMENT_INFORMATION = "information"
+
+_SPANISH_AFFIRMATIVE = {
+    "si",
+    "sí",
+    "sip",
+    "correcto",
+    "cierto",
+    "afirmativo",
+    "confirmado",
+    "de acuerdo",
+    "vale",
+    "ok",
+    "okay",
+}
+
+_SPANISH_NEGATIVE = {
+    "no",
+    "nop",
+    "nada",
+    "incorrecto",
+    "falso",
+    "negativo",
+}
+
+
+def _is_affirmative(text: str) -> bool:
+    t = text.strip().lower().rstrip(".,!?")
+    if t in {
+        "yes",
+        "yeah",
+        "yep",
+        "correct",
+        "right",
+        "that's right",
+        "that is right",
+        "that's correct",
+        "that is correct",
+        "sure",
+        "confirm",
+        "confirmed",
+        "affirmative",
+        "true",
+        "y",
+    }:
+        return True
+    if t in _SPANISH_AFFIRMATIVE:
+        return True
+    return False
+
+
+def _is_negative(text: str) -> bool:
+    t = text.strip().lower().rstrip(".,!?")
+    if t in {"no", "nope", "nah", "negative", "incorrect", "false", "wrong", "n"}:
+        return True
+    if t in _SPANISH_NEGATIVE:
+        return True
+    return False
+
+
+def _service_area_pending(flow_manager: FlowManager) -> dict | None:
+    raw = flow_manager.state.get(_SERVICE_AREA_PENDING_KEY)
+    if isinstance(raw, dict) and "candidates" in raw:
+        return raw
+    return None
+
+
+def _store_service_area_pending(
+    flow_manager: FlowManager,
+    candidates: list[str],
+) -> None:
+    flow_manager.state[_SERVICE_AREA_PENDING_KEY] = {
+        "candidates": candidates[:2],
+    }
+
+
+def _clear_service_area_pending(flow_manager: FlowManager) -> None:
+    flow_manager.state.pop(_SERVICE_AREA_PENDING_KEY, None)
+
+
+def _household_composition_pending(flow_manager: FlowManager) -> dict | None:
+    pending = flow_manager.state.get(_HOUSEHOLD_COMPOSITION_PENDING_KEY)
+    if not isinstance(pending, dict):
+        return None
+    if not {"number_of_adults", "number_of_children"} <= pending.keys():
+        return None
+    return pending
+
+
+def _store_household_composition_pending(
+    flow_manager: FlowManager,
+    number_of_adults: int,
+    number_of_children: int,
+) -> None:
+    flow_manager.state[_HOUSEHOLD_COMPOSITION_PENDING_KEY] = {
+        "number_of_adults": number_of_adults,
+        "number_of_children": number_of_children,
+    }
+
+
+def _clear_household_composition_pending(flow_manager: FlowManager) -> None:
+    flow_manager.state.pop(_HOUSEHOLD_COMPOSITION_PENDING_KEY, None)
+
+
+def _reset_retry_count(flow_manager: FlowManager) -> None:
+    flow_manager.state.pop(_SERVICE_AREA_RETRY_KEY, None)
+
+
+def _strip_negative_prefix(text: str) -> str:
+    t = text.strip().lower().rstrip(".,!?")
+    for prefix in (
+        "no,",
+        "no ",
+        "nope,",
+        "nope ",
+        "nah,",
+        "nah ",
+        "nop,",
+        "nop ",
+        "incorrecto,",
+        "incorrecto ",
+        "falso,",
+        "falso ",
+        "negativo,",
+        "negativo ",
+    ):
+        if t.startswith(prefix):
+            return text[len(prefix) :].strip()
+    return text
 
 
 ######################################################################
@@ -76,45 +212,16 @@ _ACKNOWLEDGMENT_INFORMATION = "information"
 ######################################################################
 
 
-def node_initial() -> NodeConfig:
-    """
-    Create initial node for welcoming the caller. Allow the conversation to be ended.
-    """
-    initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
-    initial_prompt_kwargs = {}
-    if initial_prompt == "initial":
-        initial_prompt_kwargs["initial_greeting"] = prompts.get_spoken_prompt(
-            "initial_greeting"
-        )
-
-    initial_function_name = get_ev(
-        "TEST_INITIAL_FUNCTION", default="system_phone_number"
-    )
-    try:
-        initial_function = getattr(
-            sys.modules[__name__],
-            initial_function_name,
-        )
-    except AttributeError:
-        raise ValueError(
-            f"""Function '{initial_function_name}' does not exist."""
-        ) from None
-
-    return {
-        **prompts.get("primary_role_message"),
-        **prompts.get(initial_prompt, **initial_prompt_kwargs),
-        "functions": [initial_function],
-    }
-
-
 def node_start() -> NodeConfig:
-    initial_prompt = get_ev("TEST_INITIAL_PROMPT", default="initial")
-    initial_function = get_ev("TEST_INITIAL_FUNCTION", default="system_phone_number")
-
-    if initial_prompt == "initial" and initial_function == "system_phone_number":
+    initial_node = get_ev("TEST_INITIAL_NODE")
+    if not initial_node:
         return node_record_language(include_initial_greeting=True)
 
-    return node_initial()
+    initial_builder = _intake_node_builders().get(initial_node)
+    if initial_builder is None:
+        raise ValueError(f"""Initial node '{initial_node}' does not exist.""")
+
+    return initial_builder()
 
 
 def node_partial_reset_with_state() -> NodeConfig:
@@ -244,6 +351,7 @@ def _build_static_tts_node(
         "task_messages": [],
         "pre_actions": [{"type": "tts_say", "text": text}],
         "functions": [],
+        "respond_immediately": False,
     }
     if post_actions is not None:
         node["post_actions"] = post_actions
@@ -365,14 +473,6 @@ def _case_type_prompt_text(flow_manager: FlowManager) -> str:
     )
 
 
-def _adverse_parties_prompt_text(flow_manager: FlowManager) -> str:
-    return _spoken_prompt_text(
-        flow_manager,
-        "record_adverse_parties_question",
-        _ACKNOWLEDGMENT_INFORMATION,
-    )
-
-
 def _domestic_violence_prompt_text(flow_manager: FlowManager) -> str:
     return _spoken_prompt_text(
         flow_manager,
@@ -381,23 +481,31 @@ def _domestic_violence_prompt_text(flow_manager: FlowManager) -> str:
     )
 
 
-def _household_composition_prompt_text(flow_manager: FlowManager) -> str:
-    prompt_key = "record_household_composition_question"
-    if flow_manager.state.get("domestic_violence", {}).get("is_experiencing"):
-        prompt_key = "record_household_composition_question_domestic_violence"
-
+def _household_composition_confirmation_prompt_text(
+    flow_manager: FlowManager,
+) -> str:
+    pending = _household_composition_pending(flow_manager) or {}
+    adults = pending.get("number_of_adults", 1)
+    children = pending.get("number_of_children", 0)
+    if _caller_language(flow_manager) == "spanish":
+        adult_count_phrase = "un adulto" if adults == 1 else f"{adults} adultos"
+        child_count_phrase = (
+            "ningun nino"
+            if children == 0
+            else ("un nino" if children == 1 else f"{children} ninos")
+        )
+    else:
+        adult_count_phrase = "one adult" if adults == 1 else f"{adults} adults"
+        child_count_phrase = (
+            "no children"
+            if children == 0
+            else ("one child" if children == 1 else f"{children} children")
+        )
     return _spoken_prompt_text(
         flow_manager,
-        prompt_key,
-        _ACKNOWLEDGMENT_CONFIRMATION,
-    )
-
-
-def _income_prompt_text(flow_manager: FlowManager) -> str:
-    return _spoken_prompt_text(
-        flow_manager,
-        "record_income_question",
-        _ACKNOWLEDGMENT_INFORMATION,
+        "confirm_household_composition_question",
+        adult_count_phrase=adult_count_phrase,
+        child_count_phrase=child_count_phrase,
     )
 
 
@@ -418,9 +526,16 @@ def _reported_income_categories(flow_manager: FlowManager) -> set[str]:
 
 def _assets_receives_benefits_prompt_text(flow_manager: FlowManager) -> str:
     categories = _reported_income_categories(flow_manager)
-    has_tanf = "tanf (temporary assistance for needy families)" in categories
+    has_tanf = bool(
+        {
+            "tanf",
+            "tanf (temporary assistance for needy families)",
+        }
+        & categories
+    )
     has_ssi = bool(
         {
+            "ssi",
             "ssi (supplemental security income)",
             "ssi/ssdi combo",
         }
@@ -565,7 +680,6 @@ def node_record_adverse_parties() -> NodeConfig:
     return _build_step_node(
         "record_adverse_parties",
         [record_adverse_parties],
-        text_builder=_adverse_parties_prompt_text,
     )
 
 
@@ -581,7 +695,27 @@ def node_record_household_composition() -> NodeConfig:
     return _build_step_node(
         "record_household_composition",
         [record_household_composition],
-        text_builder=_household_composition_prompt_text,
+    )
+
+
+def node_confirm_household_composition(
+    number_of_adults: int, number_of_children: int
+) -> NodeConfig:
+    return _build_step_node(
+        "confirm_household_composition",
+        [confirm_household_composition, record_household_composition],
+        prompt_kwargs={
+            "number_of_adults": number_of_adults,
+            "number_of_children": number_of_children,
+        },
+        text_builder=_household_composition_confirmation_prompt_text,
+    )
+
+
+def node_record_household_members() -> NodeConfig:
+    return _build_step_node(
+        "record_household_members",
+        [record_household_members],
     )
 
 
@@ -589,7 +723,6 @@ def node_record_income() -> NodeConfig:
     return _build_step_node(
         "record_income",
         [record_income],
-        text_builder=_income_prompt_text,
     )
 
 
@@ -726,6 +859,22 @@ def node_case_type_ineligible() -> NodeConfig:
     )
 
 
+def node_service_area_unserved() -> NodeConfig:
+    return _build_step_node(
+        "service_area_unserved",
+        [send_general_referral_and_end],
+        text_builder=_spoken_prompt_text_builder("service_area_unserved_question"),
+    )
+
+
+def node_service_area_unresolved() -> NodeConfig:
+    return _build_step_node(
+        "service_area_unresolved",
+        [send_general_referral_and_end],
+        text_builder=_spoken_prompt_text_builder("service_area_unresolved_question"),
+    )
+
+
 def node_complete_intake(language: str = "English") -> NodeConfig:
     return _build_static_tts_node(
         prompts.get_spoken_prompt("complete_intake_thanks", language),
@@ -793,10 +942,14 @@ def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
 
 
 def _adverse_party_has_optional_details(party: AdverseParty) -> bool:
+    if party.organization_name:
+        return bool(party.phones)
     return bool(party.suffix or party.dob or party.phones)
 
 
 def _format_adverse_party_name(party: AdverseParty) -> str:
+    if party.organization_name:
+        return party.organization_name
     parts = [party.first]
     if party.middle:
         parts.append(party.middle)
@@ -804,6 +957,101 @@ def _format_adverse_party_name(party: AdverseParty) -> str:
     if party.suffix:
         parts.append(party.suffix)
     return " ".join(parts)
+
+
+def _normalize_person_name(name: str) -> str:
+    normalized = (
+        unicodedata.normalize("NFKD", name)
+        .encode("ascii", "ignore")
+        .decode("ascii")
+        .casefold()
+    )
+    return " ".join(normalized.split())
+
+
+def _normalize_member_list_income(income: dict) -> dict | None:
+    """Convert the member-list envelope occasionally produced by the LLM."""
+    if set(income) != {"members"} or not isinstance(income.get("members"), list):
+        return None
+
+    normalized: dict[str, dict[str, dict[str, object]]] = {}
+    for member in income["members"]:
+        if not isinstance(member, dict):
+            return None
+        name = member.get("name")
+        entries = member.get("income")
+        if (
+            not isinstance(name, str)
+            or not name.strip()
+            or name in normalized
+            or not isinstance(entries, list)
+        ):
+            return None
+
+        member_income: dict[str, dict[str, object]] = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                return None
+            category = entry.get("category")
+            if (
+                not isinstance(category, str)
+                or not category.strip()
+                or category in member_income
+                or "amount" not in entry
+                or "period" not in entry
+            ):
+                return None
+            member_income[category] = {
+                "amount": entry["amount"],
+                "period": entry["period"],
+            }
+        normalized[name] = member_income
+
+    return normalized
+
+
+def _caller_full_name(flow_manager: FlowManager) -> str | None:
+    names_state = flow_manager.state.get("names", {})
+    names = names_state.get("names", []) if isinstance(names_state, dict) else []
+    if not names or not isinstance(names[0], dict):
+        return None
+
+    primary_name = names[0]
+    parts = [
+        primary_name.get("first"),
+        primary_name.get("middle"),
+        primary_name.get("last"),
+        primary_name.get("suffix"),
+    ]
+    full_name = " ".join(
+        part.strip() for part in parts if isinstance(part, str) and part.strip()
+    )
+    return full_name or None
+
+
+def _known_adverse_party_names(flow_manager: FlowManager) -> set[str]:
+    adverse_state = flow_manager.state.get("adverse_parties", {})
+    parties = (
+        adverse_state.get("adverse_parties", [])
+        if isinstance(adverse_state, dict)
+        else []
+    )
+    names = set()
+    for party in parties:
+        if not isinstance(party, dict):
+            continue
+        organization_name = party.get("organization_name")
+        if isinstance(organization_name, str) and organization_name.strip():
+            names.add(_normalize_person_name(organization_name))
+            continue
+        full_name = " ".join(
+            str(party.get(field, "")).strip()
+            for field in ("first", "middle", "last", "suffix")
+            if party.get(field)
+        )
+        if full_name:
+            names.add(_normalize_person_name(full_name))
+    return names
 
 
 def _adverse_party_follow_up_error(
@@ -814,23 +1062,38 @@ def _adverse_party_follow_up_error(
         for party in adverse_parties.root
         if not _adverse_party_has_optional_details(party)
     ]
-    party_names = ", ".join(
-        _format_adverse_party_name(party) for party in parties_missing_details
-    )
+    organizations = [
+        _format_adverse_party_name(party)
+        for party in parties_missing_details
+        if party.organization_name
+    ]
+    individuals = [
+        _format_adverse_party_name(party)
+        for party in parties_missing_details
+        if not party.organization_name
+    ]
+    requests = []
+    if organizations:
+        requests.append(f"a business phone number for {', '.join(organizations)}")
+    if individuals:
+        requests.append(
+            f"a phone number, date of birth, or suffix for {', '.join(individuals)}"
+        )
     return AdversePartiesResult(
         status=Status.ERROR,
         error=(
-            "Before moving on, ask whether the caller knows any phone number, date of birth, "
-            f"or suffix for {party_names}. If they do not know, confirm that and then call "
-            "`record_adverse_parties` again with the best available information, omitting unknown fields."
+            f"Before moving on, ask whether the caller knows {'; and '.join(requests)}. "
+            "Do not ask an organization for a date of birth or suffix. If the caller does not "
+            "know, call `record_adverse_parties` again with `optional_details_confirmed=true` "
+            "and omit unknown fields."
         ),
         adverse_parties=adverse_parties,
     )
 
 
 def _asset_validation_error_result(error: ValidationError) -> IntakeFlowResult:
-    logger.debug(error)
     cleaned_error = clean_pydantic_error_message(error)
+    log_pydantic_validation_error("assets", error)
     return IntakeFlowResult(
         status=Status.ERROR,
         error=f"""There was an error validating the `assets`: {cleaned_error}.""",
@@ -857,45 +1120,52 @@ def _node_referral_and_end(
         if delivery_method == "phone"
         else content.text_delivery_text(language)
     )
-    return {
-        "task_messages": [],
-        "pre_actions": [{"type": "tts_say", "text": spoken_text}],
-        "functions": [],
-        "post_actions": [{"type": "end_conversation"}],
-    }
+    return _build_static_tts_node(
+        spoken_text,
+        post_actions=[{"type": "end_conversation"}],
+    )
 
 
 async def _send_referral_sms(
     flow_manager: FlowManager, content: ReferralContent
-) -> None:
+) -> dict:
     phone_number = _caller_phone_number(flow_manager)
     if not phone_number:
         logger.info(
             "Skipping referral SMS because no caller phone number is available."
         )
-        return
+        return {"accepted": False, "reason": "no_phone_number"}
+
+    valid_e164, normalized = phone_number_is_valid(phone_number)
+    if not valid_e164:
+        logger.info(
+            "Skipping referral SMS because caller phone number is not valid E.164."
+        )
+        return {"accepted": False, "reason": "invalid_phone"}
+    phone_number = normalized
 
     if not sms_service.is_configured:
         logger.warning("Skipping referral SMS because Dialpad SMS is not configured.")
-        return
+        return {"accepted": False, "reason": "not_configured"}
 
     message_text = content.sms_text(_caller_language(flow_manager))
     try:
         response = await sms_service.send(phone_number, message_text)
-    except Exception as exc:
-        logger.warning(f"Failed to send referral SMS to {phone_number}: {exc}")
-        return
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        raise
+    except Exception:
+        logger.warning("Failed to send referral SMS")
+        return {"accepted": False, "reason": "send_failed"}
 
     sms_log = flow_manager.state.setdefault("sms_messages", [])
     sms_log.append(
         {
-            "to": phone_number,
-            "text": message_text,
             "status": response.get("status"),
-            "category": "referral",
+            "accepted": True,
         }
     )
-    logger.info(f"Sent referral SMS to {phone_number}")
+    logger.info("Referral SMS accepted by Dialpad API")
+    return {"accepted": True}
 
 
 ######################################################################
@@ -906,18 +1176,19 @@ async def _send_referral_sms(
 async def system_phone_number(
     flow_manager: FlowManager,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    This function checks if the phone system recieved the caller's phone number;
-    if so, confirms the number with the caller; if not, collects the caller's phone number.
-    """
     caller_id_phone_number = flow_manager.state.get("phone")
-    logger.debug(f"""Caller ID phone number: {caller_id_phone_number}""")
     is_valid, validated_caller_id_phone_number = await validator.check_phone_number(
         phone_number=caller_id_phone_number
     )
-    logger.debug(
-        f"""Caller ID phone number (validated): {validated_caller_id_phone_number}"""
-    )
+
+    if is_valid:
+        flow_manager.state["phone"] = {
+            "phone_number": validated_caller_id_phone_number,
+        }
+    else:
+        existing = flow_manager.state.get("phone")
+        if isinstance(existing, dict) and existing.get("phone_number"):
+            flow_manager.state["phone"] = existing
 
     status = status_helper(is_valid)
     result = dict(status=status.value, phone_number=validated_caller_id_phone_number)
@@ -929,14 +1200,26 @@ async def system_phone_number(
 async def record_language(
     flow_manager: FlowManager, language: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's preferred language.
-
-    Args:
-        language (str): The caller's preferred language (English or Spanish).
-    """
     normalized_language = language.strip().lower()
-    stt_language_hint = Language.ES if normalized_language == "spanish" else Language.EN
+    language_aliases = {
+        "english": "English",
+        "ingles": "English",
+        "inglés": "English",
+        "spanish": "Spanish",
+        "espanol": "Spanish",
+        "español": "Spanish",
+    }
+    canonical_language = language_aliases.get(normalized_language)
+    if canonical_language is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="The caller must clearly choose English or Spanish.",
+            ),
+            None,
+        )
+
+    stt_language_hint = Language.ES if canonical_language == "Spanish" else Language.EN
     language_hints = [stt_language_hint]
     tts_voice = get_deepgram_tts_voices(stt_language_hint)
 
@@ -950,7 +1233,7 @@ async def record_language(
     )
     flow_manager.state["tts_voice"] = tts_voice
 
-    result = LanguageResult(status=Status.SUCCESS, language=language)
+    result = LanguageResult(status=Status.SUCCESS, language=canonical_language)
     next_node = NodeConfig(node_record_phone_number(_caller_phone_number(flow_manager)))
     return result, next_node
 
@@ -959,12 +1242,6 @@ async def record_language(
 async def record_phone_number(
     flow_manager: FlowManager, phone_number: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect the caller's US phone number and type.
-
-    Args:
-        phone_number (str): The caller's 10 digit US phone number.
-    """
     is_valid, validated_phone_number = await validator.check_phone_number(
         phone_number=phone_number
     )
@@ -990,12 +1267,6 @@ async def record_phone_number(
 async def record_phone_type(
     flow_manager: FlowManager, phone_type: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's phone type after the phone number has been confirmed.
-
-    Args:
-        phone_type (str): The type of phone (mobile, home, work, other, or fax).
-    """
     phone_number = _caller_phone_number(flow_manager) or ""
     if not phone_number:
         result = IntakeFlowResult(
@@ -1030,15 +1301,6 @@ async def record_phone_type(
 async def record_name(
     flow_manager: FlowManager, first: str, middle: str, last: str, suffix: str = ""
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's primary name and set it as the main contact name.
-
-    Args:
-        first (str): The caller's first name.
-        middle (str): The caller's middle name.
-        last (str): The caller's last name.
-        suffix (str): The caller's name suffix (e.g., Jr., Sr., III).
-    """
     try:
         name_validated = CallerName.model_validate(
             {
@@ -1046,12 +1308,12 @@ async def record_name(
                 "middle": middle,
                 "last": last,
                 "suffix": suffix,
-                "type": "Legal Name",  # Primary/official name
+                "type": "Legal Name",
             }
         )
     except ValidationError as e:
-        logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("name", e)
         result = IntakeFlowResult(
             status=Status.ERROR,
             error=f"""There was an error validating the `name`: {cleaned_error}.""",
@@ -1067,36 +1329,195 @@ async def record_name(
 async def record_service_area(
     flow_manager: FlowManager, location: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the service area location.
+    pending = _service_area_pending(flow_manager)
+    if pending:
+        pending_candidates = pending.get("candidates", [])
+        trimmed = location.strip().lower().rstrip(".,!?")
 
-    Args:
-        location (str): The location of the caller's home or the legal incident. Must be a city or county.
-    """
-    match, fips_code = await validator.check_service_area(location=location)
-    canonical_location = match or ""
-    is_eligible = fips_code != 0
+        if _is_affirmative(trimmed):
+            if len(pending_candidates) == 1:
+                candidate = pending_candidates[0]
+                resolved = await validator.check_service_area(location=candidate)
+                outcome = resolved.get("outcome", "unknown")
+                if outcome in ("exact_match", "unserved"):
+                    _clear_service_area_pending(flow_manager)
+                    _reset_retry_count(flow_manager)
+                    result, nn = _service_area_success(
+                        resolved, outcome, candidate=candidate
+                    )
+                    return result, nn
+            if len(pending_candidates) > 1:
+                candidate_list = ", ".join(pending_candidates)
+                return (
+                    ServiceAreaResult(
+                        status=Status.ERROR,
+                        outcome="ambiguous",
+                        candidates=pending_candidates,
+                        error=(
+                            f"I found multiple matching locations: {candidate_list}. "
+                            "Please tell me which city or county by name."
+                        ),
+                    ),
+                    None,
+                )
+            # Affirmation failed — charge retry
+            count = _charge_retry_or_refer(flow_manager)
+            if count is None:
+                return _terminal_unresolved(flow_manager)
+            return _retry_error(count), None
 
-    status = status_helper(is_eligible)
-    result = ServiceAreaResult(
-        status=status,
-        is_eligible=is_eligible,
-        location=canonical_location,
-        fips_code=fips_code,
+        if _is_negative(trimmed):
+            _clear_service_area_pending(flow_manager)
+            count = _charge_retry_or_refer(flow_manager)
+            if count is None:
+                return _terminal_unresolved(flow_manager)
+            return _retry_error(count), None
+
+        # A substantive answer replaces the pending suggestion. Resolve it before
+        # changing state so a validation failure does not lose the old candidate.
+        corrected = _strip_negative_prefix(location)
+        resolved = await validator.check_service_area(location=corrected)
+
+        _clear_service_area_pending(flow_manager)
+        return _handle_service_area_resolution(flow_manager, resolved)
+
+    _clear_service_area_pending(flow_manager)
+    resolved = await validator.check_service_area(location=location)
+
+    return _handle_service_area_resolution(flow_manager, resolved)
+
+
+def _handle_service_area_resolution(
+    flow_manager: FlowManager, resolved: dict
+) -> tuple[ServiceAreaResult, NodeConfig | None]:
+    """Apply one resolver outcome consistently for initial and corrected answers."""
+
+    outcome = resolved.get("outcome", "unknown")
+    candidates = resolved.get("candidates", [])
+
+    if outcome == "exact_match":
+        _reset_retry_count(flow_manager)
+        result = ServiceAreaResult(
+            status=Status.SUCCESS,
+            is_eligible=resolved.get("is_eligible"),
+            location=resolved.get("canonical_name"),
+            fips_code=resolved.get("fips"),
+            outcome=outcome,
+            candidates=candidates,
+            match_type=resolved.get("match_type"),
+        )
+        next_node = NodeConfig(node_record_case_type())
+    elif outcome == "unserved":
+        _reset_retry_count(flow_manager)
+        result = ServiceAreaResult(
+            status=Status.SUCCESS,
+            is_eligible=False,
+            location=resolved.get("canonical_name"),
+            fips_code=resolved.get("fips"),
+            outcome=outcome,
+        )
+        next_node = NodeConfig(node_service_area_unserved())
+    elif outcome == "suggested":
+        _reset_retry_count(flow_manager)
+        _store_service_area_pending(flow_manager, candidates[:1])
+        result = ServiceAreaResult(
+            status=Status.ERROR,
+            outcome=outcome,
+            candidates=candidates,
+            error=f"Did you mean {candidates[0]}? Please confirm."
+            if candidates
+            else "",
+        )
+        next_node = None
+    elif outcome == "ambiguous":
+        _reset_retry_count(flow_manager)
+        candidate_list = ", ".join(candidates[:2]) if candidates else ""
+        _store_service_area_pending(flow_manager, candidates[:2])
+        result = ServiceAreaResult(
+            status=Status.ERROR,
+            outcome=outcome,
+            candidates=candidates,
+            error=f"I found multiple matching locations: {candidate_list}. Which one is correct?"
+            if candidate_list
+            else "I couldn't determine the location. Please specify the city or county name.",
+        )
+        next_node = None
+    elif outcome in ("unresolved_service_area", "unknown"):
+        count = _charge_retry_or_refer(flow_manager)
+        if count is None:
+            return _terminal_unresolved(flow_manager)
+        result = ServiceAreaResult(
+            status=Status.ERROR,
+            outcome=outcome,
+            candidates=candidates,
+            error="I couldn't identify a Virginia city or county from that response. Ask the caller to repeat or spell the city or county.",
+        )
+        next_node = None
+    else:
+        result = ServiceAreaResult(
+            status=Status.ERROR,
+            outcome=outcome,
+            error="I couldn't identify a Virginia city or county from that response. Ask the caller again for only the city or county where the legal incident occurred.",
+        )
+        next_node = None
+    return result, next_node
+
+
+def _charge_retry_or_refer(flow_manager: FlowManager) -> int | None:
+    """Charge one retry.  Returns new count, or None if referral is needed."""
+    count = flow_manager.state.get(_SERVICE_AREA_RETRY_KEY, 0) + 1
+    if count >= 2:
+        _clear_service_area_pending(flow_manager)
+        _reset_retry_count(flow_manager)
+        return None
+    flow_manager.state[_SERVICE_AREA_RETRY_KEY] = count
+    return count
+
+
+def _terminal_unresolved(
+    flow_manager: FlowManager,
+) -> tuple[ServiceAreaResult, NodeConfig]:
+    return (
+        ServiceAreaResult(
+            status=Status.SUCCESS,
+            outcome="unresolved_service_area",
+            error="We could not determine whether that location is in our service area.",
+        ),
+        NodeConfig(node_service_area_unresolved()),
     )
 
-    if status == Status.SUCCESS:
-        next_node = NodeConfig(node_record_case_type())
-    else:
-        if match:
-            result.error = f"""No exact match found. Maybe you meant {match}?"""
-            next_node = None
-        else:
-            result.error = (
-                "I couldn't identify a Virginia city or county from that response. "
-                "Ask the caller again for only the city or county where the legal incident occurred."
-            )
-            next_node = None
+
+def _retry_error(count: int) -> ServiceAreaResult:
+    return ServiceAreaResult(
+        status=Status.ERROR,
+        outcome="unresolved_service_area",
+        error="Please tell me the Virginia city or county where the legal issue happened; we cannot determine coverage from the information provided.",
+    )
+
+
+def _service_area_success(
+    resolved: dict,
+    outcome: str,
+    *,
+    candidate: str | None = None,
+) -> tuple[ServiceAreaResult, NodeConfig]:
+    if outcome not in ("exact_match", "unserved"):
+        raise ValueError(f"Cannot accept nonterminal service-area outcome: {outcome}")
+    location = resolved.get("canonical_name") or candidate
+    result = ServiceAreaResult(
+        status=Status.SUCCESS,
+        is_eligible=resolved.get("is_eligible"),
+        location=location,
+        fips_code=resolved.get("fips"),
+        outcome=outcome,
+        candidates=resolved.get("candidates", []),
+        match_type=resolved.get("match_type"),
+    )
+    next_node = NodeConfig(
+        node_service_area_unserved()
+        if outcome == "unserved" or not resolved.get("is_eligible", True)
+        else node_record_case_type()
+    )
     return result, next_node
 
 
@@ -1104,16 +1525,16 @@ async def record_service_area(
 async def record_case_type(
     flow_manager: FlowManager, case_description: str
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Check eligibility of caller's legal case.
+    language_state = flow_manager.state.get("language", {})
+    language = (
+        language_state.get("language", "English")
+        if isinstance(language_state, dict)
+        else "English"
+    )
+    case_response = await validator.check_case_type(
+        case_description=case_description, language=language
+    )
 
-    Args:
-        case_description (str): The description of the legal case that the caller has.
-    """
-    case_response = await validator.check_case_type(case_description=case_description)
-    logger.debug(f"""case_response: {case_response}""")
-
-    # Check if we need to ask follow-up questions
     if case_response.follow_up_questions:
         follow_up_questions = [
             f"""Question: {item.question}"""
@@ -1128,72 +1549,52 @@ async def record_case_type(
         )
         return result, None
 
-    status = status_helper(case_response.is_eligible)
+    is_eligible = (
+        case_response.is_eligible if case_response.is_eligible is not None else True
+    )
+    legal_problem_code = case_response.legal_problem_code or ""
+
     result = CaseTypeResult(
-        status=status,
-        is_eligible=case_response.is_eligible,
-        legal_problem_code=case_response.legal_problem_code,
+        status=Status.SUCCESS,
+        is_eligible=is_eligible,
+        legal_problem_code=legal_problem_code,
         case_description=case_description,
     )
-    if status == Status.SUCCESS:
-        next_node = NodeConfig(node_record_adverse_parties())
-    else:
+    if is_eligible is False:
         result.error = "Ineligible case type."
         next_node = NodeConfig(node_case_type_ineligible())
+    else:
+        next_node = NodeConfig(node_record_adverse_parties())
     return result, next_node
 
 
 @convert_and_log_result("adverse_parties")
 async def record_adverse_parties(
-    flow_manager: FlowManager, adverse_parties: list[dict]
+    flow_manager: FlowManager,
+    adverse_parties: list[dict],
+    optional_details_confirmed: bool = False,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect information about the adverse (opposing) parties.
-
-    Args:
-        adverse_parties (list):
-            A Pydantic model `AdverseParties` with a list of people
-            who may be involved as adverse (opposing) parties in the
-            legal case. Each person should include their first,
-            middle, and last name, date of birth, and a list of phone
-            numbers with types.
-
-            Example:
-                [
-                    {
-                        "first": "Deanna",
-                        "middle": "Julie",
-                        "last": "Troi",
-                        "dob": "1974-12-25",
-                        "phones": [
-                            {
-                                "number": "5555551212",
-                                "type": "mobile"
-                            },
-                        ],
-                    },
-                ]
-    """
     try:
         adverse_parties_validated = AdverseParties.model_validate(adverse_parties)
     except ValidationError as e:
-        logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("adverse_parties", e)
         result = IntakeFlowResult(
             status=Status.ERROR,
             error=f"""There was an error validating the `adverse_parties`: {cleaned_error}.""",
         )
         return result, None
 
-    should_request_follow_up = (
-        bool(adverse_parties_validated.root)
-        and any(
-            not _adverse_party_has_optional_details(party)
-            for party in adverse_parties_validated.root
-        )
-        and not flow_manager.state.get(_ADVERSE_PARTIES_FOLLOW_UP_KEY, False)
+    should_request_follow_up = bool(adverse_parties_validated.root) and any(
+        not _adverse_party_has_optional_details(party)
+        for party in adverse_parties_validated.root
     )
-    if should_request_follow_up:
+    follow_up_was_requested = flow_manager.state.get(
+        _ADVERSE_PARTIES_FOLLOW_UP_KEY, False
+    )
+    if should_request_follow_up and (
+        not follow_up_was_requested or not optional_details_confirmed
+    ):
         flow_manager.state[_ADVERSE_PARTIES_FOLLOW_UP_KEY] = True
         return _adverse_party_follow_up_error(adverse_parties_validated), None
 
@@ -1211,12 +1612,6 @@ async def record_adverse_parties(
 async def record_domestic_violence(
     flow_manager: FlowManager, is_experiencing: bool
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record whether the caller is experiencing or has experienced domestic violence.
-
-    Args:
-        is_experiencing (bool): Whether the caller is experiencing or has experienced domestic violence.
-    """
     result = DomesticViolenceResult(
         status=Status.SUCCESS,
         is_experiencing=is_experiencing,
@@ -1226,17 +1621,26 @@ async def record_domestic_violence(
     return result, next_node
 
 
-@convert_and_log_result("household_composition")
 async def record_household_composition(
-    flow_manager: FlowManager, number_of_adults: int, number_of_children: int
+    flow_manager: FlowManager,
+    number_of_other_adults: int,
+    number_of_children: int,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the number of people in the household, excluding anyone who has perpetrated domestic violence against the caller.
+    """Propose household counts; the caller is always added to the adult total."""
+    if (
+        not isinstance(number_of_other_adults, int)
+        or isinstance(number_of_other_adults, bool)
+        or number_of_other_adults < 0
+    ):
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="Please provide the number of adults other than the caller as zero or more.",
+            ).model_dump(exclude_none=True, mode="json"),
+            None,
+        )
 
-    Args:
-        number_of_adults (int): Number of adults in the household (18 and older), including yourself, excluding anyone who has perpetrated domestic violence against you.
-        number_of_children (int): Number of children in the household (under 18).
-    """
+    number_of_adults = number_of_other_adults + 1
     is_valid, _ = await validator.check_household_composition(
         adults=number_of_adults, children=number_of_children
     )
@@ -1246,42 +1650,196 @@ async def record_household_composition(
             status=Status.ERROR,
             error="Please provide valid numbers for the number of adults in your household, including yourself (at least 1), and children (0 or more).",
         )
-        return result, None
+        return result.model_dump(exclude_none=True, mode="json"), None
 
-    result = HouseholdCompositionResult(
-        status=Status.SUCCESS,
+    _store_household_composition_pending(
+        flow_manager,
         number_of_adults=number_of_adults,
         number_of_children=number_of_children,
     )
-    next_node = NodeConfig(node_record_income())
-    return result, next_node
+    return None, NodeConfig(
+        node_confirm_household_composition(number_of_adults, number_of_children)
+    )
+
+
+@convert_and_log_result("household_composition")
+async def confirm_household_composition(
+    flow_manager: FlowManager, confirmed: bool
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    pending = _household_composition_pending(flow_manager)
+    if pending is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="There are no pending household counts to confirm.",
+            ),
+            None,
+        )
+
+    if not confirmed:
+        _clear_household_composition_pending(flow_manager)
+        return None, NodeConfig(node_record_household_composition())
+
+    _clear_household_composition_pending(flow_manager)
+    result = HouseholdCompositionResult(
+        status=Status.SUCCESS,
+        number_of_adults=pending["number_of_adults"],
+        number_of_children=pending["number_of_children"],
+    )
+    if pending["number_of_adults"] == 1 and pending["number_of_children"] == 0:
+        only_member = HouseholdMembers.model_validate(
+            [
+                {
+                    "name": _caller_full_name(flow_manager) or "Caller",
+                    "relationship": "self",
+                    "is_caller": True,
+                }
+            ]
+        )
+        flow_manager.state["household_members"] = {
+            "members": only_member.model_dump(mode="json", exclude_none=True)
+        }
+        return result, NodeConfig(node_record_income())
+
+    return result, NodeConfig(node_record_household_members())
+
+
+@convert_and_log_result("household_members")
+async def record_household_members(
+    flow_manager: FlowManager, members: list[dict]
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    try:
+        validated_members = HouseholdMembers.model_validate(members)
+    except ValidationError as e:
+        cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("household_members", e)
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error=f"There was an error validating the household members: {cleaned_error}.",
+            ),
+            None,
+        )
+
+    composition = flow_manager.state.get("household_composition", {})
+    expected_count = composition.get("number_of_adults", 0) + composition.get(
+        "number_of_children", 0
+    )
+    if len(validated_members.root) != expected_count:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error=(
+                    f"The confirmed household contains {expected_count} people, but "
+                    f"{len(validated_members.root)} household members were provided. "
+                    "Ask only for the missing or extra household member and confirm the full list."
+                ),
+            ),
+            None,
+        )
+
+    caller_members = [member for member in validated_members.root if member.is_caller]
+    if len(caller_members) != 1:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="Exactly one household member must be identified as the caller.",
+            ),
+            None,
+        )
+
+    caller_name = _caller_full_name(flow_manager)
+    if caller_name and _normalize_person_name(
+        caller_members[0].name
+    ) != _normalize_person_name(caller_name):
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error=f"Use the caller's already confirmed name, {caller_name}, for the self household member.",
+            ),
+            None,
+        )
+
+    known_adverse_names = _known_adverse_party_names(flow_manager)
+    for member in validated_members.root:
+        if (
+            member.adverse_party_name
+            and _normalize_person_name(member.adverse_party_name)
+            not in known_adverse_names
+        ):
+            return (
+                IntakeFlowResult(
+                    status=Status.ERROR,
+                    error=(
+                        f"{member.adverse_party_name} does not match a previously recorded adverse party. "
+                        "Confirm the identity or omit adverse_party_name."
+                    ),
+                ),
+                None,
+            )
+
+    return (
+        HouseholdMembersResult(status=Status.SUCCESS, members=validated_members),
+        NodeConfig(node_record_income()),
+    )
 
 
 @convert_and_log_result("income")
 async def record_income(
-    flow_manager: FlowManager, income: dict[dict]
+    flow_manager: FlowManager, income: dict[str, dict[str, object]]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect income information for all household members and determine eligibility.
-
-    Args:
-        income (HouseholdIncome):
-            A Pydantic model where each key is a household member's name (str),
-            and each value is a MemberIncome model mapping income type (str) to an IncomeDetail.
-            Example:
-                {
-                    "John Doe": {
-                        "wages": {"amount": 2000, "period": "month"},
-                        "child support": {"amount": 300, "period": "month"},
-                    },
-                    "Jane Doe": {
-                        "social security": {"amount": 1200, "period": "year"},
-                    }
-                }
-            Note: Include ALL household members. Members with no income should have
-            "No Household Income" as their single category.
-    """
     try:
+        normalized_member_list = _normalize_member_list_income(income)
+        if normalized_member_list is not None:
+            income = normalized_member_list
+        elif "members" in income:
+            return (
+                IntakeFlowResult(
+                    status=Status.ERROR,
+                    error=(
+                        "Household membership is already confirmed; do not ask about it again. "
+                        "The income argument must map each household member's name directly to "
+                        "income-category keys, and each category to an amount and period."
+                    ),
+                ),
+                None,
+            )
+
+        household_members_state = flow_manager.state.get("household_members", {})
+        members = (
+            household_members_state.get("members", [])
+            if isinstance(household_members_state, dict)
+            else []
+        )
+        if members:
+            expected_names = {
+                _normalize_person_name(member["name"])
+                for member in members
+                if isinstance(member, dict) and isinstance(member.get("name"), str)
+            }
+            submitted_names = {
+                _normalize_person_name(name) for name in income if isinstance(name, str)
+            }
+            if submitted_names != expected_names:
+                missing_names = sorted(expected_names - submitted_names)
+                extra_names = sorted(submitted_names - expected_names)
+                details = []
+                if missing_names:
+                    details.append(f"missing: {', '.join(missing_names)}")
+                if extra_names:
+                    details.append(f"not in the household: {', '.join(extra_names)}")
+                return (
+                    IntakeFlowResult(
+                        status=Status.ERROR,
+                        error=(
+                            "Household membership is already confirmed; do not ask about it again. "
+                            "Provide an income or No Household Income entry for every confirmed "
+                            f"household member ({'; '.join(details)})."
+                        ),
+                    ),
+                    None,
+                )
+
         income_validated = HouseholdIncome.model_validate(income)
         household_composition = flow_manager.state.get("household_composition") or {}
         adults = household_composition.get("number_of_adults", 0)
@@ -1291,26 +1849,25 @@ async def record_income(
             income=income_validated, household_size=household_size
         )
     except ValidationError as e:
-        logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("income", e)
         result = IntakeFlowResult(
             status=Status.ERROR,
             error=f"""There was an error validating the `income`: {cleaned_error}.""",
         )
         return result, None
 
-    status = status_helper(is_eligible)
     result = IncomeResult(
-        status=status,
+        status=Status.SUCCESS,
         is_eligible=is_eligible,
         monthly_amount=income_monthly,
         listing=income_validated,
         household_size=household_size,
     )
-    if status == Status.SUCCESS:
+    if is_eligible:
         next_node = NodeConfig(node_record_assets_receives_benefits())
     else:
-        result.error = """Over the household income limit"""
+        result.error = "Over the household income limit"
         next_node = NodeConfig(node_confirm_income_over_limit())
     return result, next_node
 
@@ -1319,12 +1876,17 @@ async def record_income(
 async def record_assets_receives_benefits(
     flow_manager: FlowManager, receives_benefits: bool
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record if the caller is receiving Medicaid, SSI, or TANF benefits.
-
-    Args:
-        receives_benefits (bool): The caller has receives government benefits.
-    """
+    categories = _reported_income_categories(flow_manager)
+    receives_benefits = receives_benefits or bool(
+        {
+            "ssi",
+            "ssi (supplemental security income)",
+            "ssi/ssdi combo",
+            "tanf",
+            "tanf (temporary assistance for needy families)",
+        }
+        & categories
+    )
     if receives_benefits:
         IntakeValidator.assets_clear_partial_state(flow_manager.state)
         result = AssetsResult(
@@ -1401,25 +1963,6 @@ async def record_assets_other_property(
 async def record_assets_list(
     flow_manager: FlowManager, assets: list[dict] | None = None
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect assets' value and determine eligibility of caller.
-
-    Args:
-        assets (list[dict] | None):
-            Optional list of asset entries to validate and total.
-            If omitted or None, the function combines the previously collected
-            partial asset categories from flow_manager.state before validating
-            eligibility.
-
-            Each entry maps a single asset name (str) to an integer net present
-            value.
-
-            Example:
-                [
-                    {"car": 5000},
-                    {"savings": 2000}
-                ]
-    """
     try:
         assets_input = assets
         if assets_input is None:
@@ -1432,18 +1975,30 @@ async def record_assets_list(
             assets=assets_validated
         )
     except ValidationError as e:
-        return _asset_validation_error_result(e), None
+        cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("assets", e)
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error=f"Error validating assets: {cleaned_error}.",
+        )
+        return result, None
+    except ValueError:
+        logger.debug("Validation failed for assets: value_error")
+        result = IntakeFlowResult(
+            status=Status.ERROR,
+            error="Error validating assets.",
+        )
+        return result, None
 
-    status = status_helper(is_eligible)
     result = AssetsResult(
-        status=status,
+        status=Status.SUCCESS,
         is_eligible=is_eligible,
         listing=assets_validated,
         total_value=assets_value,
         receives_benefits=False,
     )
     IntakeValidator.assets_clear_partial_state(flow_manager.state)
-    if status == Status.SUCCESS:
+    if is_eligible:
         next_node = NodeConfig(node_record_citizenship())
     else:
         result.error = "Over the household assets' value limit."
@@ -1457,12 +2012,6 @@ async def record_citizenship(
     is_a_us_citizen: bool,
     answer_was_explicit: bool = False,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record if the caller is a US citizen.
-
-    Args:
-        has_citizenship (bool): The caller's answer that they are or are not a US citizen.
-    """
     if not answer_was_explicit:
         result = IntakeFlowResult(
             status=Status.ERROR,
@@ -1484,16 +2033,6 @@ async def record_ssn_last_4(
     ssn_last_4: str = "",
     ssn_unavailable_reason: str = "",
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect the last 4 digits of the caller's social security number.
-
-    Args:
-        ssn_last_4 (str): The last 4 digits of the caller's SSN (accepts various formats like XXXX, XXX-X, etc.)
-                          Can be empty if the caller refuses or does not know.
-        ssn_unavailable_reason (str): Required only when ssn_last_4 is empty. Must reflect
-                                      an explicit caller response such as refusing to provide
-                                      the SSN or not knowing it.
-    """
     if not ssn_last_4:
         normalized_reason = ssn_unavailable_reason.strip().lower()
         allowed_skip_reasons = {
@@ -1540,13 +2079,6 @@ async def record_ssn_last_4(
 async def record_date_of_birth(
     flow_manager: FlowManager, date_of_birth: str = ""
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Collect the caller's date of birth.
-
-    Args:
-        date_of_birth (str): The caller's date of birth in ISO format (YYYY-MM-DD).
-                             Can be empty if the caller refuses or does not know.
-    """
     if not date_of_birth:
         status = Status.SUCCESS
         formatted_dob = ""
@@ -1573,39 +2105,6 @@ async def record_date_of_birth(
 async def record_names(
     flow_manager: FlowManager, names: list[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's additional names (maiden name, previous marriage names, legally changed names, etc.).
-
-    This function combines the previously recorded primary name with any additional names
-    the caller provides, creating a complete list of all names associated with the caller.
-
-    Args:
-        names (list[dict]):
-            REQUIRED: A list of additional name objects. Each object contains:
-            - "first" (str, required): The first name
-            - "middle" (str, optional): The middle name
-            - "last" (str, required): The last name
-            - "type_id" (int, optional): The alias type ID (333=Former Name, 334=Maiden Name, 817=Nickname, 3315536=Legal Name)
-              Defaults to 333 (Former Name) if not specified.
-
-            IMPORTANT:
-            1. The "names" argument is REQUIRED - always pass it, never omit it
-            2. Use EXACT field names: "first", "middle", "last", "type_id"
-            3. Pass an empty list [] if the caller has no additional names
-            4. If type_id is not specified, it defaults to 333 (Former Name)
-
-            Example 1 - One additional name with type:
-                names=[{"first": "Sarah", "middle": "Jane", "last": "Smith", "type_id": 334}]
-
-            Example 2 - No additional names (empty list):
-                names=[]
-
-            Example 3 - Two additional names with different types:
-                names=[
-                    {"first": "Mary", "last": "Johnson", "type_id": 334},
-                    {"first": "Robert", "middle": "Lee", "last": "Davis", "type_id": 333}
-                ]
-    """
     try:
         existing_names = []
         if "names" in flow_manager.state and "names" in flow_manager.state["names"]:
@@ -1613,8 +2112,8 @@ async def record_names(
         all_names = existing_names + names
         names_validated = CallerNames.model_validate(all_names)
     except ValidationError as e:
-        logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("names", e)
         result = IntakeFlowResult(
             status=Status.ERROR,
             error=f"""There was an error validating the `names`: {cleaned_error}.""",
@@ -1630,26 +2129,12 @@ async def record_names(
 async def record_address(
     flow_manager: FlowManager,
     street: str = "",
-    street_2: str = None,
+    street_2: str | None = None,
     city: str = "",
     state: str = "",
     zip: str = "",
     county: str = "",
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Record the caller's residential address.
-
-    Args:
-        street (str): The primary street address (required).
-        street_2 (str): The apartment, suite, or unit number (optional).
-        city (str): The city (required).
-        state (str): The state abbreviation, e.g., "VA" (required).
-        zip (str): The 5-digit ZIP code (required).
-        county (str): The county of residence (required).
-
-        Note: All fields can be empty if the caller refuses or does not have an address.
-    """
-    # Check if all required fields are empty
     if not any([street, city, state, zip, county]):
         result = AddressResult(status=Status.SUCCESS, address=None)
         next_node = NodeConfig(node_complete_intake(_caller_language(flow_manager)))
@@ -1667,8 +2152,8 @@ async def record_address(
             }
         )
     except ValidationError as e:
-        logger.debug(e)
         cleaned_error = clean_pydantic_error_message(e)
+        log_pydantic_validation_error("address", e)
         result = IntakeFlowResult(
             status=Status.ERROR,
             error=f"""There was an error validating the `address`: {cleaned_error}.""",
@@ -1685,28 +2170,15 @@ async def record_address(
 ######################################################################
 
 
-async def continue_intake(
-    flow_manager: FlowManager, next_step: str
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    Continue the intake even though the caller may be ineligible.
-
-    Args:
-        next_step (str): The next step of the intake.
-    """
-    # Dynamically reference the function using the next_step string
-    try:
-        next_function = getattr(sys.modules[__name__], next_step)
-    except AttributeError:
-        raise ValueError(f"""Function '{next_step}' does not exist.""")
-
-    deterministic_builders = {
+def _intake_node_builders() -> dict[str, Callable[[], NodeConfig]]:
+    return {
         "record_name": node_record_name,
         "record_service_area": node_record_service_area,
         "record_case_type": node_record_case_type,
         "record_adverse_parties": node_record_adverse_parties,
         "record_domestic_violence": node_record_domestic_violence,
         "record_household_composition": node_record_household_composition,
+        "record_household_members": node_record_household_members,
         "record_income": node_record_income,
         "record_assets_receives_benefits": node_record_assets_receives_benefits,
         "record_assets_cash_accounts": node_record_assets_cash_accounts,
@@ -1718,7 +2190,17 @@ async def continue_intake(
         "record_names": node_record_names,
         "record_address": node_record_address,
     }
-    deterministic_builder = deterministic_builders.get(next_step)
+
+
+async def continue_intake(
+    flow_manager: FlowManager, next_step: str
+) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    try:
+        next_function = getattr(sys.modules[__name__], next_step)
+    except AttributeError:
+        raise ValueError(f"""Function '{next_step}' does not exist.""")
+
+    deterministic_builder = _intake_node_builders().get(next_step)
     if deterministic_builder is not None:
         return None, NodeConfig(deterministic_builder())
 
@@ -1752,8 +2234,12 @@ async def _send_referral_and_end(
             ),
             None,
         )
+    sms_accepted = False
     if normalized_method == "text":
-        await _send_referral_sms(flow_manager, REFERRAL)
+        sms_result = await _send_referral_sms(flow_manager, REFERRAL)
+        sms_accepted = sms_result.get("accepted", False)
+    if normalized_method == "text" and not sms_accepted:
+        return None, _node_referral_and_end(flow_manager, REFERRAL, "phone")
     return None, _node_referral_and_end(flow_manager, REFERRAL, normalized_method)
 
 
@@ -1774,16 +2260,10 @@ async def send_over_limit_referral_and_end(
 async def end_conversation(
     flow_manager: FlowManager,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    End the conversation.
-    """
     return None, node_end_conversation(_caller_language(flow_manager))
 
 
 def node_end_conversation(language: str = "English") -> NodeConfig:
-    """
-    Create the final node.
-    """
     return _build_static_tts_node(
         prompts.get_spoken_prompt("end_goodbye", language),
         post_actions=[{"type": "end_conversation"}],
@@ -1793,16 +2273,10 @@ def node_end_conversation(language: str = "English") -> NodeConfig:
 async def caller_ended_conversation(
     flow_manager: FlowManager,
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
-    """
-    The caller ended the conversation.
-    """
     return None, node_caller_ended_conversation(_caller_language(flow_manager))
 
 
 def node_caller_ended_conversation(language: str = "English") -> NodeConfig:
-    """
-    Create the final node.
-    """
     return _build_static_tts_node(
         prompts.get_spoken_prompt("end_goodbye", language),
         post_actions=[{"type": "end_conversation"}],

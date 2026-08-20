@@ -1,7 +1,65 @@
+from dataclasses import dataclass, field
 from datetime import date
+from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class LegalServerOverall(str, Enum):
+    COMPLETE = "complete"
+    DEGRADED = "degraded"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+class MatterLookupResult(str, Enum):
+    FOUND = "found"
+    NOT_FOUND = "not_found"
+    INDETERMINATE = "indeterminate"
+
+
+@dataclass
+class MatterLookupOutcome:
+    result: MatterLookupResult
+    matter_uuid: str | None = None
+
+
+class OperationKind(str, Enum):
+    MATTER_CREATE = "matter_create"
+    MATTER_LOOKUP = "matter_lookup"
+    INCOME = "income"
+    ALIAS = "alias"
+    ADVERSE_PARTY = "adverse_party"
+    CASE_DESCRIPTION = "case_description"
+    ASSETS = "assets"
+    REJECTION_REASON = "rejection_reason"
+    FALLBACK_NOTE = "fallback_note"
+
+
+class OperationOutcome(str, Enum):
+    SUCCESS = "success"
+    FAILED = "failed"
+    AMBIGUOUS = "ambiguous"
+    SKIPPED = "skipped"
+    RECOVERED = "recovered"
+    FALLBACK_PRESERVED = "fallback_preserved"
+
+
+@dataclass
+class RecordResult:
+    kind: OperationKind
+    outcome: OperationOutcome
+    description: str = ""
+    _fallback_content: str = field(default="", repr=False)
+
+
+@dataclass
+class LegalServerPersistenceResult:
+    overall: LegalServerOverall
+    matter_uuid: Optional[str] = None
+    operations: list[RecordResult] = field(default_factory=list)
+    message: str = ""
 
 
 class County(BaseModel):
@@ -54,7 +112,7 @@ class IncomePayload(BaseModel):
         ...,
         description="Income type lookup reference with lookup_value_name (required)",
     )
-    amount: float = Field(..., description="Income amount (required)")
+    amount: str = Field(..., description="Income amount (required)")
     period: str = Field(
         ...,
         description="Payment period (required). Valid values: Annually, Quarterly, Monthly, Semi-Monthly, Biweekly, Weekly, or numeric: 1, 4, 12, 24, 26, 52",
@@ -63,6 +121,14 @@ class IncomePayload(BaseModel):
         default=False, description="Whether to exclude this income"
     )
     notes: Optional[str] = Field(default=None, description="Notes about the income")
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def serialize_amount(cls, value):
+        """LegalServer's v2 request schema represents money as a string."""
+        if value is None or isinstance(value, bool):
+            raise ValueError("amount is required")
+        return str(value)
 
     @field_validator("period", mode="before")
     @classmethod
@@ -222,7 +288,7 @@ class UpdatePayload(BaseModel):
     external_id: Optional[str] = Field(default=None, description="External ID")
     first: Optional[str] = Field(default=None, description="First name")
     intake_office: Optional[str] = Field(default=None, description="Intake office")
-    intale_program: Optional[str] = Field(
+    intake_program: Optional[str] = Field(
         default=None, description="Intake program (note: field name has typo in API)"
     )
     is_lead_case: Optional[str] = Field(

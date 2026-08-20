@@ -14,7 +14,7 @@ def phone_number_is_valid(phone_number: str, region: str = "US") -> tuple[bool, 
     Returns:
         tuple[bool, str]: A tuple containing:
             - bool: True if the phone number is valid for the specified region, False otherwise.
-            - str: The formatted phone number in NATIONAL format if valid, otherwise the original phone_number string.
+            - str: The formatted phone number in E.164 format if valid, otherwise the original phone_number string.
 
     Raises:
         No exceptions are raised; invalid phone numbers return (False, phone_number).
@@ -27,7 +27,7 @@ def phone_number_is_valid(phone_number: str, region: str = "US") -> tuple[bool, 
         )
         if valid:
             phone_number = phonenumbers.format_number(
-                parsed, phonenumbers.PhoneNumberFormat.NATIONAL
+                parsed, phonenumbers.PhoneNumberFormat.E164
             )
     except phonenumbers.phonenumberutil.NumberParseException:
         valid = False

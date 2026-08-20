@@ -91,9 +91,9 @@ spoken_prompts:
     spanish: >-
       Parece que hay problemas con la conexión. No dude en volver a llamar. ¡Que tenga un buen día!
   record_language_prompt_english: >-
-    Please say English or Spanish for your preferred language.
+    Would you like to continue in English, or Spanish?
   record_language_prompt_spanish: >-
-    Por favor diga ingles o espanol para su idioma preferido.
+    ¿Le gustaría continuar en español, o inglés?
   processing_status_working:
     english: >-
       Let me look that up.
@@ -134,31 +134,16 @@ spoken_prompts:
       In a few words, please describe the issue you need help with.
     spanish: >-
       En pocas palabras, describa el problema con el que necesita ayuda.
-  record_adverse_parties_question:
-    english: >-
-      Please tell me the name of the person, company, landlord, employer, agency, or organization that is on the other side of your legal issue. If there is more than one, please tell me each one.
-    spanish: >-
-      Por favor digame el nombre de la persona, compania, dueno, empleador, agencia u organizacion que esta en el otro lado de su problema legal. Si hay mas de uno, por favor digame cada uno.
   record_domestic_violence_question:
     english: >-
       Please say yes or no. Are you experiencing or have you experienced domestic violence, such as threats, yelling, throwing things, controlling behavior, or physical abuse?
     spanish: >-
       Por favor diga si o no. Esta experimentando o ha experimentado violencia domestica, como amenazas, gritos, arrojar cosas, comportamiento controlador o abuso fisico?
-  record_household_composition_question:
+  confirm_household_composition_question:
     english: >-
-      How many adults live in your household including yourself, and how many children under 18?
+      To confirm, your household has {adult_count_phrase}, including you, and {child_count_phrase} under 18. Is that correct?
     spanish: >-
-      Cuantos adultos viven en su hogar incluyendole a usted, y cuantos ninos menores de 18 anos?
-  record_household_composition_question_domestic_violence:
-    english: >-
-      How many adults live in your household including yourself, and how many children under 18? Do not count anyone who has harmed you.
-    spanish: >-
-      Cuantos adultos viven en su hogar incluyendole a usted, y cuantos ninos menores de 18 anos? No cuente a nadie que le haya hecho dano.
-  record_income_question:
-    english: >-
-      First, tell me the name of each person in your household and their relationship to you. Then for each person, tell me their income or benefits, such as a job, child support, disability, food stamps, or other help they get.
-    spanish: >-
-      Primero, digame el nombre de cada persona en su hogar y su relacion con usted. Luego para cada persona, digame sus ingresos o beneficios, como un trabajo, manutencion de hijos, discapacidad, estampillas de comida u otra ayuda que reciban.
+      Para confirmar, su hogar tiene {adult_count_phrase}, incluyendole a usted, y {child_count_phrase} menores de 18 anos. Es correcto?
   confirm_income_over_limit_question:
     english: >-
       Please say yes or no. Your household income appears to be above the limit for our services. Do you wish to continue with the questions anyway?
@@ -239,11 +224,21 @@ spoken_prompts:
       I am sorry, Law-Line is not able to help with this type of case. Would you like referral information over the phone or sent by text?
     spanish: >-
       Lo siento, Law-Line no puede ayudar con este tipo de caso. Desea recibir informacion de referencia por telefono o por mensaje de texto?
+  service_area_unserved_question:
+    english: >-
+      I am sorry, this location is outside Law-Line's service area. Would you like referral information over the phone or sent by text?
+    spanish: >-
+      Lo siento, esta ubicacion esta fuera del area de servicio de Law-Line. Desea recibir informacion de referencia por telefono o por mensaje de texto?
+  service_area_unresolved_question:
+    english: >-
+      I am sorry, I could not confirm whether this location is in Law-Line's service area. Would you like referral information over the phone or sent by text?
+    spanish: >-
+      Lo siento, no pude confirmar si esta ubicacion esta en el area de servicio de Law-Line. Desea recibir informacion de referencia por telefono o por mensaje de texto?
   complete_intake_thanks:
     english: >-
-      Thank you for your time.
+      Your intake is complete. Thank you for your time. Goodbye.
     spanish: >-
-      Gracias por su tiempo.
+      Su entrevista de admision esta completa. Gracias por su tiempo. Adios.
   end_goodbye:
     english: >-
       Goodbye.
@@ -259,8 +254,10 @@ record_language:
         2. The initial language-selection question has already been spoken with explicit TTS voice switching.
         3. Do NOT repeat the full bilingual prompt unless the caller's response is ambiguous, mixed, or unclear.
         4. Do NOT choose the caller's language from a single word, a name, a place, an accent, or an uncertain transcription.
-        5. Only call the `record_language` function once the caller clearly indicates either English or Spanish.
-        6. If the caller's response is ambiguous, mixed, or unclear, briefly ask them to say English or Spanish.
+        5. Only accept an explicit language name: English, Spanish, ingles, inglés, espanol, or español.
+        6. Do NOT interpret yes, no, si, sí, or any other affirmative or negative response as a language selection.
+        7. Call `record_language` with exactly "English" or "Spanish" after the caller explicitly names one of those languages.
+        8. If the response is ambiguous, mixed, or unclear, briefly ask the caller to say English or Spanish.
 
 # Phone number
 record_phone_number:
@@ -310,7 +307,9 @@ record_name:
         1. The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the name is still unclear.
         2. After the caller provides their name, read back the full name and spell each part for confirmation.
           - IMPORTANT: Put a space between each letter (e.g., "J O H N"), NOT hyphens (e.g., "J-O-H-N") and NOT commas.
-          - Confirm every part: "I heard [First] [Middle] [Last]. Is the first name spelled [F I R S T], middle name [M I D D L E], and last name [L A S T]?"
+          - Use one clean confirmation in exactly this structure: "I heard [First] [Middle] [Last], spelled [F I R S T], [M I D D L E], [L A S T]. Is that correct?"
+          - Spell every supplied name part in that single confirmation. Do NOT first say a part normally and then ask about its spelling in a separate question.
+          - A letter-by-letter spelling supplied by the caller is authoritative. If the spoken transcription and spelling differ, reconstruct that name part from the letters and use the reconstructed spelling everywhere in the confirmation. For example, if the transcript says "John" but the caller spells "J O N," say "I heard Jon," never "I heard John, spelled J O N."
           - Pay special attention to middle names. If the caller gives a middle name like "Anne", confirm the spelling: "A N N E".
           - If a part of the name seems uncertain, ask for spelling right away rather than waiting.
         3. If the caller says the spelling is wrong, ask them to spell only the incorrect or unclear part when possible, rather than asking for the whole name again.
@@ -327,8 +326,8 @@ record_service_area:
         [Instructions]
         The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the location is still unclear.
 
-        1. Ask the caller in what city or county the issue happened.
-        2. If the caller gives a city or county, IMMEDIATELY call the `record_service_area` function with that location.
+         1. Ask the caller in what city or county the issue happened. Do not assume that a bare place name is a county or an independent city.
+         2. After the opening question, ALWAYS call the `record_service_area` function with every caller response, including a place name, yes, no, a correction, or a clarification. Function validation handles suggestions and caller confirmation.
         3. If the caller answers with something other than a city or county, or mixes a location with unrelated facts, acknowledge briefly, keep only the city or county if one was actually provided, and otherwise ask again for just the city or county.
         4. Do NOT ask the caller to confirm the location before calling the function. The function will handle validation and matching.
         5. The caller may later provide a different mailing or residential address. That is fine. The service area question is about where the issue happened, not where they live.
@@ -340,10 +339,10 @@ record_service_area:
         If there was an error:
           - If the location did not match, ask the caller to clarify. For example: "I didn't find that location. Can you tell me the city or county again?"
           - If the caller gives a city, ask which county it is in if needed.
-          - Avoid phrasing like "county of Danville." Say "Danville" or "Danville city" instead.
+           - Do not encourage or assume a bare name such as "Danville" is a county or city; ask again for the city or county form when needed.
+           - If a suggested location is rejected or cannot be confirmed, ask for the city or county again without declaring it uncovered. A different place name may replace the pending suggestion and should be validated immediately.
           - Only if the location is clearly outside Virginia or the caller refuses to provide a location, inform them that we cannot help and ask if they would like referral information.
           - If the location is outside Virginia: let the caller know and ask if they would like referral information.
-          - If the location is inside Virginia but outside our service area: let the caller know and ask if they would like referral information.
           - Ask "Would you like referral information by phone or by text?" rather than reading out URLs or phone numbers unprompted.
 
 # Case type
@@ -372,32 +371,43 @@ record_adverse_parties:
   task_messages:
     - content: >-
         [Instructions]
-        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the response is still unclear.
+        No opening prompt has been spoken for this step. Ask one concise, context-aware question using the case description in the collected caller state.
 
-        1. Ask the caller who is on the other side of their issue. This could be a person, a company, a landlord, an employer, a government agency, or another organization.
-        2. If the caller's issue involves housing, eviction, or a landlord, ask about both the landlord and the property management company separately.
-        3. IF the caller names someone:
-            - Keep what they give and ask for missing details before moving on.
-            - Ask for the full name of each party.
+        1. Ask who is on the other side of the issue using ordinary language appropriate to the case. For a divorce or separation, ask for the spouse or other person involved. For housing, ask for the landlord or property manager. For employment, ask for the employer. Otherwise ask for the person, company, agency, or organization on the other side.
+        2. Do not claim that a particular person has a relationship to the caller unless the caller has said so. For example, a divorce description makes it appropriate to ask for the caller's spouse, but it does not establish that a previously named person is the spouse.
+        3. If the caller's issue involves housing, eviction, or a landlord, ask about both the landlord and the property management company separately.
+        4. IF the caller names an individual:
+            - Keep what they give. If no optional details were volunteered, call `record_adverse_parties` immediately with `optional_details_confirmed=false`; do not ask optional-detail questions before this first call. Function validation will require the correct follow-up.
+            - Ask for the individual's full name.
             - Also ask for any phone number if the caller knows it. If they only know the number without a type, save just the number.
             - If available, ask for date of birth.
             - Read back the full list for confirmation.
             - Then ask: "Are there any more?" If yes, collect the next one.
-        4. IF the caller says there is no one on the other side:
+        5. IF the caller names a company, agency, bank, property manager, or other organization:
+            - Record its full name in "organization_name". Do NOT split an organization name into first and last names.
+            - If no business phone or contact was volunteered, call `record_adverse_parties` immediately with `optional_details_confirmed=false`. Function validation will instruct you to ask only whether the caller knows a business phone number or a specific individual contact.
+            - NEVER ask for a date of birth or suffix for an organization.
+            - A contact person must be a separate individual party, not fields on the organization party.
+        6. IF the caller says there is no one on the other side:
             - Confirm and call the function with an empty list: adverse_parties = []
-        5. Once all parties are confirmed, ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
+        7. Once all parties are confirmed, ALWAYS call the `record_adverse_parties` function with the adverse_parties argument.
+            - Set `optional_details_confirmed` to true after the caller provides optional details or says they do not know them.
+            - NEVER set `optional_details_confirmed` to true on the first function call for a party that has no optional details. The backend requires a follow-up round before it will accept that value.
 
         [Field Name Requirements]
         When calling the function, ALWAYS pass an "adverse_parties" argument containing a list of party objects.
-        Use these EXACT field names for each party:
-        - "first" (required, not first_name, firstname, or firstName)
+        For an individual, use these EXACT field names:
+        - "first" (required for an individual, not first_name, firstname, or firstName)
         - "middle" (optional, not middle_name, middlename, or middleName)
-        - "last" (required, not last_name, lastname, or lastName)
+        - "last" (required for an individual, not last_name, lastname, or lastName)
         - "suffix" (optional, e.g., "Jr.", "Sr.", "II", "III")
         - "dob" (optional, date format YYYY-MM-DD, not date_of_birth or dateOfBirth)
         - "phones" (optional list of phone objects, not phone_numbers or phoneNumbers)
           - Each phone object must have: "number" (str)
           - Each phone object may also include: "type" (str: mobile, home, business, or fax) if the caller actually provides it
+        For an organization, use:
+        - "organization_name" (required; do not include first, middle, last, suffix, or dob)
+        - "phones" (optional, using the same phone-object format above)
 
         [Examples - ALWAYS pass the adverse_parties argument]
         Example 1 - One party with complete information:
@@ -415,6 +425,9 @@ record_adverse_parties:
         Example 4 - No parties (empty list):
         adverse_parties = []
 
+        Example 5 - Organization:
+        adverse_parties = [{"organization_name": "First National Bank"}]
+
         [Critical Reminder]
         ALWAYS call the function with the "adverse_parties" argument, even if it's an empty list [].
         Do NOT call the function without specifying the adverse_parties argument.
@@ -424,7 +437,7 @@ record_adverse_parties:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Tell me the name of the person, company, landlord, employer, agency, or organization on the other side of your issue.
+        Ask one concise question for the opposing person or organization, using the caller's case description to choose natural wording.
 
 # Domestic violence
 record_domestic_violence:
@@ -449,44 +462,86 @@ record_household_composition:
   task_messages:
     - content: >-
         [Instructions]
-        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the household counts are still unclear.
+        No opening prompt has been spoken for this step. Ask one concise question for two numbers: adults other than the caller, and children under 18.
 
-        1. Ask for two numbers only: adults age 18 and older, and children under 18.
-        2. Remind the caller to include themselves in the adult count.
-        3. If the caller previously reported domestic violence, tell them not to count the person who harmed them.
-        4. Read back the two numbers in a short confirmation before calling the function.
+        1. Ask: "Besides you, how many other adults live in your household, and how many children under 18?"
+        2. If the caller previously reported domestic violence, add: "Do not count anyone who has harmed you."
+        3. The `number_of_other_adults` argument excludes the caller. The application adds the caller to produce the total adult count.
+        4. A bare answer such as "none," "no one," or "nobody" means zero other adults and zero children. Call `record_household_composition(number_of_other_adults=0, number_of_children=0)`.
+        5. If the caller supplies only one count, ask only for the missing count. Do not guess it.
+        6. Once both counts are known, call `record_household_composition`. The next node will read the total counts back and wait for a separate confirmation.
+        7. Do not read back or confirm the counts in this node. Do not call the function more than once in the same turn.
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        How many adults live in your household including yourself, and how many children under 18?
+        Besides you, how many other adults live in your household, and how many children under 18?
         (Only if the caller reported domestic violence: "Do not count anyone who has harmed you.")
 
         [Additional Notes]
         - Adults must be at least 18 years old.
-        - INCLUDE YOURSELF in the adult count.
+        - Do not include the caller in `number_of_other_adults`; the application always includes the caller.
         - If the caller reported domestic violence, do NOT count anyone who has harmed them.
         - Children are anyone under 18 years old.
         - Include all children who live in the household.
-        - ALWAYS call the `record_household_composition` function after confirming both numbers.
+
+confirm_household_composition:
+  task_messages:
+    - content: >-
+        [Instructions]
+        The proposed household counts have already been spoken to the caller as a yes-or-no confirmation.
+
+        Proposed total adults including the caller: {number_of_adults}
+        Proposed children under 18: {number_of_children}
+
+        1. Wait for the caller's answer.
+        2. If the caller clearly confirms the counts, call `confirm_household_composition(confirmed=true)`.
+        3. If the caller says the counts are wrong without supplying corrected counts, call `confirm_household_composition(confirmed=false)`.
+        4. If the caller supplies a correction, call `record_household_composition` with the corrected number of OTHER adults and children. For example, "No, it is me and my wife" means one other adult. Preserve an unchanged count when only one count is corrected.
+        5. A correction is not a confirmation. The corrected totals must be read back by the next confirmation node and confirmed in a later caller turn.
+        6. Never call both functions in one response.
+
+# Household Members
+record_household_members:
+  task_messages:
+    - content: >-
+        [Instructions]
+        No opening prompt has been spoken for this step. Use the caller name, case description, adverse parties, and confirmed household counts in the collected state.
+
+        1. Identify every person included in the confirmed household count. Do not ask for the caller's name again; use the caller's confirmed name and relationship "self".
+        2. Ask only for missing household-member names and relationships.
+        3. Reuse known information through a targeted confirmation. If the caller refers to "my wife," "my husband," or another relationship and exactly one known adverse party is a plausible match, ask: "Is your [relationship] [known name], the person you named earlier?"
+        4. Never silently assume that an adverse party is the spouse or household member. Set `adverse_party_name` only after the caller explicitly confirms the match or explicitly gives the same person's name and relationship.
+        5. Read back the complete household-member list and ask the caller to confirm it. Wait for the caller's answer before calling the function.
+        6. Call `record_household_members` with one object per confirmed household member using exactly these fields:
+           - `name`: full name
+           - `relationship`: relationship to the caller, using "self" for the caller
+           - `is_caller`: true only for the caller
+           - `adverse_party_name`: optional; the confirmed matching adverse party's full name
+
+        The number of member objects must equal the confirmed number of adults plus children.
+
+        [User Prompt]
+        Confirm the name and relationship of each person included in the household count, reusing information the caller has already provided.
 
 # Income
 record_income:
   task_messages:
     - content: >-
         [Instructions]
-        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer, asks for clarification, or the income details are still unclear.
+        No opening prompt has been spoken for this step. The household-member names and relationships are already recorded in the collected state. Do not ask for them again.
 
-        1. First, ask for the names of all household members and how each is related to the caller. Collect the full list before asking about income.
-        2. Then, for each household member, ask about their income AND benefits. This includes adults and children. Exclude anyone who has perpetrated domestic violence against the caller.
-           - For each person, ask: "What income or benefits does [name] receive?"
+        1. Begin with a concise, context-aware income question for each recorded household member. This includes adults and children. Exclude anyone who has perpetrated domestic violence against the caller.
+           - For the household member whose `is_caller` field is true, always use second-person wording: "What income or benefits do you receive?" Use "you" and "your" in every follow-up and confirmation. Do NOT speak the caller's name when discussing the caller's own income.
+           - Use the recorded name only for household members whose `is_caller` field is false: "What income or benefits does [name] receive?"
            - If the person has no income, that is fine. Record them with "No Household Income."
-           - Also ask about public benefits like food stamps, Medicaid, TANF, or SSI for children or other non-earning members.
-        3. For each household member with income, collect:
+           - Also ask about monetary public benefits like food stamps, TANF, or SSI for children or other non-earning members. Medicaid is collected in the next step and must not be submitted as income.
+        2. For each household member with income, collect:
            - The person's name
            - Income amount and period (Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly)
            - Sources of income using the income categories provided below
-        4. If the caller says their entire household has no income, ask briefly how essential expenses like housing, utilities, and food are paid.
-        5. After collecting the details for all members, read back a short summary and ask the caller to confirm it.
+        3. If the caller says their entire household has no income, ask briefly how essential expenses like housing, utilities, and food are paid.
+        4. After collecting the details for all members, read back a short summary and ask the caller to confirm it.
+        5. If the caller says only "Social Security," ask whether it is Social Security Retirement, Social Security Disability, or SSI before recording it. Do not guess the category.
 
         IMPORTANT: Do NOT collect income information for anyone who has perpetrated domestic violence against the caller.
 
@@ -508,14 +563,14 @@ record_income:
         - Child Support
         - Spousal Support
         - Social Security Retirement
-        - Social Security Disability (SSDI)
-        - SSI (Supplemental Security Income)
+        - Social Security Disability
+        - SSI
         - SSI/SSDI combo
         - Long-Term/Short-Term Disability
         - Workers Compensation
         - Unemployment Compensation
         - Pension/Retirement (Not Soc. Sec.)
-        - TANF (Temporary Assistance for Needy Families)
+        - TANF
         - Food Stamps
         - Veterans Benefits
         - Trust/Dividends/Annuity
@@ -525,7 +580,7 @@ record_income:
 
         [User Prompt]
         (Translate this to the caller's language if they are not speaking English)
-        Please tell me the name of each person in your household and how they are related to you. Then I will ask about income and benefits for each person.
+        Ask what income or benefits each already-recorded household member receives.
 
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who has perpetrated domestic violence against you. These individuals should be completely excluded from the income calculation.
@@ -533,7 +588,11 @@ record_income:
         - If the caller or any household member reports no income, this is a valid response. Record them with "No Household Income."
         - When recording income, use the income category names as keys to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
+        - In the spoken summary, use "you" for the caller and names only for other household members. Continue using each person's actual recorded name as the key in the `income` function argument.
         - Once the caller confirms the summary is accurate, ALWAYS call the `record_income` function, even if all reported incomes are zero.
+        - The `income` argument MUST map each confirmed household member's name directly to a mapping of category names. Do NOT use a top-level "members" list and do NOT include relationship or is_caller fields.
+        - Exact example: income = {"Jon Patrick Adamson": {"Social Security Retirement": {"amount": 500, "period": "Monthly"}, "Food Stamps": {"amount": 200, "period": "Monthly"}}}
+        - If the function reports a structural error, correct the function argument using this exact shape. The household membership is already confirmed, so do NOT ask the caller to reconfirm who lives in the household.
         - If a household member has NO income at all, submit ONLY "No Household Income" as their single income category. Do NOT enumerate every category at $0.
         - Include ALL household members, not just those with income. Children with no income should have "No Household Income" recorded.
         - Include public benefits (food stamps, Medicaid, TANF, SSI) for children or other household members if the caller reports them.
@@ -576,6 +635,7 @@ record_assets_receives_benefits:
         Call `record_assets_receives_benefits` with:
         - receives_benefits=True (if they receive ANY of these: Medicaid, SSI, or TANF)
         - receives_benefits=False (if they receive NONE of these)
+        - If SSI or TANF is already present in the income state, a "no" answer to the Medicaid follow-up means only that the caller does not also receive Medicaid. It does not negate the previously reported SSI or TANF, so call the function with receives_benefits=True.
 
         [User Prompt]
         (Translate to the caller's language if they are not speaking English)
@@ -867,3 +927,22 @@ case_type_ineligible:
         If they choose phone, call `send_case_type_referral_and_end` with delivery_method="phone".
         If they choose text, call `send_case_type_referral_and_end` with delivery_method="text".
 
+service_area_unserved:
+  task_messages:
+    - content: >-
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer or asks for clarification.
+
+        Explain that the confirmed location is outside Law-Line's service area.
+        Ask whether they want referral information over the phone or sent by text.
+        If they choose phone, call `send_general_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_general_referral_and_end` with delivery_method="text".
+
+service_area_unresolved:
+  task_messages:
+    - content: >-
+        The opening prompt for this step has already been spoken to the caller. Do NOT repeat it unless the caller did not answer or asks for clarification.
+
+        Explain that Law-Line could not confirm whether the location is in its service area. Do NOT say that the location is outside the service area or that the case type is ineligible.
+        Ask whether they want referral information over the phone or sent by text.
+        If they choose phone, call `send_general_referral_and_end` with delivery_method="phone".
+        If they choose text, call `send_general_referral_and_end` with delivery_method="text".

@@ -55,8 +55,10 @@ from intake_bot.nodes.nodes import (
     end_conversation,
     node_start,
 )
-from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
+from intake_bot.nodes.utils import save_state_to_json
+from intake_bot.models.legalserver import LegalServerOverall
 from intake_bot.services.legalserver import save_intake_legalserver
+from intake_bot.utils.globals import DEBUG
 from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
 from intake_bot.utils.call_logging import call_logging_context, transcript_log_path
 from intake_bot.utils.daily_dialin import (
@@ -339,9 +341,9 @@ async def bot(runner_args: RunnerArguments):
 
     try:
         request = DailyDialinRequest.model_validate(normalize_daily_dialin_body(body))
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError):
         logger.error(
-            f"""Invalid Daily dial-in request: {e}. Received body keys: {sorted(body.keys())}. If you are using Pipecat Cloud automatic telephony, point the Daily number at the Pipecat Cloud /dialin webhook. If you are using a custom webhook server, forward dialin_settings plus Daily API credentials."""
+            "Invalid Daily dial-in request. Use Pipecat Cloud's official DailyDialinRequest format with dialin_settings, daily_api_key, and daily_api_url."
         )
         return
 
@@ -424,7 +426,7 @@ async def run_bot(
         exit_stack.enter_context(call_logging_context(call_id))
 
         if caller_phone_number:
-            logger.info(f"""Handling incoming call from: {caller_phone_number}""")
+            logger.info("Handling incoming call")
 
         flux_settings = _get_flux_settings(call_id)
         flux_eager_eot_threshold = flux_settings["eager_eot_threshold"]
@@ -511,19 +513,22 @@ async def run_bot(
             ),
         )
 
-        transcript_file = None
-        if ev_is_true("LOG_TO_FILE"):
-            transcript_file = transcript_log_path(call_id)
-            logger.info(f"""Logging transcript to file: {transcript_file}""")
-        transcript_handler = TranscriptHandler(output_file=transcript_file)
+        transcript_handler = None
+        if ev_is_true("ENABLE_TRANSCRIPTS"):
+            transcript_file = None
+            if ev_is_true("LOG_TO_FILE") and DEBUG:
+                transcript_file = transcript_log_path(call_id)
+                logger.info(f"""Logging transcript to file: {transcript_file}""")
+            if DEBUG:
+                transcript_handler = TranscriptHandler(output_file=transcript_file)
 
-        context_aggregator.user().event_handler("on_user_turn_stopped")(
-            transcript_handler.on_user_transcript
-        )
+                context_aggregator.user().event_handler("on_user_turn_stopped")(
+                    transcript_handler.on_user_transcript
+                )
 
-        context_aggregator.assistant().event_handler("on_assistant_turn_stopped")(
-            transcript_handler.on_assistant_transcript
-        )
+                context_aggregator.assistant().event_handler(
+                    "on_assistant_turn_stopped"
+                )(transcript_handler.on_assistant_transcript)
 
         pipeline = Pipeline(
             [
@@ -581,7 +586,7 @@ async def run_bot(
             frames: list[TTSSpeakFrame | EndFrame],
         ) -> None:
             for frame in frames:
-                if isinstance(frame, TTSSpeakFrame):
+                if isinstance(frame, TTSSpeakFrame) and transcript_handler is not None:
                     await transcript_handler.save_assistant_tts(frame.text)
             await worker.queue_frames(frames)
 
@@ -648,9 +653,16 @@ async def run_bot(
 
         @worker.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(worker, frame):
-            log_flow_manager_state(flow_manager)
             await save_state_to_json(flow_manager.state)
-            await save_intake_legalserver(flow_manager.state)
+            ls_result = await save_intake_legalserver(flow_manager.state)
+            if ls_result.overall == LegalServerOverall.FAILED:
+                logger.error(f"LegalServer save failed: {ls_result.message}")
+            elif ls_result.overall == LegalServerOverall.DEGRADED:
+                logger.warning(f"LegalServer save degraded: {ls_result.message}")
+            elif ls_result.overall == LegalServerOverall.SKIPPED:
+                logger.info(f"LegalServer save skipped: {ls_result.message}")
+            else:
+                logger.info(f"LegalServer save complete: {ls_result.message}")
 
         _llm_error_count = 0
         _last_llm_error_time = 0.0

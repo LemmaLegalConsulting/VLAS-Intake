@@ -14,15 +14,15 @@ from pydantic import ValidationError
 @pytest.mark.parametrize(
     "input_number,expected_formatted",
     [
-        ("(866) 534-5243", "(866) 534-5243"),  # already formatted
-        ("866-534-5243", "(866) 534-5243"),  # hyphen only
-        ("8665345243", "(866) 534-5243"),  # digits only
-        ("866.534.5243", "(866) 534-5243"),  # with dots
-        ("866 534 5243", "(866) 534-5243"),  # with spaces
-        ("+18665345243", "(866) 534-5243"),  # +1 prefix
-        ("+1 (866) 534-5243", "(866) 534-5243"),  # international format with +1
-        ("1-866-534-5243", "(866) 534-5243"),  # with leading 1
-        ("(866)534-5243", "(866) 534-5243"),  # no space after parenthesis
+        ("(866) 534-5243", "+18665345243"),  # E.164 format
+        ("866-534-5243", "+18665345243"),  # hyphen only
+        ("8665345243", "+18665345243"),  # digits only
+        ("866.534.5243", "+18665345243"),  # with dots
+        ("866 534 5243", "+18665345243"),  # with spaces
+        ("+18665345243", "+18665345243"),  # +1 prefix
+        ("+1 (866) 534-5243", "+18665345243"),  # international format with +1
+        ("1-866-534-5243", "+18665345243"),  # with leading 1
+        ("(866)534-5243", "+18665345243"),  # no space after parenthesis
     ],
 )
 def test_phone_number_validation_and_formatting(input_number, expected_formatted):
@@ -69,6 +69,28 @@ def test_caller_name_suffix_empty_becomes_none():
 def test_adverse_party_suffix_optional():
     party = AdverseParty(first="Bob", last="Smith", suffix="Sr.")
     assert party.suffix == "Sr."
+
+
+def test_adverse_party_accepts_organization_without_person_fields():
+    party = AdverseParty(organization_name="First National Bank")
+
+    assert party.organization_name == "First National Bank"
+    assert party.first is None
+    assert party.last is None
+
+
+def test_adverse_party_rejects_person_fields_for_organization():
+    with pytest.raises(ValidationError, match="either organization_name"):
+        AdverseParty(
+            organization_name="First National Bank",
+            first="First",
+            last="National Bank",
+        )
+
+
+def test_adverse_party_rejects_organization_date_of_birth():
+    with pytest.raises(ValidationError, match="Date of birth is only valid"):
+        AdverseParty(organization_name="First National Bank", dob="1980-05-15")
 
 
 @pytest.mark.parametrize(
@@ -156,6 +178,112 @@ class TestAddressModel:
         }
         address = Address(**data)
         assert address.county == "Amelia"
+
+    def test_asset_entry_rejects_boolean(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="not a boolean"):
+            AssetEntry.model_validate({"car": True})
+
+    def test_asset_entry_rejects_string(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="not a string"):
+            AssetEntry.model_validate({"car": "five thousand"})
+
+    def test_asset_entry_rejects_negative(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="non-negative"):
+            AssetEntry.model_validate({"car": -100})
+
+    def test_asset_entry_rejects_overflow(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="Unreasonable"):
+            AssetEntry.model_validate({"car": 100_000_001})
+
+    def test_asset_entry_rejects_integral_float(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="not a float"):
+            AssetEntry.model_validate({"car": 5000.0})
+
+    def test_income_detail_rejects_boolean(self):
+        from intake_bot.models.validator import IncomeDetail
+
+        with pytest.raises(ValueError, match="not a boolean"):
+            IncomeDetail(amount=True, period="Monthly")
+
+    def test_income_detail_rejects_string(self):
+        from intake_bot.models.validator import IncomeDetail
+
+        with pytest.raises(ValueError, match="not a string"):
+            IncomeDetail(amount="five thousand", period="Monthly")
+
+    def test_income_detail_rejects_negative(self):
+        from intake_bot.models.validator import IncomeDetail
+
+        with pytest.raises(ValueError, match="non-negative"):
+            IncomeDetail(amount=-100, period="Monthly")
+
+    def test_income_detail_rejects_overflow(self):
+        from intake_bot.models.validator import IncomeDetail
+
+        with pytest.raises(ValueError, match="Unreasonable"):
+            IncomeDetail(amount=200_000_000, period="Monthly")
+
+    def test_asset_collection_validates_all_entries(self):
+        from intake_bot.models.validator import Assets, AssetEntry
+
+        with pytest.raises(ValueError, match="not a boolean"):
+            Assets([AssetEntry({"car": 5000}), AssetEntry({"cash": True})])
+
+    def test_asset_validate_rejects_bad_value(self):
+        from intake_bot.nodes.validator import IntakeValidator
+
+        with pytest.raises(ValueError, match="not a"):
+            IntakeValidator.assets_validate([{"car": "big"}])
+
+    def test_valid_then_invalid_income_state_preserved(self):
+        from intake_bot.models.validator import HouseholdIncome
+
+        valid = HouseholdIncome.model_validate(
+            {"Person": {"wages": {"amount": 1000, "period": "Monthly"}}}
+        )
+        assert valid.root["Person"].root["wages"].amount == 1000
+
+    def test_float_income_amount_is_rejected(self):
+        from intake_bot.models.validator import IncomeDetail
+
+        with pytest.raises(ValueError, match="not a float"):
+            IncomeDetail(amount=5000.0, period="Monthly")
+
+    def test_asset_entry_accepts_zero(self):
+        from intake_bot.models.validator import AssetEntry, Assets
+
+        entry = AssetEntry({"car": 0})
+        assets = Assets([entry])
+        assert assets.root[0].root["car"] == 0
+
+    def test_asset_entry_accepts_max_value(self):
+        from intake_bot.models.validator import AssetEntry
+
+        entry = AssetEntry({"car": 100_000_000})
+        assert entry.root["car"] == 100_000_000
+
+    def test_asset_entry_rejects_max_plus_one(self):
+        from intake_bot.models.validator import AssetEntry
+
+        with pytest.raises(ValueError, match="Unreasonable"):
+            AssetEntry.model_validate({"car": 100_000_001})
+
+    def test_validation_before_exemption_filter(self):
+        from intake_bot.nodes.validator import IntakeValidator
+
+        # Validation via assets_validate rejects malformed values
+        with pytest.raises(ValueError, match="not a"):
+            IntakeValidator.assets_validate([{"home": "big"}])
 
     def test_address_validation_required_fields(self):
         """Test that required fields are validated."""

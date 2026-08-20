@@ -110,29 +110,84 @@ class PhoneAdverseParty(BaseModel):
 
 
 class AdverseParty(BaseModel):
-    first: str
+    first: Optional[str] = None
     middle: Optional[str] = None
-    last: str
+    last: Optional[str] = None
     suffix: Optional[str] = None
+    organization_name: Optional[str] = None
     dob: Optional[date] = None
     phones: Optional[List[PhoneAdverseParty]] = None
 
-    @field_validator("first", "middle", "last", "suffix", mode="before")
+    @field_validator(
+        "first", "middle", "last", "suffix", "organization_name", mode="before"
+    )
     @classmethod
     def normalize_names(cls, v):
         return normalize_to_ascii(v)
 
-    @field_validator("middle", "suffix", "dob", "phones", mode="before")
+    @field_validator(
+        "first",
+        "middle",
+        "last",
+        "suffix",
+        "organization_name",
+        "dob",
+        "phones",
+        mode="before",
+    )
     def falsy_to_none(cls, v):
         if not v:
             return None
         return v
+
+    @model_validator(mode="after")
+    def validate_party_type(self) -> "AdverseParty":
+        has_organization = bool(self.organization_name)
+        has_person_name = bool(self.first or self.middle or self.last or self.suffix)
+
+        if has_organization and has_person_name:
+            raise ValueError(
+                "Provide either organization_name or individual name fields, not both"
+            )
+        if has_organization:
+            if self.dob:
+                raise ValueError("Date of birth is only valid for an individual")
+            return self
+        if not (self.first and self.last):
+            raise ValueError(
+                "Provide organization_name or both first and last for an individual"
+            )
+        return self
 
 
 class AdverseParties(RootModel[List[AdverseParty]]):
     """A list of AdverseParty objects. Can be empty if there are no adverse parties."""
 
     root: List[AdverseParty] = Field(default_factory=list)
+
+
+class HouseholdMember(BaseModel):
+    name: str = Field(min_length=1)
+    relationship: str = Field(min_length=1)
+    is_caller: bool = False
+    adverse_party_name: Optional[str] = None
+
+    @field_validator("name", "relationship", "adverse_party_name", mode="before")
+    @classmethod
+    def normalize_text(cls, v):
+        normalized = normalize_to_ascii(v)
+        return normalized.strip() if isinstance(normalized, str) else normalized
+
+    @field_validator("adverse_party_name", mode="before")
+    @classmethod
+    def falsy_adverse_party_name_to_none(cls, v):
+        if not v:
+            return None
+        return v
+
+
+class HouseholdMembers(RootModel[List[HouseholdMember]]):
+    root: List[HouseholdMember] = Field(default_factory=list)
 
 
 ######################################################################
@@ -148,9 +203,44 @@ class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value 
 
     @field_validator("root", mode="before")
     @classmethod
-    def normalize_keys(cls, v):
+    def normalize_keys_and_validate_types(cls, v):
         if isinstance(v, dict):
+            for k, val in v.items():
+                if isinstance(val, bool):
+                    raise ValueError(
+                        f"Asset value for '{k}' must be a number, not a boolean"
+                    )
+                if isinstance(val, str):
+                    raise ValueError(
+                        f"Asset value for '{k}' must be a number, not a string"
+                    )
+                if isinstance(val, float):
+                    raise ValueError(
+                        f"Asset value for '{k}' must be an integer, not a float"
+                    )
+                if isinstance(val, int) and val < 0:
+                    raise ValueError(
+                        f"Asset value for '{k}' must be non-negative, got {val}"
+                    )
+                if isinstance(val, int) and val > 100_000_000:
+                    raise ValueError(f"Unreasonable asset value for '{k}': {val}")
             return {normalize_to_ascii(k): val for k, val in v.items()}
+        return v
+
+    @field_validator("root", mode="after")
+    @classmethod
+    def validate_values(cls, v):
+        for k, val in v.items():
+            if not isinstance(val, int) or isinstance(val, bool):
+                raise ValueError(
+                    f"Asset value for '{k}' must be an integer, got {type(val).__name__}"
+                )
+            if val < 0:
+                raise ValueError(
+                    f"Asset value for '{k}' must be non-negative, got {val}"
+                )
+            if val > 100_000_000:
+                raise ValueError(f"Unreasonable asset value for '{k}': {val}")
         return v
 
 
@@ -287,6 +377,28 @@ class IncomeDetail(BaseModel):
         ...,
         description="The period for the income: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.",
     )
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def validate_amount(cls, v):
+        if isinstance(v, bool):
+            raise ValueError("Income amount must be a number, not a boolean")
+        if isinstance(v, str):
+            raise ValueError("Income amount must be a number, not a string")
+        if isinstance(v, float):
+            raise ValueError("Income amount must be an integer, not a float")
+        if isinstance(v, int) and v > 100_000_000:
+            raise ValueError(f"Unreasonable income amount: {v}")
+        return v
+
+    @field_validator("amount", mode="after")
+    @classmethod
+    def amount_non_negative(cls, v):
+        if v < 0:
+            raise ValueError(f"Income amount must be non-negative, got {v}")
+        if v > 100_000_000:
+            raise ValueError(f"Unreasonable income amount: {v}")
+        return v
 
     @field_validator("period", mode="before")
     @classmethod

@@ -12,7 +12,7 @@ Follow the instructions in the main README to start the server.
 ### 2. **Run the local websocket server:**
 
 ```sh
-uv run uvicorn server:app --host 0.0.0.0 --port 8765 --reload
+uv run uvicorn server:app --host 127.0.0.1 --port 8765 --reload
 ```
 
 ### 3. **Run the client:**
@@ -32,22 +32,25 @@ python client.py
 - `--server-idle-timeout`: Override the server-side websocket idle
   timeout in seconds for this test run
 
-The client connects directly to the local `/ws` endpoint and passes
-the caller phone number plus generated call id in the websocket URL
-query string. Generated ids are timestamp-based and include the client
+The client connects directly to the local `/ws` endpoint and sends
+the caller phone number, generated call id, and optional settings as
+a first-frame JSON metadata object immediately after WebSocket
+connection. Generated ids are timestamp-based and include the client
 name so they remain sortable in logs and unique across concurrent test
-runs. When `--server-idle-timeout` is provided, the client also passes
+runs. When `--server-idle-timeout` is provided, the client also sends
 `idle_timeout_secs=...` so websocket test calls can tolerate slower
 STT turnaround without changing the default idle timeout for other
 call paths. If the generated or supplied call id starts with
-`ws-test`, the server also defaults websocket idle timeout to `25`
+`ws-test`, the server also defaults websocket idle timeout to `45`
 seconds unless overridden with `--server-idle-timeout`,
 `WEBSOCKET_USER_IDLE_TIMEOUT_SECS`, or
 `WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS`.
 
 This exercises the current websocket transport directly:
 
-- client connects to `/ws?call_id=...&caller_phone_number=...`
+- client connects to `/ws` and immediately sends a first-frame JSON
+  metadata object with `caller_phone_number`, `call_id`, and optional
+  `idle_timeout_secs` / `strict_user_muting` fields
 - transport uses the protobuf websocket serializer
 - caller simulation uses Deepgram Flux STT, Azure OpenAI, and Deepgram
   Aura 2 TTS

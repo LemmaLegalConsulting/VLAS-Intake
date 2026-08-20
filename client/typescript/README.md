@@ -26,5 +26,6 @@ npm run dev
 
 5. Visit http://localhost:5173 in your browser.
 
-The client connects directly to the local `/ws` endpoint and passes the
-configured caller phone number as websocket query metadata.
+The client connects directly to the local `/ws` endpoint and sends the
+configured caller phone number, call id, and optional settings as a
+first-frame JSON metadata object immediately after WebSocket connection.

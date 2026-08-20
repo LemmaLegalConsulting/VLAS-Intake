@@ -33,7 +33,9 @@ async def test_silence_mixer_passthrough():
     assert await mixer.mix(b"\x00\x01\x02") == b"\x00\x01\x02"
 
 
-def test_websocket_startup_uses_shared_start_node():
+def test_websocket_startup_uses_shared_start_node(monkeypatch):
+    monkeypatch.delenv("TEST_INITIAL_NODE", raising=False)
+
     node = node_start()
 
     assert node["respond_immediately"] is False

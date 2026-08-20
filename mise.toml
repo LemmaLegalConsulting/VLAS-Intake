@@ -1,0 +1,64 @@
+[env]
+    _.file = [{ path = ".env", redact = false }]
+
+[tools]
+    python                 = "3.12"
+    tombi                  = "latest"
+    "pipx:ruff"            = "latest"
+    "pipx:bump-my-version" = "latest"
+    uv                     = "latest"
+
+[settings]
+    python.uv_venv_auto = "create|source"
+
+[tasks.check]
+    description = "Lint, format, and test the project"
+    depends     = ["sync"]
+    run         = [
+        { task = "check:tombi" },
+        { task = "check:ruff" },
+        { task = "test" },
+    ]
+
+[tasks."check:tombi"]
+    hide = true
+    run  = [
+        "tombi lint",
+        "tombi format",
+    ]
+
+[tasks."check:ruff"]
+    hide    = true
+    depends = ["sync"]
+    run     = [
+        "ruff check --fix",
+        "ruff format",
+    ]
+
+[tasks.format]
+    description = "Lint and format the project"
+    depends     = ["sync"]
+    run         = [
+        { task = "check:tombi" },
+        { task = "check:ruff" },
+    ]
+
+[tasks.sync]
+    description = "Synchronize the development environment"
+    run         = "uv sync"
+
+[tasks.deploy]
+    description = "Bump the patch version and deploy"
+    depends     = ["check"]
+    run         = "bump-my-version bump patch && git push --follow-tags && pipecat cloud deploy --yes --organization incredible-limpet-fuchsia-927"
+
+[tasks.test]
+    description = "Run the test suite"
+    depends     = ["sync"]
+    run         = "pytest"
+
+[tasks.pre-commit]
+    depends = ["check"]
+
+[tasks.set-secrets]
+    run = "pipecat cloud secrets set atlas-intake-secrets --file .env --organization incredible-limpet-fuchsia-927"

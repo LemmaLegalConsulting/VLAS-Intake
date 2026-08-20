@@ -55,7 +55,7 @@ def poverty_scale_income_qualifies(
         household_size=household_size, multiplier=multiplier, state=state
     )
 
-    if not household_income_limit:
+    if household_income_limit is None:
         return None
 
     return round((household_income_limit) / 12) >= int(total_monthly_income)
