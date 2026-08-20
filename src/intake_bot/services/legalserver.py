@@ -869,8 +869,8 @@ async def _save_additional_names(
         fallback = json.dumps(name, default=str)
         try:
             payload = AdditionalNamePayload(
-                first=name.get("first"),
-                last=name.get("last"),
+                first=name.get("first") or "",
+                last=name.get("last") or "",
                 middle=name.get("middle"),
                 suffix=name.get("suffix"),
                 type={"lookup_value_name": name.get("type", "Former Name")},
@@ -1532,7 +1532,7 @@ async def get_custom_lookups() -> dict[str, Any] | None:
             all_lookups = []
             page_number = 1
             total_pages = None
-
+            data: dict[str, Any] = {}
             while total_pages is None or page_number <= total_pages:
                 response = await session.get(
                     f"""{_legalserver_api_base_url()}/custom_lookups?page_number={page_number}""",

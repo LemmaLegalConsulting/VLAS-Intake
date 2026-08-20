@@ -1,7 +1,7 @@
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 
@@ -39,7 +39,7 @@ def call_log_filter(call_id: str) -> Callable[[dict[str, Any]], bool]:
 
 
 @contextmanager
-def call_logging_context(call_id: str) -> Iterator[str | None]:
+def call_logging_context(call_id: str) -> Generator[str | None, None, None]:
     with logger.contextualize(call_id=call_id):
         if not ev_is_true("LOG_TO_FILE"):
             yield None
@@ -50,7 +50,7 @@ def call_logging_context(call_id: str) -> Iterator[str | None]:
         sink_id = logger.add(
             log_path,
             level=get_ev("LOG_LEVEL", "INFO"),
-            filter=call_log_filter(call_id),
+            filter=cast(Any, call_log_filter(call_id)),
         )
         try:
             logger.info(f"""Logging server output to file: {log_path}""")

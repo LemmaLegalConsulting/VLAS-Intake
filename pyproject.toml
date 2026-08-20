@@ -27,6 +27,8 @@
         "pipecat-ai[websocket]>=1.7.0",
         "pytest>=9.1.1",
         "pytest-asyncio>=1.4.0",
+        "types-aiofiles>=25.1.0.20260518",
+        "types-pyyaml>=6.0.12.20260815",
         "uvicorn>=0.52.4",
     ]
     test = [
@@ -45,6 +47,14 @@
         "**/*.py*",
         "**/*.ipynb",
     ]
+    project-excludes = [
+        "tests/**",
+    ]
+    search-path      = [
+        "src",
+        ".",
+        "client/python",
+    ]
 
 [tool.pytest.ini_options]
     filterwarnings   = [
@@ -60,3 +70,6 @@
     testpaths        = [
         "tests",
     ]
+
+[tool.ruff.lint]
+    extend-select = ["I"]

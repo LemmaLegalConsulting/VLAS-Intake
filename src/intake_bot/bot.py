@@ -2,6 +2,7 @@ import json
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack
 from datetime import UTC, datetime
+from typing import Any, cast
 
 import aiofiles
 from loguru import logger
@@ -79,6 +80,8 @@ TransportSetup = Callable[
 
 
 class StateContextFlowManager(FlowManager):
+    _transcript_handler: Any = None
+    _tts_services: dict[Language, Any] | None = None
     _STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS = frozenset(
         {
             "_transcript_handler",
@@ -229,7 +232,9 @@ class TranscriptHandler:
         self, aggregator, strategy, message: UserTurnStoppedMessage
     ):
         """Handle new user transcript message."""
-        await self.save_transcript_message("user", message.content, message.timestamp)
+        await self.save_transcript_message(
+            "user", message.content or "", message.timestamp
+        )
 
     async def on_assistant_transcript(
         self, aggregator, message: AssistantTurnStoppedMessage
@@ -303,7 +308,7 @@ async def bot(runner_args: RunnerArguments):
     """Main bot entry point for Daily local and Pipecat Cloud runtimes."""
     body = runner_args.body if isinstance(runner_args.body, dict) else {}
     logger.info(
-        f"""Inbound bot invoked. body_type={type(runner_args.body).__name__}, body_keys={sorted(body.keys())}, room_url_present={bool(runner_args.room_url)}"""
+        f"""Inbound bot invoked. body_type={type(runner_args.body).__name__}, body_keys={sorted(body.keys())}, room_url_present={bool(getattr(runner_args, "room_url", None))}"""
     )
 
     def build_daily_participant_initializer(log_message: str):
@@ -327,8 +332,8 @@ async def bot(runner_args: RunnerArguments):
             "No Daily dial-in metadata detected; starting standard Pipecat Cloud WebRTC session."
         )
         transport = DailyTransport(
-            runner_args.room_url,
-            runner_args.token,
+            getattr(runner_args, "room_url", ""),
+            getattr(runner_args, "token", ""),
             "VLAS Intake Bot",
             params=DailyParams(
                 audio_in_enabled=True,
@@ -363,8 +368,8 @@ async def bot(runner_args: RunnerArguments):
     call_id = request.dialin_settings.call_id
 
     transport = DailyTransport(
-        runner_args.room_url,
-        runner_args.token,
+        getattr(runner_args, "room_url", ""),
+        getattr(runner_args, "token", ""),
         "VLAS Intake Bot",
         params=DailyParams(
             api_key=request.daily_api_key,
@@ -486,10 +491,9 @@ async def run_bot(
         external_turn_stop_timeout_secs = float(
             get_ev("EXTERNAL_TURN_STOP_TIMEOUT_SECS", "0.2")
         )
-        user_mute_strategies = [FunctionCallUserMuteStrategy()]
+        user_mute_strategies: list[Any] = [FunctionCallUserMuteStrategy()]
         if strict_user_muting:
             user_mute_strategies.append(AlwaysUserMuteStrategy())
-
         context_aggregator = LLMContextAggregatorPair(
             context,
             assistant_params=LLMAssistantAggregatorParams(),
@@ -553,7 +557,7 @@ async def run_bot(
             ]
         )
 
-        observers = []
+        observers: list[Any] = []
         if ev_is_true("ENABLE_TAIL_OBSERVER"):
             from pipecat_tail.observer import TailObserver
 
@@ -561,7 +565,7 @@ async def run_bot(
         if ev_is_true("ENABLE_WHISKER"):
             from pipecat_whisker import WhiskerObserver
 
-            whisker = WhiskerObserver(pipeline)
+            whisker = cast(Any, WhiskerObserver)(pipeline)
             observers.append(whisker)
 
         worker = PipelineWorker(
@@ -573,12 +577,12 @@ async def run_bot(
                 enable_usage_metrics=True,
             ),
             idle_timeout_secs=None,
-            observers=observers,
+            observers=cast(Any, observers),
         )
 
         flow_manager = StateContextFlowManager(
             worker=worker,
-            llm=llm,
+            llm=cast(Any, llm),
             context_aggregator=context_aggregator,
             global_functions=[
                 caller_ended_conversation,
@@ -734,8 +738,7 @@ async def run_bot(
             from pipecat_tail.runner import TailRunner
 
             runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
-            await runner.add_workers(worker)
-            await runner.run()
+            await cast(Any, runner).run()
         else:
             runner = WorkerRunner(handle_sigint=handle_sigint, force_gc=True)
             await runner.add_workers(worker)

@@ -29,7 +29,7 @@ def _load_asset_exemptions() -> tuple[frozenset[str], frozenset[str]]:
 
     def _norm(term: str) -> str:
         ascii_term = (
-            unicodedata.normalize("NFKD", str(term))
+            unicodedata.normalize("NFKD", term)
             .encode("ascii", "ignore")
             .decode("ascii")
         )
@@ -85,7 +85,7 @@ class IntakeValidator:
     @staticmethod
     def assets_normalize_name(asset_name: str) -> str:
         ascii_name = (
-            unicodedata.normalize("NFKD", str(asset_name))
+            unicodedata.normalize("NFKD", asset_name)
             .encode("ascii", "ignore")
             .decode("ascii")
         )
@@ -100,9 +100,7 @@ class IntakeValidator:
         if normalized_name in cls.ASSET_EXEMPT_SINGLE_WORDS:
             return True
 
-        return bool(
-            any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES)
-        )
+        return any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES)
 
     @classmethod
     def assets_filter_countable_entries(cls, asset_entries: list[dict]) -> list[dict]:
@@ -346,7 +344,7 @@ class IntakeValidator:
             household_size=household_size,
             multiplier=3.0,
         )
-        return is_eligible, total_monthly_income, household_size
+        return bool(is_eligible), total_monthly_income, household_size
 
     async def check_assets(self, assets: Assets) -> tuple[bool, int]:
         vlas_assets_limit: int = 10_000

@@ -6,6 +6,7 @@ import random
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from dotenv import load_dotenv
@@ -349,7 +350,7 @@ async def run_client(
 
     system_prompt = build_client_system_prompt(script)
     messages = [{"role": "system", "content": system_prompt}]
-    context = LLMContext(messages)
+    context = LLMContext(cast(Any, messages))
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
@@ -442,7 +443,9 @@ async def run_client(
                         "content": f"""Previous conversation summary: {summary}""",
                     },
                 ]
-                await worker.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
+                await worker.queue_frame(
+                    LLMMessagesUpdateFrame(messages=cast(Any, new_messages))
+                )
                 logger.info(f"""Client {client_name} context updated with summary.""")
             except Exception as exc:  # noqa: BLE001 - summarization is best effort
                 logger.error(f"""Client {client_name} summarization failed: {exc}""")

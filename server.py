@@ -2,6 +2,7 @@ import asyncio
 import json
 import sys
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from fastapi import FastAPI, WebSocket, WebSocketException
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,7 +21,11 @@ from intake_bot.utils.call_logging import runtime_log_filter
 from intake_bot.utils.ev import get_ev
 
 logger.remove(0)
-logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"), filter=runtime_log_filter)
+logger.add(
+    sys.stderr,
+    level=get_ev("LOG_LEVEL", "INFO"),
+    filter=cast(Any, runtime_log_filter),
+)
 
 
 _rate_limit_store: dict[str, list[float]] = {}

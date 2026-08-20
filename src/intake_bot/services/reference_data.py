@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from loguru import logger
@@ -15,9 +15,7 @@ LocalityInfo = dict[str, Any]
 
 def normalize_text(text: str) -> str:
     ascii_text = (
-        unicodedata.normalize("NFKD", str(text))
-        .encode("ascii", "ignore")
-        .decode("ascii")
+        unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
     )
     return re.sub(r"\s+", " ", ascii_text.strip().lower())
 
@@ -58,25 +56,30 @@ class ReferenceDataLoader:
 
     @property
     def virginia_localities(self) -> dict[str, LocalityInfo]:
-        return ReferenceDataLoader._data.get("virginia_localities", {})
+        data = ReferenceDataLoader._data or {}
+        return data.get("virginia_localities", {})
 
     @property
     def official_name_normalizations(self) -> dict[str, str]:
-        raw = ReferenceDataLoader._data.get("official_name_normalizations", {})
+        data = ReferenceDataLoader._data or {}
+        raw = data.get("official_name_normalizations", {})
         return {normalize_text(k): v for k, v in raw.items()}
 
     @property
     def ambiguous_names(self) -> dict[str, list[str]]:
-        raw = ReferenceDataLoader._data.get("ambiguous_names", {})
+        data = ReferenceDataLoader._data or {}
+        raw = data.get("ambiguous_names", {})
         return {normalize_text(k): v for k, v in raw.items()}
 
     @property
     def income_categories(self) -> list[str]:
-        return ReferenceDataLoader._data.get("income_categories", [])
+        data = ReferenceDataLoader._data or {}
+        return data.get("income_categories", [])
 
     @property
     def legal_problem_codes(self) -> dict[str, str]:
-        return ReferenceDataLoader._data.get("legal_problem_codes", {})
+        data = ReferenceDataLoader._data or {}
+        return data.get("legal_problem_codes", {})
 
     def get_all(self) -> dict:
         return ReferenceDataLoader._data or {}
@@ -382,7 +385,7 @@ class ReferenceDataLoader:
         fuzzy_matches = process.extract(
             location,
             locality_names,
-            scorer=fuzz.WRatio,
+            scorer=cast(Any, fuzz.WRatio),
             score_cutoff=50,
             limit=5,
             processor=utils.default_process,

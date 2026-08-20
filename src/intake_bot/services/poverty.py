@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import cast
 
 from intake_bot.utils.globals import DATA_DIR
 
@@ -23,14 +24,14 @@ def poverty_scale_get_income_limit(
     if not ps_data:
         return None
     if state and state.lower() == "hi":
-        poverty_base = int(ps_data.get("poverty_base_hi"))
-        poverty_increment = int(ps_data.get("poverty_increment_hi"))
+        poverty_base = cast(int, ps_data.get("poverty_base_hi"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment_hi"))
     elif state and state.lower() == "ak":
-        poverty_base = int(ps_data.get("poverty_base_ak"))
-        poverty_increment = int(ps_data.get("poverty_increment_ak"))
+        poverty_base = cast(int, ps_data.get("poverty_base_ak"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment_ak"))
     else:
-        poverty_base = int(ps_data.get("poverty_base"))
-        poverty_increment = int(ps_data.get("poverty_increment"))
+        poverty_base = cast(int, ps_data.get("poverty_base"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment"))
     additional_income_allowed = max(household_size - 1, 0) * poverty_increment
     household_income_limit = (poverty_base + additional_income_allowed) * multiplier
 

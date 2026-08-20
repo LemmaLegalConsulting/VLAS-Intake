@@ -32,7 +32,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from rapidfuzz import fuzz, process, utils
@@ -178,7 +178,7 @@ class StateValidator:
         best_match = process.extractOne(
             key,
             list(candidates),
-            scorer=fuzz.token_set_ratio,
+            scorer=cast(Any, fuzz.token_set_ratio),
             processor=utils.default_process,
             score_cutoff=threshold,
         )

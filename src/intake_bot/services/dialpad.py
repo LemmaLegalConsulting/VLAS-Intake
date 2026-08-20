@@ -245,3 +245,4 @@ class SMS:
                 raise RuntimeError(
                     "Dialpad SMS request outcome is unknown; not retrying"
                 ) from e
+        raise RuntimeError("Dialpad SMS request failed without a response")

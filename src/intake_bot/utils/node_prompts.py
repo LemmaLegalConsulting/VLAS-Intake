@@ -177,10 +177,9 @@ class NodePrompts:
         normalized_language = (
             "spanish" if language.strip().lower() == "spanish" else "english"
         )
-        phrases = self.ACKNOWLEDGMENT_PHRASES.get(
-            category,
-            self.ACKNOWLEDGMENT_PHRASES["neutral"],
-        )
+        phrases = self.ACKNOWLEDGMENT_PHRASES.get(category)
+        if phrases is None:
+            phrases = self.ACKNOWLEDGMENT_PHRASES["neutral"]
         return random.choice(phrases[normalized_language])
 
 

@@ -7,7 +7,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import yaml
 from loguru import logger
@@ -99,8 +99,7 @@ class Classifier:
         Returns:
           List of enabled provider instances.
         """
-        all_providers = []
-
+        all_providers: list[Classifier.Provider] = []
         # Try to initialize Azure OpenAI providers
         try:
             all_providers.append(self.AzureOpenAIProvider(model_name="gpt-4.1-mini"))
@@ -186,8 +185,8 @@ class Classifier:
           A ClassificationResponse with aggregated labels and questions.
         """
         label_scores = defaultdict(float)
-        raw_provider_results = {}
-        all_questions_by_provider = {}
+        raw_provider_results: dict[str, Any] = {}
+        all_questions_by_provider: dict[str, list[ProviderQuestion]] = {}
 
         for provider_result in results:
             model_name = provider_result.model_name
@@ -213,7 +212,10 @@ class Classifier:
 
                 # Aggregate label scores via typed ProviderLabel objects
                 for label_entry in provider_result.labels:
-                    if label_entry.legal_problem_code in taxonomy_dict:
+                    if (
+                        taxonomy_dict
+                        and label_entry.legal_problem_code in taxonomy_dict
+                    ):
                         weighted_score = base_weight * label_entry.confidence
                         label_scores[label_entry.legal_problem_code] += weighted_score
 
@@ -306,7 +308,10 @@ class Classifier:
         # determine eligibility without at least one recognized LLM label.
         llm_label_contributed = any(
             pr.model_name in ("gpt-4.1-mini", "gpt-5-nano")
-            and any(label.legal_problem_code in taxonomy_dict for label in pr.labels)
+            and any(
+                taxonomy_dict and label.legal_problem_code in taxonomy_dict
+                for label in pr.labels
+            )
             for pr in successful_providers
         )
         if not llm_label_contributed:
@@ -340,12 +345,12 @@ class Classifier:
                 FollowUpQuestion(question=clarification),
             ]
             final_top_questions = questions_to_include
-
-        # If no label and no questions, provide a deterministic clarification
         if not top_legal_problem_code and not final_top_questions:
-            response_data = {
+            response_data: dict[str, Any] = {
                 "follow_up_questions": [
-                    FollowUpQuestion(question=clarification),
+                    FollowUpQuestion(
+                        question=clarification,
+                    ),
                 ],
             }
         else:
@@ -373,10 +378,10 @@ class Classifier:
           enabled_models: Override which models to use.
 
         Returns:
-          A ClassificationResponse with labels and follow-up questions.
+          A ClassificationResponse with aggregated labels and follow-up questions.
         """
+        overall_start = time.time()
         if DEBUG:
-            overall_start = time.time()
             logger.debug("Starting classification request")
 
         taxonomy = self.taxonomy
@@ -798,14 +803,18 @@ class Classifier:
             Returns:
               A ProviderResult envelope.
             """
+            client = self.client
             try:
 
                 async def _make_request():
+                    if client is None:
+                        raise RuntimeError(
+                            f"""[{self.model_name}] client is not configured"""
+                        )
+                    start_time = time.time()
                     if DEBUG:
-                        start_time = time.time()
                         logger.debug(f"""[{self.model_name}] Starting API call""")
 
-                    # Build request parameters
                     request_params = {
                         "model": getattr(self, "deployment_name", self.model_name),
                         "messages": [
@@ -815,23 +824,22 @@ class Classifier:
                         "response_format": {"type": "json_object"},
                     }
 
-                    # Add reasoning_effort if provided and client supports it
                     if reasoning_effort:
                         try:
-                            sig = inspect.signature(self.client.chat.completions.create)
+                            sig = inspect.signature(client.chat.completions.create)
                             if "reasoning_effort" in sig.parameters:
                                 request_params["reasoning_effort"] = reasoning_effort
                                 if DEBUG:
                                     logger.debug(
                                         f"""[{self.model_name}] Using reasoning_effort={reasoning_effort}"""
                                     )
-                        except Exception as e:  # noqa: BLE001 - signature introspection is optional
+                        except Exception as e:  # noqa: BLE001 - optional introspection
                             logger.debug(
                                 f"[{self.model_name}] Could not inspect client signature: {e}"
                             )
 
-                    response = await self.client.chat.completions.create(
-                        **request_params
+                    response = await client.chat.completions.create(
+                        **cast(Any, request_params)
                     )
 
                     if DEBUG:
@@ -896,13 +904,14 @@ class Classifier:
             super().__init__("keyword")
 
         async def classify(
-            self, problem_description: str, taxonomy: list[str], **kwargs
+            self,
+            problem_description: str,
+            prompt: str = "",
+            reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None,
+            **kwargs,
         ) -> ProviderResult:
-            """Classify using fuzzy keyword matching with rapidfuzz.
-
-            Combines fuzzy string matching with direct word matching to find
-            relevant legal categories from the problem description.
-            """
+            """Classify using keyword matching with rapidfuzz."""
+            taxonomy = kwargs.get("taxonomy", [])
             if taxonomy is None:
                 return ProviderResult(
                     model_name=self.model_name,
@@ -969,17 +978,11 @@ class Classifier:
                 sorted(key_terms)
             )  # All key terms for stronger signal
 
-            if not key_phrase.strip():
-                key_phrase = (
-                    problem_description  # Fall back to full description if no key terms
-                )
-
-            # Use rapidfuzz to find matching categories with fuzzy matching
             matches = process.extract(
                 key_phrase,
                 taxonomy,
-                scorer=fuzz.WRatio,
-                score_cutoff=48,  # Slightly lower threshold to catch relevant matches
+                scorer=cast(Any, fuzz.WRatio),
+                score_cutoff=48,
                 limit=None,
                 processor=utils.default_process,
             )

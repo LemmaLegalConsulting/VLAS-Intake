@@ -6,9 +6,13 @@ from functools import wraps
 
 import aiofiles
 from loguru import logger
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
-from intake_bot.models.intake_flow_result import ServiceAreaResult, Status
+from intake_bot.models.intake_flow_result import (
+    IntakeFlowResult,
+    ServiceAreaResult,
+    Status,
+)
 from intake_bot.utils.ev import ev_is_true
 
 _SAFE_VALIDATION_LOCATION_PARTS = {
@@ -95,7 +99,7 @@ def convert_and_log_result(state_key: str):
                 else:
                     flow_manager.state.pop(state_key, None)
                 raise
-            if isinstance(result, BaseModel):
+            if isinstance(result, IntakeFlowResult):
                 if result.status == Status.SUCCESS:
                     flow_manager.state[state_key] = result.model_dump(
                         exclude={"status", "error"}, exclude_none=True, mode="json"

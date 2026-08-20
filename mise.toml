@@ -2,10 +2,11 @@
     _.file = [{ path = ".env", redact = false }]
 
 [tools]
+    "pipx:bump-my-version" = "latest"
+    "pipx:pyrefly"         = "latest"
+    "pipx:ruff"            = "latest"
     python                 = "3.12"
     tombi                  = "latest"
-    "pipx:ruff"            = "latest"
-    "pipx:bump-my-version" = "latest"
     uv                     = "latest"
 
 [settings]
@@ -17,8 +18,14 @@
     run         = [
         { task = "check:tombi" },
         { task = "check:ruff" },
+        { task = "check:pyrefly" },
         { task = "test" },
     ]
+
+[tasks."check:pyrefly"]
+    hide    = true
+    depends = ["sync"]
+    run     = "pyrefly check"
 
 [tasks."check:tombi"]
     hide = true

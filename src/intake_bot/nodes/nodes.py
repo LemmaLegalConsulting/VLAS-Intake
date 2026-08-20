@@ -3,6 +3,7 @@ import sys
 import unicodedata
 from collections.abc import Callable
 from datetime import UTC, datetime
+from typing import Any, cast
 
 from loguru import logger
 from pipecat.flows import (
@@ -260,12 +261,15 @@ def node_start() -> NodeConfig:
 
 
 def node_partial_reset_with_state() -> NodeConfig:
-    return {
-        **prompts.get("primary_role_message"),
-        "context_strategy": ContextStrategyConfig(
-            strategy=ContextStrategy.RESET,
-        ),
-    }
+    return cast(
+        NodeConfig,
+        {
+            **prompts.get("primary_role_message"),
+            "context_strategy": ContextStrategyConfig(
+                strategy=ContextStrategy.RESET,
+            ),
+        },
+    )
 
 
 def _normalize_prompt_lead(text: str) -> str:
@@ -376,13 +380,13 @@ def _build_step_node(
         ]
         node["respond_immediately"] = False
 
-    return node
+    return cast(NodeConfig, node)
 
 
 def _build_static_tts_node(
     text: str, post_actions: list[dict] | None = None
 ) -> NodeConfig:
-    node = {
+    node: dict[str, Any] = {
         "task_messages": [],
         "pre_actions": [{"type": "tts_say", "text": text}],
         "functions": [],
@@ -390,7 +394,7 @@ def _build_static_tts_node(
     }
     if post_actions is not None:
         node["post_actions"] = post_actions
-    return node
+    return cast(NodeConfig, node)
 
 
 def _phone_digits(value: str | None) -> str:
@@ -649,60 +653,72 @@ def node_record_language(include_initial_greeting: bool = False) -> NodeConfig:
     if include_initial_greeting:
         pre_action["welcome_prompt_key"] = "initial_greeting"
 
-    return {
-        **prompts.get("record_language"),
-        "functions": [record_language],
-        "pre_actions": [pre_action],
-        "respond_immediately": False,
-    }
+    return cast(
+        NodeConfig,
+        {
+            **prompts.get("record_language"),
+            "functions": [record_language],
+            "pre_actions": [pre_action],
+            "respond_immediately": False,
+        },
+    )
 
 
 def node_record_phone_number(phone_number: str | None = None) -> NodeConfig:
-    return {
-        **node_partial_reset_with_state(),
-        **prompts.get("record_phone_number", phone_number=phone_number or ""),
-        "functions": [record_phone_number],
-        "pre_actions": [
-            {
-                "type": "function",
-                "handler": _speak_dynamic_prompt,
-                "text_builder": _phone_number_prompt_text,
-            }
-        ],
-        "respond_immediately": False,
-    }
+    return cast(
+        NodeConfig,
+        {
+            **node_partial_reset_with_state(),
+            **prompts.get("record_phone_number", phone_number=phone_number or ""),
+            "functions": [record_phone_number],
+            "pre_actions": [
+                {
+                    "type": "function",
+                    "handler": _speak_dynamic_prompt,
+                    "text_builder": _phone_number_prompt_text,
+                }
+            ],
+            "respond_immediately": False,
+        },
+    )
 
 
 def node_record_phone_type(phone_number: str | None = None) -> NodeConfig:
-    return {
-        **node_partial_reset_with_state(),
-        **prompts.get("record_phone_type", phone_number=phone_number or ""),
-        "functions": [record_phone_type],
-        "pre_actions": [
-            {
-                "type": "function",
-                "handler": _speak_dynamic_prompt,
-                "text_builder": _phone_type_prompt_text,
-            }
-        ],
-        "respond_immediately": False,
-    }
+    return cast(
+        NodeConfig,
+        {
+            **node_partial_reset_with_state(),
+            **prompts.get("record_phone_type", phone_number=phone_number or ""),
+            "functions": [record_phone_type],
+            "pre_actions": [
+                {
+                    "type": "function",
+                    "handler": _speak_dynamic_prompt,
+                    "text_builder": _phone_type_prompt_text,
+                }
+            ],
+            "respond_immediately": False,
+        },
+    )
 
 
 def node_record_name() -> NodeConfig:
-    return {
-        **node_partial_reset_with_state(),
-        **prompts.get("record_name"),
-        "functions": [record_name],
-        "pre_actions": [
-            {
-                "type": "function",
-                "handler": _speak_dynamic_prompt,
-                "text_builder": _name_prompt_text,
-            }
-        ],
-        "respond_immediately": False,
-    }
+    return cast(
+        NodeConfig,
+        {
+            **node_partial_reset_with_state(),
+            **prompts.get("record_name"),
+            "functions": [record_name],
+            "pre_actions": [
+                {
+                    "type": "function",
+                    "handler": _speak_dynamic_prompt,
+                    "text_builder": _name_prompt_text,
+                }
+            ],
+            "respond_immediately": False,
+        },
+    )
 
 
 def node_record_service_area() -> NodeConfig:
@@ -977,6 +993,12 @@ def _normalize_phone_type_value(phone_type: str) -> PhoneTypeCaller | None:
     return aliases.get(normalized)
 
 
+def _adverse_party_has_optional_details(party: AdverseParty) -> bool:
+    if party.organization_name:
+        return bool(party.phones)
+    return bool(party.suffix or party.dob or party.phones)
+
+
 def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
     normalized = delivery_method.strip().lower()
     if normalized in {"phone", "by phone", "over the phone", "voice", "call"}:
@@ -986,19 +1008,13 @@ def _normalize_referral_delivery_method(delivery_method: str) -> str | None:
     return None
 
 
-def _adverse_party_has_optional_details(party: AdverseParty) -> bool:
-    if party.organization_name:
-        return bool(party.phones)
-    return bool(party.suffix or party.dob or party.phones)
-
-
 def _format_adverse_party_name(party: AdverseParty) -> str:
     if party.organization_name:
         return party.organization_name
-    parts = [party.first]
+    parts = [party.first or ""]
     if party.middle:
         parts.append(party.middle)
-    parts.append(party.last)
+    parts.append(party.last or "")
     if party.suffix:
         parts.append(party.suffix)
     return " ".join(parts)
@@ -1213,17 +1229,12 @@ async def _send_referral_sms(
     return {"accepted": True}
 
 
-######################################################################
-# Functions - Main Flow
-######################################################################
-
-
 async def system_phone_number(
     flow_manager: FlowManager,
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+) -> tuple[dict[str, Any] | None, NodeConfig | None]:
     caller_id_phone_number = flow_manager.state.get("phone")
     is_valid, validated_caller_id_phone_number = await validator.check_phone_number(
-        phone_number=caller_id_phone_number
+        phone_number=str(caller_id_phone_number or "")
     )
 
     if is_valid:
@@ -1236,7 +1247,10 @@ async def system_phone_number(
             flow_manager.state["phone"] = existing
 
     status = status_helper(is_valid)
-    result = {"status": status.value, "phone_number": validated_caller_id_phone_number}
+    result = {
+        "status": status.value,
+        "phone_number": validated_caller_id_phone_number,
+    }
     next_node = NodeConfig(node_record_language())
     return result, next_node
 
@@ -1676,7 +1690,7 @@ async def record_household_composition(
     flow_manager: FlowManager,
     number_of_other_adults: int,
     number_of_children: int,
-) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+) -> tuple[IntakeFlowResult | dict[str, Any] | None, NodeConfig | None]:
     """Propose household counts; the caller is always added to the adult total."""
     if (
         not isinstance(number_of_other_adults, int)
@@ -2275,11 +2289,14 @@ async def continue_intake(
         return None, NodeConfig(deterministic_builder())
 
     next_node = NodeConfig(
-        node_partial_reset_with_state()
-        | {
-            **prompts.get(next_step),
-            "functions": [next_function],
-        }
+        cast(
+            Any,
+            node_partial_reset_with_state()
+            | {
+                **prompts.get(next_step),
+                "functions": [next_function],
+            },
+        )
     )
     return None, next_node
 
