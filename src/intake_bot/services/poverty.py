@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from typing import Union
 
 from intake_bot.utils.globals import DATA_DIR
 
@@ -16,7 +15,7 @@ def get_poverty_scale_data() -> dict:
 
 def poverty_scale_get_income_limit(
     household_size: int = 1, multiplier: float = 1.0, state=None
-) -> Union[int, None]:
+) -> int | None:
     """
     Return the income limit matching the given household size.
     """
@@ -43,7 +42,7 @@ def poverty_scale_income_qualifies(
     household_size: int = 1,
     multiplier: float = 1.0,
     state=None,
-) -> Union[bool, None]:
+) -> bool | None:
     """
     Given monthly income, household size, and an optional multiplier, return whether an individual
     is at or below the federal poverty level.

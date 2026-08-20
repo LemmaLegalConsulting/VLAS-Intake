@@ -3,13 +3,14 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
-from intake_bot.utils.globals import DATA_DIR
 from loguru import logger
 
-LocalityInfo = Dict[str, Any]
+from intake_bot.utils.globals import DATA_DIR
+
+LocalityInfo = dict[str, Any]
 
 
 def normalize_text(text: str) -> str:
@@ -28,7 +29,7 @@ class ReferenceDataLoader:
     """
 
     _instance = None
-    _data: Optional[Dict] = None
+    _data: dict | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -51,21 +52,21 @@ class ReferenceDataLoader:
             with open(ref_file) as f:
                 ReferenceDataLoader._data = yaml.safe_load(f)
             logger.debug(f"""Loaded reference data from {ref_file}""")
-        except Exception:
+        except Exception:  # noqa: BLE001 - unavailable reference data degrades to empty
             logger.error("Error loading reference data")
             ReferenceDataLoader._data = {}
 
     @property
-    def virginia_localities(self) -> Dict[str, LocalityInfo]:
+    def virginia_localities(self) -> dict[str, LocalityInfo]:
         return ReferenceDataLoader._data.get("virginia_localities", {})
 
     @property
-    def official_name_normalizations(self) -> Dict[str, str]:
+    def official_name_normalizations(self) -> dict[str, str]:
         raw = ReferenceDataLoader._data.get("official_name_normalizations", {})
         return {normalize_text(k): v for k, v in raw.items()}
 
     @property
-    def ambiguous_names(self) -> Dict[str, list[str]]:
+    def ambiguous_names(self) -> dict[str, list[str]]:
         raw = ReferenceDataLoader._data.get("ambiguous_names", {})
         return {normalize_text(k): v for k, v in raw.items()}
 
@@ -74,10 +75,10 @@ class ReferenceDataLoader:
         return ReferenceDataLoader._data.get("income_categories", [])
 
     @property
-    def legal_problem_codes(self) -> Dict[str, str]:
+    def legal_problem_codes(self) -> dict[str, str]:
         return ReferenceDataLoader._data.get("legal_problem_codes", {})
 
-    def get_all(self) -> Dict:
+    def get_all(self) -> dict:
         return ReferenceDataLoader._data or {}
 
     @property
@@ -246,13 +247,11 @@ class ReferenceDataLoader:
         for w in words:
             if w in NON_VA_STATES:
                 return True
-        if words and words[-1] in NON_VA_ABBREVS:
-            return True
-        return False
+        return bool(words and words[-1] in NON_VA_ABBREVS)
 
     @staticmethod
     def _clean_words(normalized: str) -> list[str]:
-        return [w.strip(".,!?;:,") for w in normalized.split()]
+        return [w.strip(".,!?;:") for w in normalized.split()]
 
     def _match_anchored(self, normalized: str) -> str | None:
         """Full-input anchored matching.  Returns canonical name or None."""
@@ -293,7 +292,7 @@ class ReferenceDataLoader:
         return None
 
     def _has_anchor_term(self, normalized: str) -> bool:
-        words = normalized.strip(".,!?;:,").split()
+        words = normalized.strip(".,!?;:").split()
         return any(w.strip(".,!?;:") in ("county", "city") for w in words)
 
     def resolve_service_area(self, location: str) -> dict:
@@ -394,7 +393,7 @@ class ReferenceDataLoader:
         ]
 
         if len(strong_matches) == 1:
-            name, score = strong_matches[0]
+            name, _score = strong_matches[0]
             info = self.virginia_localities[name]
             result.update(
                 outcome="suggested",

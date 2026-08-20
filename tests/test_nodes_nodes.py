@@ -1,6 +1,9 @@
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
+from pipecat.flows import ContextStrategy
+from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
+
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.intake_flow_result import Status
 from intake_bot.models.validator import Assets, HouseholdIncome
@@ -49,8 +52,6 @@ from intake_bot.nodes.nodes import (
 from intake_bot.nodes.validator import IntakeValidator
 from intake_bot.services.dialpad import REFERRAL
 from intake_bot.utils.node_prompts import NodePrompts
-from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
-from pipecat.flows import ContextStrategy
 
 ACKNOWLEDGMENT_BY_LANGUAGE = {
     "english": "Okay",
@@ -166,7 +167,7 @@ async def test_system_phone_number_persists_e164(flow_manager, patch_validator):
     """Valid national caller ID is persisted as canonical E.164 in state."""
     flow_manager.state["phone"] = "(866) 534-5243"
     patch_validator.check_phone_number = AsyncMock(return_value=(True, "+18665345243"))
-    result, next_node = await system_phone_number(flow_manager)
+    result, _next_node = await system_phone_number(flow_manager)
     assert result["phone_number"] == "+18665345243"
     assert flow_manager.state["phone"]["phone_number"] == "+18665345243"
 
@@ -840,11 +841,11 @@ async def test_record_service_area_suggested_then_no_correction(
         ]
     )
     fm = flow_manager
-    result, next_node = await record_service_area(fm, "Franklin")
+    result, _next_node = await record_service_area(fm, "Franklin")
     assert result["status"] == Status.ERROR
     assert result["outcome"] == "suggested"
 
-    result, next_node = await record_service_area(fm, "Amherst County")
+    result, _next_node = await record_service_area(fm, "Amherst County")
     assert result["status"] == Status.SUCCESS
     assert result["location"] == "Amherst County"
     assert _service_area_pending(fm) is None
@@ -968,7 +969,7 @@ async def test_record_service_area_ambiguous_confirmation(
         }
     )
     fm = flow_manager
-    result, next_node = await record_service_area(fm, "Franklin")
+    result, _next_node = await record_service_area(fm, "Franklin")
     assert result["status"] == Status.ERROR
     assert result["outcome"] == "ambiguous"
 
@@ -1077,7 +1078,7 @@ async def test_record_service_area_invented_yes_not_confirmed(
     )
     fm = flow_manager
     _store_service_area_pending(fm, ["Invented County"])
-    result, next_node = await record_service_area(fm, "yes")
+    result, _next_node = await record_service_area(fm, "yes")
     assert result["status"] == Status.ERROR
 
 
@@ -1104,9 +1105,9 @@ async def test_record_service_area_spanish_yes_confirms(flow_manager, patch_vali
         ]
     )
     fm = flow_manager
-    result, next_node = await record_service_area(fm, "amelia")
+    result, _next_node = await record_service_area(fm, "amelia")
     assert result["outcome"] == "suggested"
-    result, next_node = await record_service_area(fm, "sí")
+    result, _next_node = await record_service_area(fm, "sí")
     assert result["status"] == Status.SUCCESS
     assert result["location"] == "Amelia County"
 
@@ -1364,7 +1365,7 @@ async def test_referral_sms_uses_stored_e164(flow_manager, monkeypatch):
     sms_mock.send = AsyncMock(return_value={"status": 200, "body": {"id": "1"}})
     monkeypatch.setattr("intake_bot.nodes.nodes.sms_service", sms_mock)
 
-    result, next_node = await send_general_referral_and_end(flow_manager, "text")
+    result, _next_node = await send_general_referral_and_end(flow_manager, "text")
 
     assert result is None
     sms_mock.send.assert_awaited_once_with(
@@ -1983,12 +1984,12 @@ async def test_record_income_zero_fanout_collapses(flow_manager, patch_validator
         }
     }
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
-        result, next_node = await record_income(flow_manager, income)
+        result, _next_node = await record_income(flow_manager, income)
     assert result["status"] == Status.SUCCESS
     listing = flow_manager.state["income"]["listing"]
     # Should collapse to a single member with a single "No Household Income" entry
     assert len(listing) == 1
-    member_income = list(listing.values())[0]
+    member_income = next(iter(listing.values()))
     assert list(member_income.keys()) == ["No Household Income"]
     assert member_income["No Household Income"]["amount"] == 0
 
@@ -2014,7 +2015,7 @@ async def test_record_income_strips_zero_only_children(flow_manager, patch_valid
         },
     }
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
-        result, next_node = await record_income(flow_manager, income)
+        result, _next_node = await record_income(flow_manager, income)
     assert result["status"] == Status.SUCCESS
     # All three are zero-only but strip_zero_only_members keeps at least one
     # when *all* are zero — however since they're all identical, the validator
@@ -2046,7 +2047,7 @@ async def test_record_income_strips_children_keeps_parent_with_income(
         },
     }
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
-        result, next_node = await record_income(flow_manager, income)
+        result, _next_node = await record_income(flow_manager, income)
     assert result["status"] == Status.SUCCESS
     listing = flow_manager.state["income"]["listing"]
     # Children should be stripped, only parent remains
@@ -2336,7 +2337,7 @@ async def test_record_date_of_birth_various_formats(flow_manager, patch_validato
         patch_validator.check_date_of_birth = AsyncMock(
             return_value=(True, expected_output)
         )
-        result, next_node = await record_date_of_birth(flow_manager, input_date)
+        result, _next_node = await record_date_of_birth(flow_manager, input_date)
         assert result["status"] == Status.SUCCESS
         assert result["date_of_birth"] == expected_output
 
@@ -2355,10 +2356,12 @@ async def test_record_date_of_birth_invalid(flow_manager, patch_validator):
 @pytest.mark.asyncio
 async def test_record_date_of_birth_future_date(flow_manager, patch_validator):
     """Test record_date_of_birth rejects future dates."""
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     patch_validator.check_date_of_birth = AsyncMock(return_value=(False, ""))
-    future_date = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y")
+    future_date = (datetime.now(tz=UTC).astimezone() + timedelta(days=1)).strftime(
+        "%m/%d/%Y"
+    )
     result, next_node = await record_date_of_birth(flow_manager, future_date)
     assert result["status"] == Status.ERROR
     assert result["date_of_birth"] == ""
@@ -3004,7 +3007,7 @@ async def test_service_area_result_explicit_nulls(flow_manager, patch_validator)
         }
     )
     fm = flow_manager
-    result, nn = await record_service_area(fm, "Nowhere")
+    result, _nn = await record_service_area(fm, "Nowhere")
     assert result["status"] == Status.ERROR
     # Keys must exist with None values (not missing)
     assert "location" in result
@@ -3060,11 +3063,11 @@ async def test_reset_retry_clears_count_only(flow_manager):
 @pytest.mark.asyncio
 async def test_name_valid_then_invalid_preserves_state(flow_manager, prompt_loader):
     """A valid name followed by an invalid attempt preserves the valid state."""
-    result, next_node = await record_name(flow_manager, "John", "Q", "Public", "Jr.")
+    result, _next_node = await record_name(flow_manager, "John", "Q", "Public", "Jr.")
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["names"]["names"][0]["first"] == "John"
 
-    result, next_node = await record_name(flow_manager, "", "", "")
+    result, _next_node = await record_name(flow_manager, "", "", "")
     assert result["status"] == Status.ERROR
     assert flow_manager.state["names"]["names"][0]["first"] == "John"
 
@@ -3073,12 +3076,12 @@ async def test_name_valid_then_invalid_preserves_state(flow_manager, prompt_load
 async def test_phone_valid_then_invalid_preserves_state(flow_manager, patch_validator):
     """A valid phone number followed by an invalid attempt preserves the valid state."""
     patch_validator.check_phone_number = AsyncMock(return_value=(True, "+18665345243"))
-    result, next_node = await record_phone_number(flow_manager, "866-534-5243")
+    result, _next_node = await record_phone_number(flow_manager, "866-534-5243")
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["phone"]["phone_number"] == "+18665345243"
 
     patch_validator.check_phone_number = AsyncMock(return_value=(False, "bad"))
-    result, next_node = await record_phone_number(flow_manager, "bad")
+    result, _next_node = await record_phone_number(flow_manager, "bad")
     assert result["status"] == Status.ERROR
     # State should still have the valid phone
     assert flow_manager.state["phone"]["phone_number"] == "+18665345243"
@@ -3099,7 +3102,7 @@ async def test_service_area_valid_then_invalid_preserves_state(
             "match_type": "canonical",
         }
     )
-    result, next_node = await record_service_area(flow_manager, "Amelia County")
+    result, _next_node = await record_service_area(flow_manager, "Amelia County")
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["service_area"]["location"] == "Amelia County"
 
@@ -3113,7 +3116,7 @@ async def test_service_area_valid_then_invalid_preserves_state(
             "match_type": None,
         }
     )
-    result, next_node = await record_service_area(flow_manager, "bzzt")
+    result, _next_node = await record_service_area(flow_manager, "bzzt")
     assert result["status"] == Status.ERROR
     assert flow_manager.state["service_area"]["location"] == "Amelia County"
 
@@ -3134,14 +3137,14 @@ async def test_income_valid_then_invalid_preserves_state(flow_manager, patch_val
                 "Employment": {"amount": 1000, "period": "Monthly"},
             },
         }
-        result, next_node = await record_income(flow_manager, income)
+        result, _next_node = await record_income(flow_manager, income)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["income"]["is_eligible"] is True
 
     # Now an invalid income attempt
     with patch("intake_bot.nodes.nodes.HouseholdIncome", HouseholdIncome):
         income = {"bad": "data"}
-        result, next_node = await record_income(flow_manager, income)
+        result, _next_node = await record_income(flow_manager, income)
     assert result["status"] == Status.ERROR
     # Previous valid state should be preserved
     assert flow_manager.state["income"]["is_eligible"] is True
@@ -3157,14 +3160,14 @@ async def test_assets_valid_then_invalid_preserves_state(flow_manager, patch_val
     patch_validator.check_assets = AsyncMock(return_value=(True, 7000))
     with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"savings": 2000}, {"vacant land": 5000}]
-        result, next_node = await record_assets_list(flow_manager, assets)
+        result, _next_node = await record_assets_list(flow_manager, assets)
     assert result["status"] == Status.SUCCESS
     assert flow_manager.state["assets"]["is_eligible"] is True
 
     # Now an invalid assets attempt
     with patch("intake_bot.nodes.nodes.Assets", Assets):
         assets = [{"bad": "data"}]
-        result, next_node = await record_assets_list(flow_manager, assets)
+        result, _next_node = await record_assets_list(flow_manager, assets)
     assert result["status"] == Status.ERROR
     # Previous valid state should be preserved
     assert flow_manager.state["assets"]["is_eligible"] is True
@@ -3174,7 +3177,7 @@ async def test_assets_valid_then_invalid_preserves_state(flow_manager, patch_val
 async def test_address_valid_then_invalid_preserves_state(flow_manager, prompt_loader):
     """A valid address followed by an invalid non-empty address preserves
     the exact prior valid state through the production decorated handler."""
-    result, next_node = await record_address(
+    result, _next_node = await record_address(
         flow_manager,
         street="123 Main St",
         city="Richmond",
@@ -3187,7 +3190,7 @@ async def test_address_valid_then_invalid_preserves_state(flow_manager, prompt_l
     assert prior["city"] == "Richmond"
 
     # Invalid non-empty address: street provided but city blank → validation fails
-    result, next_node = await record_address(
+    result, _next_node = await record_address(
         flow_manager,
         street="456 Oak Ave",
         city="",
@@ -3342,6 +3345,7 @@ async def test_cancellation_restores_state_and_propagates(flow_manager):
     """A CancelledError inside a decorated handler must restore the exact
     pre-call value AND propagate the CancelledError."""
     import asyncio
+
     from intake_bot.nodes.utils import convert_and_log_result
 
     flow_manager.state["cancel_key"] = {"original": True}

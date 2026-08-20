@@ -1,13 +1,14 @@
 import asyncio
 
 import pytest
-from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
 from pipecat.frames.frames import (
     TranscriptionFrame,
     UserStartedSpeakingFrame,
     UserStoppedSpeakingFrame,
 )
 from pipecat.utils.asyncio.task_manager import TaskManager
+
+from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
 
 
 @pytest.mark.asyncio

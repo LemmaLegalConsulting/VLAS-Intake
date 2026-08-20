@@ -1,6 +1,7 @@
+from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+
 from intake_bot.bot import IdleRetryHandler
 from intake_bot.utils.node_prompts import NodePrompts
-from pipecat.frames.frames import EndFrame, TTSSpeakFrame
 
 
 def test_idle_retry_handlers_have_independent_counters():

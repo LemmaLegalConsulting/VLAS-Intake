@@ -1,10 +1,21 @@
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import aiofiles
 from loguru import logger
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+)
+from openai import (
+    APIError as OpenAIAPIError,
+)
+from openai import (
+    RateLimitError as OpenAIRateLimitError,
+)
+from pipecat.flows import ContextStrategy, FlowManager
 from pipecat.frames.frames import (
     EndFrame,
     TTSSpeakFrame,
@@ -12,7 +23,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
-from pipecat.workers.runner import WorkerRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
@@ -40,25 +50,17 @@ from pipecat.turns.user_start.external_user_turn_start_strategy import (
     ExternalUserTurnStartStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat.flows import ContextStrategy, FlowManager
+from pipecat.workers.runner import WorkerRunner
 from pydantic import ValidationError
 
-from openai import (
-    APIError as OpenAIAPIError,
-    RateLimitError as OpenAIRateLimitError,
-    APIConnectionError,
-    APITimeoutError,
-)
-
+from intake_bot.models.legalserver import LegalServerOverall
 from intake_bot.nodes.nodes import (
     caller_ended_conversation,
     end_conversation,
     node_start,
 )
 from intake_bot.nodes.utils import save_state_to_json
-from intake_bot.models.legalserver import LegalServerOverall
 from intake_bot.services.legalserver import save_intake_legalserver
-from intake_bot.utils.globals import DEBUG
 from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
 from intake_bot.utils.call_logging import call_logging_context, transcript_log_path
 from intake_bot.utils.daily_dialin import (
@@ -66,6 +68,7 @@ from intake_bot.utils.daily_dialin import (
     normalize_daily_dialin_body,
 )
 from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, require_ev
+from intake_bot.utils.globals import DEBUG
 from intake_bot.utils.node_prompts import NodePrompts
 
 TransportSetup = Callable[
@@ -74,15 +77,17 @@ TransportSetup = Callable[
 
 
 class StateContextFlowManager(FlowManager):
-    _STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS = {
-        "_transcript_handler",
-        "_adverse_parties_follow_up_requested",
-        "call_id",
-        "sms_messages",
-        "status",
-        "error",
-        "tts_voice",
-    }
+    _STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS = frozenset(
+        {
+            "_transcript_handler",
+            "_adverse_parties_follow_up_requested",
+            "call_id",
+            "sms_messages",
+            "status",
+            "error",
+            "tts_voice",
+        }
+    )
 
     def _trim_state_context_value(self, value):
         if value is None:
@@ -208,14 +213,14 @@ class TranscriptHandler:
             try:
                 async with aiofiles.open(self.output_file, "a", encoding="utf-8") as f:
                     await f.write(line + "\n")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - transcript logging is best effort
                 logger.error(f"""Error saving transcript message to file: {e}""")
 
     async def save_assistant_tts(self, content: str) -> None:
         if not content or not content.strip():
             return
 
-        timestamp = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")
         await self.save_transcript_message("assistant", content, timestamp)
 
     async def on_user_transcript(
@@ -542,7 +547,7 @@ async def run_bot(
             ]
         )
 
-        observers = list()
+        observers = []
         if ev_is_true("ENABLE_TAIL_OBSERVER"):
             from pipecat_tail.observer import TailObserver
 
@@ -690,7 +695,7 @@ async def run_bot(
                 or "llm" in error_name_lower
                 or "openai" in error_name_lower
             ):
-                now = datetime.now(timezone.utc).timestamp()
+                now = datetime.now(UTC).timestamp()
                 if now - _last_llm_error_time < 30.0:
                     _llm_error_count += 1
                 else:

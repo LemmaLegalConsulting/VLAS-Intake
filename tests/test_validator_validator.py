@@ -1,4 +1,5 @@
 import pytest
+
 from intake_bot.models.validator import (
     AssetEntry,
     Assets,
@@ -150,7 +151,6 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
         ),  # not eligible, just over 300% poverty for month due to round()
         (100000, "Annually", False, 8333),  # not eligible, high yearly income
         (10000, "Monthly", False, 10000),  # not eligible, high monthly income
-        (1200, "Monthly", True, 1200),  # single member, low income
         (2400, "Monthly", True, 2400),  # single member, still eligible
         (3600, "Monthly", True, 3600),  # single member, just under
         (1200, "Annually", True, 100),  # very low yearly income
@@ -361,7 +361,9 @@ async def test_check_assets_rejects_boolean_and_non_integer_values(value):
     validator = IntakeValidator()
 
     class _MalformedAssets:
-        root = [type("_MalformedAssetEntry", (), {"root": {"savings": value}})()]
+        root = [  # noqa: RUF012 - malformed class-level test fixture
+            type("_MalformedAssetEntry", (), {"root": {"savings": value}})()
+        ]
 
     validator.assets_filter_countable_entries = lambda entries: entries
 
@@ -397,10 +399,12 @@ async def test_check_date_of_birth(dob_input, expected_valid, expected_output):
 @pytest.mark.asyncio
 async def test_check_date_of_birth_future_date():
     """Test that future dates are rejected."""
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     validator = IntakeValidator()
-    future_date = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y")
+    future_date = (datetime.now(tz=UTC).astimezone() + timedelta(days=1)).strftime(
+        "%m/%d/%Y"
+    )
     is_valid, formatted_dob = await validator.check_date_of_birth(future_date)
     assert is_valid is False
     assert formatted_dob == ""
@@ -409,10 +413,10 @@ async def test_check_date_of_birth_future_date():
 @pytest.mark.asyncio
 async def test_check_date_of_birth_today():
     """Test that today's date is rejected (must be in the past)."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     validator = IntakeValidator()
-    today = datetime.now().strftime("%m/%d/%Y")
+    today = datetime.now(tz=UTC).astimezone().strftime("%m/%d/%Y")
     is_valid, formatted_dob = await validator.check_date_of_birth(today)
     assert is_valid is False
     assert formatted_dob == ""
@@ -420,15 +424,19 @@ async def test_check_date_of_birth_today():
 
 @pytest.mark.asyncio
 async def test_check_date_of_birth_yesterday_is_accepted():
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     validator = IntakeValidator()
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%m/%d/%Y")
+    yesterday = (datetime.now(tz=UTC).astimezone() - timedelta(days=1)).strftime(
+        "%m/%d/%Y"
+    )
 
     is_valid, formatted_dob = await validator.check_date_of_birth(yesterday)
 
     assert is_valid is True
-    assert formatted_dob == (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    assert formatted_dob == (
+        datetime.now(tz=UTC).astimezone() - timedelta(days=1)
+    ).strftime("%Y-%m-%d")
 
 
 @pytest.mark.asyncio

@@ -9,6 +9,7 @@ from typing import Any
 
 import aiohttp
 import yaml
+
 from intake_bot.utils.ev import get_ev
 from intake_bot.utils.globals import DATA_DIR
 
@@ -158,88 +159,86 @@ class SMS:
             timeout = aiohttp.ClientTimeout(total=request_timeout)
 
             try:
-                async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.post(
+                async with (
+                    aiohttp.ClientSession(timeout=timeout) as session,
+                    session.post(
                         request["url"],
                         json=request["payload"],
                         headers=request["headers"],
-                    ) as response:
-                        # Retry on 429 (rate limit) and transient 5xx
-                        if response.status == 429:
-                            response_body = await response.text()
-                            if attempt < self.MAX_RETRIES - 1:
-                                delay = self.BASE_RETRY_DELAY * (
-                                    2**attempt
-                                ) + random.uniform(0, 0.5)
-                                retry_after = response.headers.get("Retry-After")
-                                if retry_after is not None:
-                                    try:
-                                        server_delay = float(retry_after)
-                                        if server_delay > 0 and math.isfinite(
-                                            server_delay
-                                        ):
-                                            capped = min(
-                                                server_delay, self.MAX_RETRY_AFTER
-                                            )
-                                            delay = max(
-                                                capped + random.uniform(0, 0.5),
-                                                delay,
-                                            )
-                                    except (ValueError, TypeError):
-                                        pass
-                                remaining = deadline - self._now()
-                                if remaining <= 0:
-                                    raise RuntimeError(
-                                        "Dialpad SMS retry deadline exceeded"
-                                    )
-                                delay = min(delay, remaining)
-                                await self._sleep(delay)
-                                continue
-                            raise RuntimeError(
-                                f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
-                            )
+                    ) as response,
+                ):
+                    # Retry on 429 (rate limit) and transient 5xx
+                    if response.status == 429:
+                        response_body = await response.text()
+                        if attempt < self.MAX_RETRIES - 1:
+                            delay = self.BASE_RETRY_DELAY * (
+                                2**attempt
+                            ) + random.uniform(0, 0.5)
+                            retry_after = response.headers.get("Retry-After")
+                            if retry_after is not None:
+                                try:
+                                    server_delay = float(retry_after)
+                                    if server_delay > 0 and math.isfinite(server_delay):
+                                        capped = min(server_delay, self.MAX_RETRY_AFTER)
+                                        delay = max(
+                                            capped + random.uniform(0, 0.5),
+                                            delay,
+                                        )
+                                except (ValueError, TypeError):
+                                    pass
+                            remaining = deadline - self._now()
+                            if remaining <= 0:
+                                raise RuntimeError(
+                                    "Dialpad SMS retry deadline exceeded"
+                                )
+                            delay = min(delay, remaining)
+                            await self._sleep(delay)
+                            continue
+                        raise RuntimeError(
+                            f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
+                        )
 
-                        if response.status >= 500:
-                            response_body = await response.text()
-                            if attempt < self.MAX_RETRIES - 1:
-                                delay = self.BASE_RETRY_DELAY * (
-                                    2**attempt
-                                ) + random.uniform(0, 0.5)
-                                remaining = deadline - self._now()
-                                if remaining <= 0:
-                                    raise RuntimeError(
-                                        "Dialpad SMS retry deadline exceeded"
-                                    )
-                                delay = min(delay, remaining)
-                                await self._sleep(delay)
-                                continue
-                            raise RuntimeError(
-                                f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
-                            )
+                    if response.status >= 500:
+                        response_body = await response.text()
+                        if attempt < self.MAX_RETRIES - 1:
+                            delay = self.BASE_RETRY_DELAY * (
+                                2**attempt
+                            ) + random.uniform(0, 0.5)
+                            remaining = deadline - self._now()
+                            if remaining <= 0:
+                                raise RuntimeError(
+                                    "Dialpad SMS retry deadline exceeded"
+                                )
+                            delay = min(delay, remaining)
+                            await self._sleep(delay)
+                            continue
+                        raise RuntimeError(
+                            f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
+                        )
 
-                        # 3xx redirects — treat as immediate failure
-                        if 300 <= response.status < 400:
-                            response_body = await response.text()
-                            raise RuntimeError(
-                                f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
-                            )
+                    # 3xx redirects — treat as immediate failure
+                    if 300 <= response.status < 400:
+                        response_body = await response.text()
+                        raise RuntimeError(
+                            f"Dialpad SMS failed with HTTP {response.status}: {response_body}"
+                        )
 
-                        content_type = response.headers.get("Content-Type", "")
-                        if "json" in content_type.lower():
-                            body: dict[str, Any] | str = await response.json(
-                                content_type=None
-                            )
-                        else:
-                            body = await response.text()
+                    content_type = response.headers.get("Content-Type", "")
+                    if "json" in content_type.lower():
+                        body: dict[str, Any] | str = await response.json(
+                            content_type=None
+                        )
+                    else:
+                        body = await response.text()
 
-                        if response.status >= 400:
-                            raise RuntimeError(
-                                f"Dialpad SMS failed with HTTP {response.status}: {body}"
-                            )
+                    if response.status >= 400:
+                        raise RuntimeError(
+                            f"Dialpad SMS failed with HTTP {response.status}: {body}"
+                        )
 
-                        return {"status": response.status, "body": body}
+                    return {"status": response.status, "body": body}
 
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+            except (TimeoutError, aiohttp.ClientError) as e:
                 # The server may have accepted this non-idempotent POST before
                 # the response was lost. Retrying could send the SMS twice.
                 raise RuntimeError(

@@ -1,5 +1,7 @@
 from enum import Enum
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from intake_bot.models.validator import (
     Address,
     AdverseParties,
@@ -9,7 +11,6 @@ from intake_bot.models.validator import (
     HouseholdMembers,
     PhoneTypeCaller,
 )
-from pydantic import BaseModel, ConfigDict, Field
 
 
 class Status(str, Enum):

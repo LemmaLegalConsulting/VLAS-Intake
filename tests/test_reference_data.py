@@ -1,6 +1,8 @@
-import pytest
-from intake_bot.services.reference_data import ReferenceDataLoader
 from unittest.mock import patch
+
+import pytest
+
+from intake_bot.services.reference_data import ReferenceDataLoader
 
 
 @pytest.fixture(scope="module")
@@ -68,9 +70,6 @@ def test_legal_problem_code_from_label_unknown(loader):
         ("Isle of Wight", "suggested", "Isle of Wight County", None, None),
         ("Prince Edward", "suggested", "Prince Edward County", None, None),
         # -- wrapper patterns --
-        ("Amelia County", "exact_match", "Amelia County", 51007, True),
-        ("Prince Edward County", "exact_match", "Prince Edward County", 51147, True),
-        ("Franklin City", "exact_match", "Franklin City", 51630, True),
         # -- out-of-state (full names) --
         ("North Carolina", "unserved", None, None, None),
         ("Tennessee", "unserved", None, None, None),

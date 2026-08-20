@@ -3,6 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from pipecat.frames.frames import EndFrame, TTSSpeakFrame
+
 from intake_bot.bot import (
     AdaptiveIdleTimeout,
     IdleRetryHandler,
@@ -10,7 +12,6 @@ from intake_bot.bot import (
     TranscriptHandler,
 )
 from intake_bot.utils.node_prompts import NodePrompts
-from pipecat.frames.frames import EndFrame, TTSSpeakFrame
 
 
 def test_idle_retry_handler_progresses_through_prompts():

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 _OFFICIAL_DAILY_KEYS = frozenset(
     {
         "dialin_settings",
@@ -20,7 +19,9 @@ def looks_like_daily_dialin_body(body: object) -> bool:
 
 def _ensure_nonempty_str(value: object, field: str) -> str:
     if not isinstance(value, str):
-        raise ValueError(f"Required field {field} must be a non-empty string.")
+        raise ValueError(  # noqa: TRY004 - public validation API uses ValueError
+            f"Required field {field} must be a non-empty string."
+        )
     if not value:
         raise ValueError(f"Required field {field} must be a non-empty string.")
     return value
@@ -28,11 +29,13 @@ def _ensure_nonempty_str(value: object, field: str) -> str:
 
 def normalize_daily_dialin_body(body: object) -> dict[str, Any]:
     if not isinstance(body, dict):
-        raise ValueError("Daily dial-in body must be a JSON object.")
+        raise ValueError(  # noqa: TRY004 - public validation API uses ValueError
+            "Daily dial-in body must be a JSON object."
+        )
 
     dialin_settings = body.get("dialin_settings")
     if not isinstance(dialin_settings, dict):
-        raise ValueError(
+        raise ValueError(  # noqa: TRY004 - public validation API uses ValueError
             "Missing dialin_settings. Use Pipecat Cloud's official DailyDialinRequest format."
         )
 

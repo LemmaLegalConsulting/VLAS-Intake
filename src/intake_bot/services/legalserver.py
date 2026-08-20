@@ -2,18 +2,22 @@ import asyncio
 import json
 import random
 import re
-import time as _time_module
 import sys
+import time as _time_module
 from collections import Counter
+from collections.abc import Callable, Hashable
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from email.utils import parsedate_to_datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, Hashable, Optional
+from typing import Any
 
 import aiohttp
+from loguru import logger
+from pydantic import ValidationError
+
 from intake_bot.models.legalserver import (
     AdditionalNamePayload,
     AdversePartyPayload,
@@ -30,8 +34,6 @@ from intake_bot.models.legalserver import (
 )
 from intake_bot.utils.ev import ev_is_true, require_ev
 from intake_bot.utils.globals import PROJECT_ROOT
-from loguru import logger
-from pydantic import ValidationError
 
 
 def _now() -> float:
@@ -74,8 +76,8 @@ def _parse_retry_after(value: str | None) -> float | None:
         try:
             retry_at = parsedate_to_datetime(value)
             if retry_at.tzinfo is None:
-                retry_at = retry_at.replace(tzinfo=timezone.utc)
-            return max(0.0, (retry_at - datetime.now(timezone.utc)).total_seconds())
+                retry_at = retry_at.replace(tzinfo=UTC)
+            return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
         except (TypeError, ValueError, OverflowError):
             return None
 
@@ -132,7 +134,7 @@ async def _request_once(
                     return _HttpResult(_HttpOutcome.SUCCESS, status=status)
                 try:
                     data = await response.json(content_type=None)
-                except Exception:
+                except Exception:  # noqa: BLE001 - malformed response bodies are data
                     return _HttpResult(_HttpOutcome.MALFORMED, status=status)
                 if not isinstance(data, dict):
                     return _HttpResult(_HttpOutcome.MALFORMED, status=status)
@@ -144,7 +146,7 @@ async def _request_once(
                     retry_after=_parse_retry_after(response.headers.get("Retry-After")),
                 )
             return _HttpResult(_HttpOutcome.DETERMINISTIC_FAILURE, status=status)
-    except (aiohttp.ClientError, asyncio.TimeoutError):
+    except (TimeoutError, aiohttp.ClientError):
         return _HttpResult(_HttpOutcome.TRANSIENT)
 
 
@@ -789,7 +791,7 @@ async def _post_fallback_note(
 async def _save_income_records(
     session: aiohttp.ClientSession,
     matter_uuid: str,
-    income_data: Dict[str, Any],
+    income_data: dict[str, Any],
     deadline: float,
     cache: _ChildCollectionCache | None = None,
 ) -> list[RecordResult]:
@@ -811,14 +813,14 @@ async def _save_income_records(
             )
             try:
                 if not isinstance(amount_info, dict):
-                    raise ValueError
+                    raise TypeError
                 payload = IncomePayload(
                     type={"lookup_value_name": income_category_name},
                     amount=amount_info.get("amount"),
                     period=amount_info.get("period"),
                 ).model_dump(exclude_none=True)
                 prepared.append((payload, fallback))
-            except Exception:
+            except Exception:  # noqa: BLE001 - record validation failures are isolated
                 results.append(
                     RecordResult(
                         OperationKind.INCOME,
@@ -854,7 +856,7 @@ async def _save_income_records(
 async def _save_additional_names(
     session: aiohttp.ClientSession,
     matter_uuid: str,
-    names_list: list[Dict[str, Any]],
+    names_list: list[dict[str, Any]],
     deadline: float,
     cache: _ChildCollectionCache | None = None,
 ) -> list[RecordResult]:
@@ -874,7 +876,7 @@ async def _save_additional_names(
                 type={"lookup_value_name": name.get("type", "Former Name")},
             ).model_dump(exclude_none=True)
             prepared.append((payload, fallback))
-        except Exception:
+        except Exception:  # noqa: BLE001 - record validation failures are isolated
             results.append(
                 RecordResult(
                     OperationKind.ALIAS,
@@ -915,7 +917,7 @@ async def _save_additional_names(
 async def _save_adverse_parties(
     session: aiohttp.ClientSession,
     matter_uuid: str,
-    adverse_parties_data: Dict[str, Any],
+    adverse_parties_data: dict[str, Any],
     deadline: float,
     cache: _ChildCollectionCache | None = None,
 ) -> list[RecordResult]:
@@ -946,7 +948,7 @@ async def _save_adverse_parties(
             payload = AdversePartyPayload(**payload_data).model_dump(exclude_none=True)
             payload["active"] = True
             prepared.append((payload, fallback))
-        except Exception:
+        except Exception:  # noqa: BLE001 - record validation failures are isolated
             results.append(
                 RecordResult(
                     OperationKind.ADVERSE_PARTY,
@@ -1019,7 +1021,7 @@ async def _save_note(
 async def _save_case_description_note(
     session: aiohttp.ClientSession,
     matter_uuid: str,
-    case_type_data: Dict[str, Any],
+    case_type_data: dict[str, Any],
     deadline: float,
     cache: _ChildCollectionCache | None = None,
 ) -> RecordResult:
@@ -1034,7 +1036,7 @@ async def _save_case_description_note(
             body=case_description,
             note_type={"lookup_value_name": "General Notes"},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - preserve invalid note content as fallback
         return RecordResult(
             OperationKind.CASE_DESCRIPTION,
             OperationOutcome.FAILED,
@@ -1076,7 +1078,7 @@ def _format_assets_note(listing: Any, total_value: Any) -> str:
 async def _save_assets_note(
     session: aiohttp.ClientSession,
     matter_uuid: str,
-    assets_data: Dict[str, Any],
+    assets_data: dict[str, Any],
     deadline: float,
     cache: _ChildCollectionCache | None = None,
 ) -> RecordResult:
@@ -1092,7 +1094,7 @@ async def _save_assets_note(
             body=body,
             note_type={"lookup_value_name": "General Notes"},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - preserve invalid asset content as fallback
         return RecordResult(
             OperationKind.ASSETS,
             OperationOutcome.FAILED,
@@ -1298,7 +1300,7 @@ async def save_intake_legalserver(state: dict) -> LegalServerPersistenceResult:
             )
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - persistence boundary returns a failure result
         logger.warning("LS save error")
         return LegalServerPersistenceResult(
             overall=LegalServerOverall.FAILED,
@@ -1357,7 +1359,7 @@ def _collect_fallback_content(
     return parts
 
 
-def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
+def _build_matter_payload(state: dict[str, Any]) -> dict[str, Any] | None:
     names_list = state.get("names", {}).get("names", [])
     if not names_list:
         logger.warning("Cannot create matter: names not found or empty in state")
@@ -1391,9 +1393,10 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
             if normalized_code and not normalized_code.startswith("00"):
                 payload["legal_problem_code"] = normalized_code
 
-    if isinstance(state.get("service_area"), dict):
-        if fips_code := state["service_area"].get("fips_code"):
-            payload["county_of_dispute"] = {"county_FIPS": str(fips_code)}
+    if isinstance(state.get("service_area"), dict) and (
+        fips_code := state["service_area"].get("fips_code")
+    ):
+        payload["county_of_dispute"] = {"county_FIPS": str(fips_code)}
 
     if isinstance(state.get("income"), dict):
         payload["income_eligible"] = state["income"].get("is_eligible")
@@ -1455,21 +1458,31 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
 
     rejection_reason_name = None
 
-    if isinstance(state.get("service_area"), dict):
-        if not state["service_area"].get("is_eligible", True):
-            rejection_reason_name = "Out of Service Area"
+    if isinstance(state.get("service_area"), dict) and not state["service_area"].get(
+        "is_eligible", True
+    ):
+        rejection_reason_name = "Out of Service Area"
 
-    if not rejection_reason_name and isinstance(state.get("case_type"), dict):
-        if not state["case_type"].get("is_eligible", True):
-            rejection_reason_name = "Not LSC-Permissible"
+    if (
+        not rejection_reason_name
+        and isinstance(state.get("case_type"), dict)
+        and not state["case_type"].get("is_eligible", True)
+    ):
+        rejection_reason_name = "Not LSC-Permissible"
 
-    if not rejection_reason_name and isinstance(state.get("income"), dict):
-        if not state["income"].get("is_eligible", True):
-            rejection_reason_name = "Over Income"
+    if (
+        not rejection_reason_name
+        and isinstance(state.get("income"), dict)
+        and not state["income"].get("is_eligible", True)
+    ):
+        rejection_reason_name = "Over Income"
 
-    if not rejection_reason_name and isinstance(state.get("assets"), dict):
-        if not state["assets"].get("is_eligible", True):
-            rejection_reason_name = "Over Asset"
+    if (
+        not rejection_reason_name
+        and isinstance(state.get("assets"), dict)
+        and not state["assets"].get("is_eligible", True)
+    ):
+        rejection_reason_name = "Over Asset"
 
     if not rejection_reason_name and "address" not in state:
         rejection_reason_name = "Other"
@@ -1477,7 +1490,7 @@ def _build_matter_payload(state: Dict[str, Any]) -> Dict[str, Any] | None:
     if rejection_reason_name:
         payload["case_disposition"] = "Rejected"
         payload["rejected"] = True
-        payload["date_rejected"] = date.today().isoformat()
+        payload["date_rejected"] = datetime.now(tz=UTC).astimezone().date().isoformat()
         payload["rejection_reason"] = {"lookup_value_name": rejection_reason_name}
 
     try:
@@ -1510,7 +1523,7 @@ async def get_common_lookup_types() -> list[str] | None:
     return common_lookup_types
 
 
-async def get_custom_lookups() -> Dict[str, Any] | None:
+async def get_custom_lookups() -> dict[str, Any] | None:
     try:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1552,14 +1565,14 @@ async def get_custom_lookups() -> Dict[str, Any] | None:
     except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed: {e}""")
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - lookup API boundary returns no result
         logger.error(f"""Unexpected error querying custom lookups: {e}""")
         return None
 
 
 async def query_lookup_values(
     lookup_identifier: str, is_custom: bool = False
-) -> Dict[str, Any] | None:
+) -> dict[str, Any] | None:
     try:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -1619,12 +1632,12 @@ async def query_lookup_values(
     except aiohttp.ClientError as e:
         logger.error(f"""HTTP Request failed: {e}""")
         return None
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - lookup API boundary returns no result
         logger.error(f"""Unexpected error querying lookup values: {e}""")
         return None
 
 
-async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
+async def find_lookup_by_id(lookup_value_id: int) -> dict[str, Any] | None:
     common_types = await get_common_lookup_types()
     if not common_types:
         return None
@@ -1658,26 +1671,28 @@ async def find_lookup_by_id(lookup_value_id: int) -> Dict[str, Any] | None:
                                         "lookup_type": lookup_type,
                                         "lookup_value": item,
                                     }
-                        elif isinstance(values, dict):
-                            if values.get("id") == lookup_value_id:
-                                return {
-                                    "lookup_type": lookup_type,
-                                    "lookup_value": values,
-                                }
+                        elif (
+                            isinstance(values, dict)
+                            and values.get("id") == lookup_value_id
+                        ):
+                            return {
+                                "lookup_type": lookup_type,
+                                "lookup_value": values,
+                            }
                     finally:
                         _finalize_response(response)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - lookup types fail independently
                     logger.debug(f"""Error querying {lookup_type}: {e}""")
                     continue
 
             return None
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - lookup search boundary returns no result
         logger.error(f"""Error searching for lookup ID: {e}""")
         return None
 
 
-async def get_fips_code(county_name: str, state_abbrev: str = "VA") -> Optional[str]:
+async def get_fips_code(county_name: str, state_abbrev: str = "VA") -> str | None:
     result = await query_lookup_values("county")
     if not result or not result.get("values"):
         return None
@@ -1703,7 +1718,7 @@ async def get_fips_code(county_name: str, state_abbrev: str = "VA") -> Optional[
 
 if __name__ == "__main__":
 
-    def load_state_by_call_id(call_id: str) -> Optional[Dict[str, Any]]:
+    def load_state_by_call_id(call_id: str) -> dict[str, Any] | None:
         state_file = Path(PROJECT_ROOT) / "logs/flow_manager_state.json"
 
         if not state_file.exists():
@@ -1725,7 +1740,7 @@ if __name__ == "__main__":
         except json.JSONDecodeError as e:
             logger.error(f"""Failed to parse state file: {e}""")
             return None
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - CLI reports unreadable state
             logger.error(f"""Error loading state: {e}""")
             return None
 

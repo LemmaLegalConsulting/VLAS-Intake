@@ -1,4 +1,5 @@
 import pytest
+
 from intake_bot.utils.daily_dialin import (
     looks_like_daily_dialin_body,
     normalize_daily_dialin_body,
@@ -447,13 +448,13 @@ def _readme_text(path: str) -> str:
 class TestReadmeNoObsoletePhrases:
     """Scan README files for forbidden obsolete phrases."""
 
-    README_PATHS = [
+    README_PATHS = [  # noqa: RUF012 - immutable test corpus
         "README.md",
         "client/python/README.md",
         "client/typescript/README.md",
     ]
 
-    FORBIDDEN_PATTERNS: list[tuple[str, str]] = [
+    FORBIDDEN_PATTERNS: list[tuple[str, str]] = [  # noqa: RUF012
         (
             "query string",
             "Should describe first-frame JSON metadata, not query-string params",

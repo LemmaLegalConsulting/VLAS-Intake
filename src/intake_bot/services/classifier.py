@@ -7,9 +7,13 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 import yaml
+from loguru import logger
+from openai import AsyncAzureOpenAI
+from rapidfuzz import fuzz, process, utils
+
 from intake_bot.models.classifier import (
     ClassificationResponse,
     FollowUpQuestion,
@@ -21,9 +25,6 @@ from intake_bot.models.classifier import (
 from intake_bot.services.reference_data import ReferenceDataLoader
 from intake_bot.utils.ev import require_ev
 from intake_bot.utils.globals import DATA_DIR, DEBUG
-from loguru import logger
-from openai import AsyncAzureOpenAI
-from rapidfuzz import fuzz, process, utils
 
 
 class Classifier:
@@ -34,14 +35,14 @@ class Classifier:
     """
 
     @staticmethod
-    def _load_prompts() -> Dict[str, str]:
+    def _load_prompts() -> dict[str, str]:
         prompts_file = Path(DATA_DIR) / "classifier_prompts.yml"
         with open(prompts_file) as f:
-            prompts_data: Dict[str, str] = yaml.safe_load(f)
+            prompts_data: dict[str, str] = yaml.safe_load(f)
         return prompts_data
 
     @staticmethod
-    def _load_taxonomy() -> Dict[str, str]:
+    def _load_taxonomy() -> dict[str, str]:
         return ReferenceDataLoader().legal_problem_codes
 
     def __init__(self):
@@ -68,7 +69,7 @@ class Classifier:
 
         self.providers = self._init_providers()
 
-    def load_prompt(self, taxonomy: List[str]) -> str:
+    def load_prompt(self, taxonomy: list[str]) -> str:
         """Load and render a prompt template for a provider.
 
         Args:
@@ -88,8 +89,8 @@ class Classifier:
         return final_prompt
 
     def _init_providers(
-        self, enabled_providers_override: Optional[List[str]] = None
-    ) -> List["Classifier.Provider"]:
+        self, enabled_providers_override: list[str] | None = None
+    ) -> list["Classifier.Provider"]:
         """Instantiate and filter providers based on config or override.
 
         Args:
@@ -114,7 +115,7 @@ class Classifier:
         # Always add keyword provider
         try:
             all_providers.append(self.KeywordProvider())
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - an optional provider must not block startup
             logger.warning(f"""Could not initialize keyword provider: {e}""")
 
         # Filter by enabled providers
@@ -143,8 +144,8 @@ class Classifier:
 
     @staticmethod
     def _deterministic_deduplicate(
-        questions: List[FollowUpQuestion],
-    ) -> List[FollowUpQuestion]:
+        questions: list[FollowUpQuestion],
+    ) -> list[FollowUpQuestion]:
         """Deduplicate questions deterministically using RapidFuzz token_set_ratio.
 
         Merges similar questions at a high threshold (94) only when answer format
@@ -171,8 +172,8 @@ class Classifier:
 
     async def _get_voted_results(
         self,
-        results: List[ProviderResult],
-        taxonomy_dict: Optional[Dict[str, str]] = None,
+        results: list[ProviderResult],
+        taxonomy_dict: dict[str, str] | None = None,
         language: str = "English",
     ) -> ClassificationResponse:
         """Combine multiple provider results by weighted voting.
@@ -444,7 +445,7 @@ class Classifier:
                             error="Unexpected non-ProviderResult return",
                         )
                     )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - provider tasks fail independently
                 results.append(
                     ProviderResult(
                         model_name=provider_name,
@@ -498,8 +499,8 @@ class Classifier:
         MAX_WAIT_TIME = 15.0  # 15 seconds max per retry
         PROVIDER_TIMEOUT = 45.0  # total budget for one provider's retry sequence
 
-        client: Optional[AsyncAzureOpenAI] = None
-        reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None
+        client: AsyncAzureOpenAI | None = None
+        reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None
 
         def __init__(self, model_name: str):
             """Initialize provider.
@@ -533,7 +534,7 @@ class Classifier:
             return False
 
         @staticmethod
-        def _parse_retry_after(exc: BaseException) -> Optional[float]:
+        def _parse_retry_after(exc: BaseException) -> float | None:
             """Parse retry delay from exception.
 
             Attempts to extract delay from:
@@ -782,9 +783,7 @@ class Classifier:
             self,
             problem_description: str,
             prompt: str,
-            reasoning_effort: Optional[
-                Literal["minimal", "low", "medium", "high"]
-            ] = None,
+            reasoning_effort: Literal["minimal", "low", "medium", "high"] | None = None,
             **kwargs,
         ) -> ProviderResult:
             """Common classification logic for OpenAI-compatible clients.
@@ -827,8 +826,10 @@ class Classifier:
                                     logger.debug(
                                         f"""[{self.model_name}] Using reasoning_effort={reasoning_effort}"""
                                     )
-                        except Exception:
-                            pass
+                        except Exception as e:  # noqa: BLE001 - signature introspection is optional
+                            logger.debug(
+                                f"[{self.model_name}] Could not inspect client signature: {e}"
+                            )
 
                     response = await self.client.chat.completions.create(
                         **request_params
@@ -855,7 +856,7 @@ class Classifier:
                 )
             except (asyncio.CancelledError, KeyboardInterrupt):
                 raise
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - provider failures become result data
                 return ProviderResult(
                     model_name=self.model_name,
                     status=ProviderStatus.FAILURE,
@@ -896,7 +897,7 @@ class Classifier:
             super().__init__("keyword")
 
         async def classify(
-            self, problem_description: str, taxonomy: List[str], **kwargs
+            self, problem_description: str, taxonomy: list[str], **kwargs
         ) -> ProviderResult:
             """Classify using fuzzy keyword matching with rapidfuzz.
 
@@ -950,9 +951,7 @@ class Classifier:
                 "may",
                 "will",
                 "just",
-                "been",
                 "being",
-                "been",
                 "be",
                 "he",
                 "she",
@@ -961,12 +960,12 @@ class Classifier:
             }
 
             words = problem_description.lower().split()
-            key_terms = set(
+            key_terms = {
                 w.rstrip(".,!?;:()[]{}").lower()
                 for w in words
                 if len(w) > 3
                 and w.rstrip(".,!?;:()[]{}").lower() not in words_to_ignore
-            )
+            }
             key_phrase = " ".join(
                 sorted(key_terms)
             )  # All key terms for stronger signal

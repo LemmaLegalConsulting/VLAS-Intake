@@ -2,11 +2,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from loguru import logger
+from pydantic import BaseModel, RootModel, ValidationError, field_validator
+
 from intake_bot.models.intake_flow_result import Status
 from intake_bot.nodes.nodes import record_assets_list, record_income, record_name
 from intake_bot.nodes.utils import clean_pydantic_error_message
-from loguru import logger
-from pydantic import BaseModel, RootModel, ValidationError, field_validator
 
 
 class _SensitiveValueModel(BaseModel):

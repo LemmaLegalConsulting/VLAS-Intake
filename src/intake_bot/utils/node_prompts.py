@@ -1,13 +1,15 @@
 import random
 from copy import deepcopy
 from pathlib import Path
+from typing import ClassVar
 
 import yaml
+
 from intake_bot.utils.globals import DATA_DIR
 
 
 class NodePrompts:
-    ACKNOWLEDGMENT_PHRASES = {
+    ACKNOWLEDGMENT_PHRASES: ClassVar[dict] = {
         "confirmation": {
             "english": (
                 "Thanks for confirming",
@@ -58,7 +60,7 @@ class NodePrompts:
         "Do not add extra praise, filler, or multiple acknowledgments in a row.\n\n"
     )
 
-    ACKNOWLEDGMENT_EXCLUDED_KEYS = {
+    ACKNOWLEDGMENT_EXCLUDED_KEYS: ClassVar[set[str]] = {
         "primary_role_message",
         "initial",
         "record_language",
@@ -116,13 +118,12 @@ class NodePrompts:
         if kwargs:
             self._format_text_fields(prompt, **kwargs)
 
-        if "task_messages" in prompt:
-            if self._should_prepend_acknowledgment(key):
-                for task_message in prompt["task_messages"]:
-                    if "content" in task_message:
-                        task_message["content"] = (
-                            self.ACKNOWLEDGMENT_PREFIX + task_message["content"]
-                        )
+        if "task_messages" in prompt and self._should_prepend_acknowledgment(key):
+            for task_message in prompt["task_messages"]:
+                if "content" in task_message:
+                    task_message["content"] = (
+                        self.ACKNOWLEDGMENT_PREFIX + task_message["content"]
+                    )
         return prompt
 
     def _format_text_fields(self, data, **kwargs):

@@ -2,7 +2,24 @@ import asyncio
 import sys
 import unicodedata
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
+from loguru import logger
+from pipecat.flows import (
+    ContextStrategy,
+    ContextStrategyConfig,
+    FlowManager,
+    NodeConfig,
+)
+from pipecat.frames.frames import (
+    STTUpdateSettingsFrame,
+    TTSSpeakFrame,
+    TTSUpdateSettingsFrame,
+)
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.transcriptions.language import Language
+from pydantic import ValidationError
 
 from intake_bot.models.intake_flow_result import (
     AddressResult,
@@ -50,22 +67,6 @@ from intake_bot.services.dialpad import (
 from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.utils.ev import get_deepgram_tts_voices, get_ev
 from intake_bot.utils.node_prompts import NodePrompts
-from loguru import logger
-from pipecat.frames.frames import (
-    STTUpdateSettingsFrame,
-    TTSSpeakFrame,
-    TTSUpdateSettingsFrame,
-)
-from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
-from pipecat.transcriptions.language import Language
-from pipecat.flows import (
-    ContextStrategy,
-    ContextStrategyConfig,
-    FlowManager,
-    NodeConfig,
-)
-from pydantic import ValidationError
 
 prompts = NodePrompts()
 validator = IntakeValidator()
@@ -326,7 +327,7 @@ def _spoken_prompt_text_builder(
 
 
 def _transcript_timestamp() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
 
 
 async def _log_spoken_text(flow_manager: FlowManager, text: str) -> None:
@@ -1185,7 +1186,7 @@ async def _send_referral_sms(
         response = await sms_service.send(phone_number, message_text)
     except (asyncio.CancelledError, KeyboardInterrupt):
         raise
-    except Exception:
+    except Exception:  # noqa: BLE001 - SMS delivery failure becomes result data
         logger.warning("Failed to send referral SMS")
         return {"accepted": False, "reason": "send_failed"}
 
@@ -1223,7 +1224,7 @@ async def system_phone_number(
             flow_manager.state["phone"] = existing
 
     status = status_helper(is_valid)
-    result = dict(status=status.value, phone_number=validated_caller_id_phone_number)
+    result = {"status": status.value, "phone_number": validated_caller_id_phone_number}
     next_node = NodeConfig(node_record_language())
     return result, next_node
 

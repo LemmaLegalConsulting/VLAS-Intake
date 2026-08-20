@@ -21,7 +21,6 @@ from pipecat.frames.frames import (
 )
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker
-from pipecat.workers.runner import WorkerRunner
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -44,6 +43,7 @@ from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
     ExternalUserTurnStopStrategy,
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.workers.runner import WorkerRunner
 from test_manager import TestRunner
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
@@ -56,7 +56,7 @@ def _patch_pipecat_websocket_client_double_connect() -> None:
 
     try:
         from pipecat.transports.websocket.client import WebsocketClientSession
-    except Exception:
+    except Exception:  # noqa: BLE001 - patch is optional across Pipecat versions
         return
 
     if getattr(WebsocketClientSession, "_vlas_connect_patch", False):
@@ -68,7 +68,7 @@ def _patch_pipecat_websocket_client_double_connect() -> None:
         lock = getattr(self, "_vlas_connect_lock", None)
         if lock is None:
             lock = asyncio.Lock()
-            setattr(self, "_vlas_connect_lock", lock)
+            self._vlas_connect_lock = lock
         async with lock:
             return await original_connect(self)
 
@@ -424,7 +424,7 @@ async def run_client(
                 ]
                 await worker.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
                 logger.info(f"""Client {client_name} context updated with summary.""")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - summarization is best effort
                 logger.error(f"""Client {client_name} summarization failed: {exc}""")
 
     runner = WorkerRunner(handle_sigint=True)
@@ -435,7 +435,7 @@ async def run_client(
         await runner.run()
     except asyncio.CancelledError:
         logger.debug(f"""Client {client_name} task was cancelled""")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI pipeline boundary logs failures
         logger.error(
             f"""Client {client_name} pipeline error: {type(exc).__name__}: {exc}""",
             exc_info=True,
@@ -541,7 +541,7 @@ async def main():
 
     script_names = list(scripts.keys())
     if args.script is not None:
-        if args.script not in scripts.keys():
+        if args.script not in scripts:
             parser.error(
                 f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(script_names)}"""
             )

@@ -5,10 +5,6 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, WebSocket, WebSocketException
 from fastapi.middleware.cors import CORSMiddleware
-from intake_bot.bot import run_bot
-from intake_bot.nodes.nodes import node_start
-from intake_bot.utils.call_logging import runtime_log_filter
-from intake_bot.utils.ev import get_ev
 from loguru import logger
 from pipecat.audio.mixers.base_audio_mixer import BaseAudioMixer
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
@@ -17,6 +13,11 @@ from pipecat.transports.websocket.fastapi import (
     FastAPIWebsocketTransport,
 )
 from starlette.status import WS_1008_POLICY_VIOLATION
+
+from intake_bot.bot import run_bot
+from intake_bot.nodes.nodes import node_start
+from intake_bot.utils.call_logging import runtime_log_filter
+from intake_bot.utils.ev import get_ev
 
 logger.remove(0)
 logger.add(sys.stderr, level=get_ev("LOG_LEVEL", "INFO"), filter=runtime_log_filter)
@@ -143,9 +144,8 @@ def _get_user_idle_timeout_secs(
             return timeout_secs
 
     raw_timeout = get_ev("WEBSOCKET_USER_IDLE_TIMEOUT_SECS", "").strip()
-    if raw_timeout == "":
-        if call_id.startswith("ws-test"):
-            raw_timeout = get_ev("WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS", "45.0")
+    if raw_timeout == "" and call_id.startswith("ws-test"):
+        raw_timeout = get_ev("WEBSOCKET_TEST_USER_IDLE_TIMEOUT_SECS", "45.0")
     if not raw_timeout:
         return None
 

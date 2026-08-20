@@ -5,11 +5,11 @@ import os
 from functools import wraps
 
 import aiofiles
-from intake_bot.models.intake_flow_result import ServiceAreaResult, Status
-from intake_bot.utils.ev import ev_is_true
 from loguru import logger
 from pydantic import BaseModel, ValidationError
 
+from intake_bot.models.intake_flow_result import ServiceAreaResult, Status
+from intake_bot.utils.ev import ev_is_true
 
 _SAFE_VALIDATION_LOCATION_PARTS = {
     "active",
@@ -139,7 +139,7 @@ async def save_state_to_json(state: dict) -> None:
                         content = await f.read()
                         if content:
                             results_data = json.loads(content)
-                except (json.JSONDecodeError, IOError):
+                except (OSError, json.JSONDecodeError):
                     pass
 
             results_data[call_id] = state
@@ -147,7 +147,7 @@ async def save_state_to_json(state: dict) -> None:
             async with aiofiles.open(results_file, "w") as f:
                 await f.write(json.dumps(results_data, indent=2))
 
-    except Exception:
+    except Exception:  # noqa: BLE001 - development persistence is best effort
         logger.error("Error saving state")
 
 

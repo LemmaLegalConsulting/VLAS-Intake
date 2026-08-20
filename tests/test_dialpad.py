@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import aiohttp
 import pytest
+
 from intake_bot.services.dialpad import REFERRAL, SMS
 
 
@@ -399,7 +400,7 @@ async def test_timeout_is_not_retried(monkeypatch):
         async def __aenter__(self):
             nonlocal call_count
             call_count += 1
-            raise asyncio.TimeoutError()
+            raise TimeoutError()
 
     class _TimeoutSession:
         def __init__(self, *a, **kw):

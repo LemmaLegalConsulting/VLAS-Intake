@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 from intake_bot.utils.ev import get_ev
 
 load_dotenv(override=True)

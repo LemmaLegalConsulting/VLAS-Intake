@@ -1,9 +1,11 @@
 import pytest
 from fastapi import WebSocketException
+from starlette.status import WS_1008_POLICY_VIOLATION
+
 from intake_bot.nodes.nodes import node_start
 from server import (
-    SilenceMixer,
     _ALLOWED_ORIGINS,
+    SilenceMixer,
     _get_user_idle_timeout_secs,
     _metadata_str,
     _parse_bool,
@@ -14,7 +16,6 @@ from server import (
     create_app,
     generate_call_id,
 )
-from starlette.status import WS_1008_POLICY_VIOLATION
 
 
 @pytest.fixture(autouse=True)

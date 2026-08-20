@@ -1,4 +1,6 @@
 import pytest
+from pydantic import ValidationError
+
 from intake_bot.models.validator import (
     Address,
     AdverseParty,
@@ -8,7 +10,6 @@ from intake_bot.models.validator import (
     PhoneAdverseParty,
     PhoneTypeCaller,
 )
-from pydantic import ValidationError
 
 
 @pytest.mark.parametrize(
@@ -246,7 +247,7 @@ class TestAddressModel:
             IncomeDetail(amount=200_000_000, period="Monthly")
 
     def test_asset_collection_validates_all_entries(self):
-        from intake_bot.models.validator import Assets, AssetEntry
+        from intake_bot.models.validator import AssetEntry, Assets
 
         with pytest.raises(ValueError, match="not a boolean"):
             Assets([AssetEntry({"car": 5000}), AssetEntry({"cash": True})])

@@ -3,8 +3,9 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
 
-from intake_bot.utils.ev import ev_is_true, get_ev
 from loguru import logger
+
+from intake_bot.utils.ev import ev_is_true, get_ev
 
 # Suppress noisy pipecat DEBUG logs from turn-detection internals.
 _NOISY_PIPECAT_MODULES = {

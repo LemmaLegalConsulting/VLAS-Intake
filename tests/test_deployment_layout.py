@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # 1. Isolated deployment-layout smoke test (mimics Docker --no-install-project)
 # ---------------------------------------------------------------------------
@@ -108,6 +107,7 @@ def test_isolated_bot_import(tmp_path):
         env=env,
         capture_output=True,
         text=True,
+        check=False,
         timeout=30,
     )
     print(result.stdout)
@@ -132,9 +132,10 @@ def test_version_safe_when_not_installed():
 
 def test_version_fallback_logic(monkeypatch):
     """Verify the version fallback is used when PackageNotFoundError is raised."""
-    from importlib.metadata import PackageNotFoundError, version as _orig_version_fn
-
     import importlib
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _orig_version_fn
+
     import intake_bot
 
     monkeypatch.setattr(
@@ -228,7 +229,7 @@ def test_federal_poverty_scale_via_production_loader():
 
     from datetime import date
 
-    today = date.today()
+    today = date.today()  # noqa: DTZ011 - policy uses the local calendar date
     year = int(data["poverty_level_update_year"])
     assert year >= today.year, (
         f"Poverty scale year {year} is behind {today.year}. "
@@ -539,6 +540,7 @@ def test_cold_start_from_isolated_copy(tmp_path):
         env=env,
         capture_output=True,
         text=True,
+        check=False,
         timeout=COLD_START_TIMEOUT_SECS,
     )
     print(result.stdout)

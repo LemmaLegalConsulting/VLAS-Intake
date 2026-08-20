@@ -1,8 +1,9 @@
-import pytest
 import asyncio
+
+import pytest
+
 from intake_bot.models.classifier import ProviderLabel, ProviderResult, ProviderStatus
 from intake_bot.services.classifier import Classifier
-
 
 TEST_TAXONOMY = {
     "Private Landlord/Tenant": "63 Private Landlord/Tenant",
@@ -1268,7 +1269,7 @@ def test_taxonomy_corpus_coverage():
 
     taxonomy = ReferenceDataLoader().legal_problem_codes
     # Filter out special test-only keys starting with "_"
-    covered = set(k for k in _BILINGUAL_TAXONOMY_CORPUS if not k.startswith("_"))
+    covered = {k for k in _BILINGUAL_TAXONOMY_CORPUS if not k.startswith("_")}
     configured = set(taxonomy.keys())
     missing = configured - covered
     assert not missing, (
@@ -1323,14 +1324,14 @@ async def test_bilingual_corpus_through_aggregation():
                 model_name = "gpt-4.1-mini"
                 reasoning_effort = None
 
-                async def classify(self, **kw):
+                async def classify(self, llm_result=llm_result, **kw):
                     return llm_result
 
             class _FakeKeyword:
                 model_name = "keyword"
                 reasoning_effort = None
 
-                async def classify(self, **kw):
+                async def classify(self, keyword_result=keyword_result, **kw):
                     return keyword_result
 
             clf = Classifier()

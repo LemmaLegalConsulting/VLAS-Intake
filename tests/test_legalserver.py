@@ -1,8 +1,9 @@
-import aiohttp
 import asyncio
 from unittest.mock import patch
 
+import aiohttp
 import pytest
+
 from intake_bot.models.legalserver import (
     LegalServerOverall,
     MatterLookupOutcome,
@@ -12,16 +13,16 @@ from intake_bot.models.legalserver import (
     RecordResult,
 )
 from intake_bot.services.legalserver import (
-    _ChildCollectionCache,
     _build_matter_payload,
+    _ChildCollectionCache,
     _collect_fallback_content,
     _create_matter_guarded,
     _find_matter_by_external_id,
-    _save_additional_names,
-    _save_adverse_parties,
     _now,
     _post_fallback_note,
     _post_once,
+    _save_additional_names,
+    _save_adverse_parties,
     _save_case_description_note,
     _save_income_records,
     _save_rejection_note,
@@ -155,6 +156,7 @@ class TestModuleImport:
         monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
         monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
         import importlib
+
         import intake_bot.services.legalserver as ls
 
         importlib.reload(ls)
@@ -164,6 +166,7 @@ class TestModuleImport:
         monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
         monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
         import importlib
+
         import intake_bot.services.legalserver as ls
 
         importlib.reload(ls)
@@ -174,6 +177,7 @@ class TestModuleImport:
         monkeypatch.delenv("LEGAL_SERVER_SUBDOMAIN", raising=False)
         monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
         import importlib
+
         import intake_bot.services.legalserver as ls
 
         importlib.reload(ls)
@@ -188,6 +192,7 @@ class TestModuleImport:
         monkeypatch.delenv("LEGAL_SERVER_BEARER_TOKEN", raising=False)
         monkeypatch.setenv("LEGALSERVER_TESTING_DISABLE_CONNECTION", "true")
         import importlib
+
         import intake_bot.services.legalserver as ls
 
         importlib.reload(ls)
@@ -1446,9 +1451,7 @@ class TestOverallOutcomes:
                         if method == "GET"
                         else _FakeResponse(status=201, json_data={})
                     )
-                elif "/additional_names" in url:
-                    resp = _FakeResponse(status=201, json_data={})
-                elif "/adverse_parties" in url:
+                elif "/additional_names" in url or "/adverse_parties" in url:
                     resp = _FakeResponse(status=201, json_data={})
                 elif "/matters" in url and method == "POST":
                     resp = _FakeResponse(
@@ -1493,7 +1496,7 @@ class TestOverallOutcomes:
 
     @pytest.mark.asyncio
     async def test_save_propagates_cancellation(self, monkeypatch):
-        import intake_bot.services.legalserver as legalserver
+        from intake_bot.services import legalserver
 
         monkeypatch.setattr(
             "intake_bot.services.legalserver._build_matter_payload",
@@ -1528,7 +1531,7 @@ class TestOverallOutcomes:
 
     @pytest.mark.asyncio
     async def test_save_propagates_keyboard_interrupt(self, monkeypatch):
-        import intake_bot.services.legalserver as legalserver
+        from intake_bot.services import legalserver
 
         monkeypatch.setattr(
             "intake_bot.services.legalserver._build_matter_payload",
@@ -1579,21 +1582,13 @@ class TestFallbackNoteFailure:
 
             def request(self, method, url, **kwargs):
                 self.calls.append({"method": method, "url": url})
-                if "/incomes" in url:
+                if "/incomes" in url or "/notes" in url:
                     resp = (
                         _FakeResponse(status=200, json_data={"data": []})
                         if method == "GET"
                         else _FakeResponse(status=400, json_data={})
                     )
-                elif "/notes" in url:
-                    resp = (
-                        _FakeResponse(status=200, json_data={"data": []})
-                        if method == "GET"
-                        else _FakeResponse(status=400, json_data={})
-                    )
-                elif "/additional_names" in url:
-                    resp = _FakeResponse(status=201, json_data={})
-                elif "/adverse_parties" in url:
+                elif "/additional_names" in url or "/adverse_parties" in url:
                     resp = _FakeResponse(status=201, json_data={})
                 elif "/matters" in url and method == "POST":
                     resp = _FakeResponse(
@@ -1945,7 +1940,7 @@ async def test_matter_ambiguous_parse_outcomes(scenario):
 
         class _BrokenResp:
             status = 201
-            headers = {}
+            headers = {}  # noqa: RUF012 - lightweight fake response constant
 
             async def __aenter__(self):
                 return self
@@ -2004,7 +1999,7 @@ async def test_post_once_deadline_after_response():
 
     class _LateResp:
         status = 200
-        headers = {}
+        headers = {}  # noqa: RUF012 - lightweight fake response constant
 
         def __init__(self):
             self._called = False
@@ -2063,7 +2058,7 @@ class TestOrchestration:
             async def __aexit__(self, *a):
                 pass
 
-            _ordered = [
+            _ordered = [  # noqa: RUF012 - lightweight fake session constant
                 "/incomes",
                 "/additional_names",
                 "/adverse_parties",
@@ -2262,7 +2257,7 @@ class TestDeadlineOrchestration:
             async def __aexit__(self, *a):
                 pass
 
-            _ordered = ["/incomes", "/notes", "/matters"]
+            _ordered = ["/incomes", "/notes", "/matters"]  # noqa: RUF012
 
             def request(self, m, u, **kw):
                 self.calls.append((m, u))

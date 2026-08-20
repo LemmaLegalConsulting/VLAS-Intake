@@ -1,10 +1,11 @@
 import re
 import unicodedata
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
 import yaml
+
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.validator import (
     Assets,
@@ -57,7 +58,7 @@ class IntakeValidator:
         "assets_other_property",
     )
 
-    ASSET_VALIDATION_MODELS = {
+    ASSET_VALIDATION_MODELS = {  # noqa: RUF012 - immutable class-level registry
         AssetCategory.ALL: Assets,
         AssetCategory.CASH: CashAssets,
         AssetCategory.INVESTMENTS: InvestmentAssets,
@@ -99,10 +100,9 @@ class IntakeValidator:
         if normalized_name in cls.ASSET_EXEMPT_SINGLE_WORDS:
             return True
 
-        if any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES):
-            return True
-
-        return False
+        return bool(
+            any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES)
+        )
 
     @classmethod
     def assets_filter_countable_entries(cls, asset_entries: list[dict]) -> list[dict]:
@@ -111,7 +111,7 @@ class IntakeValidator:
         for asset_entry in asset_entries:
             for asset_name, value in asset_entry.items():
                 if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
                         f"Asset value for '{asset_name}' must be an integer, got {type(value).__name__}"
                     )
                 if value < 0:
@@ -224,8 +224,8 @@ class IntakeValidator:
         ]
         for fmt in formats:
             try:
-                dob = datetime.strptime(cleaned, fmt)
-                if dob.date() >= datetime.now().date():
+                dob = datetime.strptime(cleaned, fmt)  # noqa: DTZ007 - civil date
+                if dob.date() >= datetime.now(tz=UTC).astimezone().date():
                     return False, ""
                 return True, dob.strftime("%Y-%m-%d")
             except ValueError:
@@ -318,7 +318,9 @@ class IntakeValidator:
             for income_detail in member_income.root.values():
                 amt = income_detail.amount
                 if not isinstance(amt, int) or isinstance(amt, bool):
-                    raise ValueError(f"Non-integer income amount: {amt}")
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
+                        f"Non-integer income amount: {amt}"
+                    )
                 if amt < 0:
                     raise ValueError(f"Negative income amount: {amt}")
                 period = income_detail.period
@@ -356,7 +358,9 @@ class IntakeValidator:
         for asset_entry in countable_entries:
             for value in asset_entry.values():
                 if not isinstance(value, int) or isinstance(value, bool):
-                    raise ValueError(f"Non-integer asset value: {value}")
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
+                        f"Non-integer asset value: {value}"
+                    )
                 if value < 0:
                     raise ValueError(f"Negative asset value: {value}")
                 total_value += value

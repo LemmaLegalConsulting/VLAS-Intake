@@ -1,9 +1,7 @@
 import unicodedata
 from datetime import date
 from enum import Enum
-from typing import List, Optional
 
-from intake_bot.services.phonenumber import phone_number_is_valid
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -12,6 +10,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+
+from intake_bot.services.phonenumber import phone_number_is_valid
 
 
 def normalize_to_ascii(v: str | None) -> str | None:
@@ -32,7 +32,7 @@ def normalize_to_ascii(v: str | None) -> str | None:
 
 class Address(BaseModel):
     street: str
-    street_2: Optional[str] = None
+    street_2: str | None = None
     city: str
     state: str
     zip: str
@@ -84,7 +84,7 @@ class PhoneTypeAdverseParty(str, Enum):
 
 class PhoneAdverseParty(BaseModel):
     number: str
-    type: Optional[PhoneTypeAdverseParty] = None
+    type: PhoneTypeAdverseParty | None = None
 
     @field_validator("number", mode="before")
     @classmethod
@@ -110,13 +110,13 @@ class PhoneAdverseParty(BaseModel):
 
 
 class AdverseParty(BaseModel):
-    first: Optional[str] = None
-    middle: Optional[str] = None
-    last: Optional[str] = None
-    suffix: Optional[str] = None
-    organization_name: Optional[str] = None
-    dob: Optional[date] = None
-    phones: Optional[List[PhoneAdverseParty]] = None
+    first: str | None = None
+    middle: str | None = None
+    last: str | None = None
+    suffix: str | None = None
+    organization_name: str | None = None
+    dob: date | None = None
+    phones: list[PhoneAdverseParty] | None = None
 
     @field_validator(
         "first", "middle", "last", "suffix", "organization_name", mode="before"
@@ -163,17 +163,17 @@ class AdverseParty(BaseModel):
         return self
 
 
-class AdverseParties(RootModel[List[AdverseParty]]):
+class AdverseParties(RootModel[list[AdverseParty]]):
     """A list of AdverseParty objects. Can be empty if there are no adverse parties."""
 
-    root: List[AdverseParty] = Field(default_factory=list)
+    root: list[AdverseParty] = Field(default_factory=list)
 
 
 class HouseholdMember(BaseModel):
     name: str = Field(min_length=1)
     relationship: str = Field(min_length=1)
     is_caller: bool = False
-    adverse_party_name: Optional[str] = None
+    adverse_party_name: str | None = None
 
     @field_validator("name", "relationship", "adverse_party_name", mode="before")
     @classmethod
@@ -189,8 +189,8 @@ class HouseholdMember(BaseModel):
         return v
 
 
-class HouseholdMembers(RootModel[List[HouseholdMember]]):
-    root: List[HouseholdMember] = Field(default_factory=list)
+class HouseholdMembers(RootModel[list[HouseholdMember]]):
+    root: list[HouseholdMember] = Field(default_factory=list)
 
 
 ######################################################################
@@ -210,15 +210,15 @@ class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value 
         if isinstance(v, dict):
             for k, val in v.items():
                 if isinstance(val, bool):
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
                         f"Asset value for '{k}' must be a number, not a boolean"
                     )
                 if isinstance(val, str):
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
                         f"Asset value for '{k}' must be a number, not a string"
                     )
                 if isinstance(val, float):
-                    raise ValueError(
+                    raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
                         f"Asset value for '{k}' must be an integer, not a float"
                     )
                 if isinstance(val, int) and val < 0:
@@ -235,7 +235,7 @@ class AssetEntry(RootModel[dict[str, int]]):  # asset_name -> net present value 
     def validate_values(cls, v):
         for k, val in v.items():
             if not isinstance(val, int) or isinstance(val, bool):
-                raise ValueError(
+                raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
                     f"Asset value for '{k}' must be an integer, got {type(val).__name__}"
                 )
             if val < 0:
@@ -256,8 +256,6 @@ class Assets(RootModel[list[AssetEntry]]):
             {"savings": 2000}
         ]
     """
-
-    pass
 
 
 class CashAssets(Assets):
@@ -304,9 +302,9 @@ class NameTypeValue(str, Enum):
 
 class CallerName(BaseModel):
     first: str
-    middle: Optional[str] = None
+    middle: str | None = None
     last: str
-    suffix: Optional[str] = None
+    suffix: str | None = None
     type: NameTypeValue = NameTypeValue.FORMER_NAME
 
     model_config = ConfigDict(use_enum_values=True)
@@ -340,12 +338,12 @@ class CallerName(BaseModel):
         return v
 
 
-class CallerNames(RootModel[List[CallerName]]):
+class CallerNames(RootModel[list[CallerName]]):
     """A list of CallerName objects."""
 
     @field_validator("root", mode="after")
     @classmethod
-    def deduplicate_names(cls, names: List[CallerName]) -> List[CallerName]:
+    def deduplicate_names(cls, names: list[CallerName]) -> list[CallerName]:
         """Silently deduplicate names - keep first occurrence of each unique name."""
         seen = set()
         deduplicated = []
@@ -385,11 +383,17 @@ class IncomeDetail(BaseModel):
     @classmethod
     def validate_amount(cls, v):
         if isinstance(v, bool):
-            raise ValueError("Income amount must be a number, not a boolean")
+            raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
+                "Income amount must be a number, not a boolean"
+            )
         if isinstance(v, str):
-            raise ValueError("Income amount must be a number, not a string")
+            raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
+                "Income amount must be a number, not a string"
+            )
         if isinstance(v, float):
-            raise ValueError("Income amount must be an integer, not a float")
+            raise ValueError(  # noqa: TRY004 - Pydantic wraps ValueError
+                "Income amount must be an integer, not a float"
+            )
         if isinstance(v, int) and v > 100_000_000:
             raise ValueError(f"Unreasonable income amount: {v}")
         return v

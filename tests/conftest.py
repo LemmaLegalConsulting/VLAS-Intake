@@ -1,15 +1,14 @@
 import os
 import socket
 import subprocess
+import urllib.parse
+import urllib.request
 from unittest.mock import MagicMock
 
 import aiohttp
 import dotenv
 import httpx
 import pytest
-import urllib.parse
-import urllib.request
-
 
 EXTERNAL_CREDENTIALS = (
     "DIALPAD_API_KEY",
@@ -186,7 +185,7 @@ def block_outbound_network(monkeypatch):
         # (catches shell pipelines like "echo | ping 8.8.8.8")
         if isinstance(args, str):
             for token in str(args).split():
-                cleaned = token.strip("|;&$><()`'\"'").lower().strip()
+                cleaned = token.strip("|;&$><()`'\"").lower().strip()
                 if cleaned in NETWORK_COMMANDS:
                     raise AssertionError(
                         f"Subprocess command involves network-capable tool "

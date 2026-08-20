@@ -32,7 +32,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import yaml
 from rapidfuzz import fuzz, process, utils
@@ -142,14 +142,16 @@ class StateValidator:
     """Validates actual state against expected state and generates test results."""
 
     # Keys that are automatically added by the system and should be ignored during validation
-    SYSTEM_KEYS = {"_state_saved", "call_id", "status", "error", "case_description"}
-    IGNORED_EXTRA_KEY_PATHS = {"tts_voice"}
+    SYSTEM_KEYS = frozenset(
+        {"_state_saved", "call_id", "status", "error", "case_description"}
+    )
+    IGNORED_EXTRA_KEY_PATHS = frozenset({"tts_voice"})
 
     def __init__(self):
-        self.mismatches: List[Dict[str, Any]] = []
+        self.mismatches: list[dict[str, Any]] = []
 
     def _fuzzy_match_key(
-        self, key: str, candidates: List[str], threshold: int = 80
+        self, key: str, candidates: list[str], threshold: int = 80
     ) -> str | None:
         """
         Use fuzzy matching to find a close match for a key (typically for names).
@@ -184,8 +186,8 @@ class StateValidator:
         return best_match[0] if best_match else None
 
     def compare_states(
-        self, actual_state: Dict[str, Any], expected_state: Dict[str, Any]
-    ) -> Tuple[bool, List[Dict[str, Any]]]:
+        self, actual_state: dict[str, Any], expected_state: dict[str, Any]
+    ) -> tuple[bool, list[dict[str, Any]]]:
         """
         Compare actual state with expected state recursively.
 
@@ -197,14 +199,14 @@ class StateValidator:
         return len(self.mismatches) == 0, self.mismatches
 
     def _compare_dict(
-        self, actual: Dict[str, Any], expected: Dict[str, Any], path: str = ""
+        self, actual: dict[str, Any], expected: dict[str, Any], path: str = ""
     ):
         """Recursively compare dictionaries."""
         # Track which actual keys have been matched (to detect truly extra keys later)
         matched_actual_keys = set()
 
         # Check for missing keys in actual
-        for key in expected:
+        for key, expected_value in expected.items():
             new_path = f"""{path}.{key}""" if path else key
             # Try exact match first, then case-insensitive match
             matching_key = None
@@ -213,15 +215,18 @@ class StateValidator:
             else:
                 # Try case-insensitive match
                 for actual_key in actual:
-                    if isinstance(key, str) and isinstance(actual_key, str):
-                        if key.lower() == actual_key.lower():
-                            matching_key = actual_key
-                            break
+                    if (
+                        isinstance(key, str)
+                        and isinstance(actual_key, str)
+                        and key.lower() == actual_key.lower()
+                    ):
+                        matching_key = actual_key
+                        break
 
             if matching_key is None:
                 # Pydantic's exclude_none=True omits keys with None values;
                 # treat a missing key as None when the expected value is None.
-                if expected[key] is None:
+                if expected_value is None:
                     continue
                 # For income.listing and assets.listing, try fuzzy matching on string keys
                 if (
@@ -229,7 +234,7 @@ class StateValidator:
                 ) and isinstance(key, str):
                     if (
                         "income.listing" in path
-                        and _is_no_household_income_entry(expected[key])
+                        and _is_no_household_income_entry(expected_value)
                         and "Household" in actual
                     ):
                         matching_key = "Household"
@@ -238,7 +243,7 @@ class StateValidator:
                             f"""{path}.Household""" if path else "Household"
                         )
                         self._compare_values(
-                            actual["Household"], expected[key], household_path
+                            actual["Household"], expected_value, household_path
                         )
                         continue
                     # Use threshold of 50 for generous matching (e.g., "savings account" vs "account")
@@ -254,14 +259,14 @@ class StateValidator:
                             f"""{path}.{fuzzy_match}""" if path else fuzzy_match
                         )
                         self._compare_values(
-                            actual[fuzzy_match], expected[key], fuzzy_new_path
+                            actual[fuzzy_match], expected_value, fuzzy_new_path
                         )
                     else:
                         self.mismatches.append(
                             {
                                 "path": new_path,
                                 "issue": "missing_key",
-                                "expected": expected[key],
+                                "expected": expected_value,
                                 "actual": None,
                             }
                         )
@@ -273,13 +278,13 @@ class StateValidator:
                     if str_key in actual:
                         matching_key = str_key
                         matched_actual_keys.add(str_key)
-                        self._compare_values(actual[str_key], expected[key], new_path)
+                        self._compare_values(actual[str_key], expected_value, new_path)
                     else:
                         self.mismatches.append(
                             {
                                 "path": new_path,
                                 "issue": "missing_key",
-                                "expected": expected[key],
+                                "expected": expected_value,
                                 "actual": None,
                             }
                         )
@@ -288,16 +293,16 @@ class StateValidator:
                         {
                             "path": new_path,
                             "issue": "missing_key",
-                            "expected": expected[key],
+                            "expected": expected_value,
                             "actual": None,
                         }
                     )
             else:
                 matched_actual_keys.add(matching_key)
-                self._compare_values(actual[matching_key], expected[key], new_path)
+                self._compare_values(actual[matching_key], expected_value, new_path)
 
         # Check for extra keys in actual (but ignore system keys)
-        for key in actual:
+        for key, actual_value in actual.items():
             # Skip keys that were already matched to expected keys
             if key in matched_actual_keys:
                 continue
@@ -305,7 +310,7 @@ class StateValidator:
             if key in self.SYSTEM_KEYS:
                 continue
 
-            if path == "income.listing" and _is_no_household_income_entry(actual[key]):
+            if path == "income.listing" and _is_no_household_income_entry(actual_value):
                 continue
 
             new_path = f"""{path}.{key}""" if path else key
@@ -317,7 +322,7 @@ class StateValidator:
                     "path": new_path,
                     "issue": "extra_key",
                     "expected": None,
-                    "actual": actual[key],
+                    "actual": actual_value,
                 }
             )
 
@@ -406,7 +411,7 @@ class StateValidator:
                     }
                 )
 
-    def _compare_list(self, actual: List[Any], expected: List[Any], path: str):
+    def _compare_list(self, actual: list[Any], expected: list[Any], path: str):
         """Recursively compare lists."""
         if "assets.listing" in path and len(actual) == len(expected):
             unmatched_actual = actual.copy()
@@ -465,15 +470,15 @@ class TestResultManager:
 
     def __init__(self, results_file: str | Path = DEFAULT_RESULTS_FILE):
         self.results_file = str(results_file)
-        self.results: Dict[str, Any] = self._load_results()
+        self.results: dict[str, Any] = self._load_results()
 
-    def _load_results(self) -> Dict[str, Any]:
+    def _load_results(self) -> dict[str, Any]:
         """Load existing test results if file exists."""
         if Path(self.results_file).exists():
             try:
                 with open(self.results_file, "r") as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 return {}
         return {}
 
@@ -482,7 +487,7 @@ class TestResultManager:
         call_id: str,
         script_name: str,
         passed: bool,
-        mismatches: List[Dict[str, Any]] = None,
+        mismatches: list[dict[str, Any]] | None = None,
         state_file: str = "logs/flow_manager_state.json",
     ):
         """Add a test result for a specific call."""
@@ -511,7 +516,7 @@ class TestResultManager:
             finally:
                 fcntl.flock(f, fcntl.LOCK_UN)
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get a summary of test results."""
         if not self.results:
             return {"total": 0, "passed": 0, "failed": 0, "pass_rate": 0.0}
@@ -565,7 +570,7 @@ class TestRunner:
         except (FileNotFoundError, json.JSONDecodeError):
             self.flow_manager_state = {}
 
-    async def revalidate_all(self) -> Dict[str, Tuple[bool, List[Dict[str, Any]]]]:
+    async def revalidate_all(self) -> dict[str, tuple[bool, list[dict[str, Any]]]]:
         """
         Revalidate all existing test results, but only for call_ids that have state data.
         Tests without state data are removed from results.
@@ -612,8 +617,8 @@ class TestRunner:
                     f"""{status} {call_id}: {script_name} """
                     f"""({mismatch_count} mismatch{"es" if mismatch_count != 1 else ""})"""
                 )
-            except Exception as e:
-                print(f"""ERROR {call_id}: Error during revalidation - {str(e)}""")
+            except Exception as e:  # noqa: BLE001 - isolate independent revalidations
+                print(f"""ERROR {call_id}: Error during revalidation - {e!s}""")
                 revalidation_results[call_id] = (False, [{"error": str(e)}])
 
         # Remove call_ids without state data from results
@@ -631,8 +636,8 @@ class TestRunner:
         self,
         call_id: str,
         script_name: str,
-        expected_state: Dict[str, Any] = None,
-    ) -> Tuple[bool, List[Dict[str, Any]]]:
+        expected_state: dict[str, Any] | None = None,
+    ) -> tuple[bool, list[dict[str, Any]]]:
         """
         Validate a specific call.
 
@@ -969,7 +974,7 @@ Examples:
 
     # Handle validate command
     if args.command == "validate":
-        passed, mismatches = __import__("asyncio").run(
+        _passed, _mismatches = __import__("asyncio").run(
             runner.validate_call(args.call_id, args.script_name)
         )
         # Reload results to get the newly saved test result

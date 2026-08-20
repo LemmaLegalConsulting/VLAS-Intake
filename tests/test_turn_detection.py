@@ -12,7 +12,6 @@ from pipecat.frames.frames import (
 from pipecat.processors.frame_processor import FrameDirection
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 
-
 CLIENT_PYTHON_DIR = Path(__file__).parents[1] / "client" / "python"
 sys.path.insert(0, str(CLIENT_PYTHON_DIR))
 try:
