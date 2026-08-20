@@ -30,7 +30,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
@@ -319,9 +319,9 @@ async def run_client(
         ),
     )
 
-    tts = DeepgramTTSService(
+    tts = DeepgramFluxTTSService(
         api_key=deepgram_api_key,
-        settings=DeepgramTTSService.Settings(
+        settings=DeepgramFluxTTSService.Settings(
             voice=client_tts_voice,
         ),
     )
@@ -332,7 +332,6 @@ async def run_client(
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
-            filter_incomplete_user_turns=False,
             user_turn_strategies=UserTurnStrategies(
                 start=[ExternalUserTurnStartStrategy()],
                 stop=[ExternalUserTurnStopStrategy(timeout=0.2)],

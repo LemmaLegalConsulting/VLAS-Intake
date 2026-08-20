@@ -17,7 +17,7 @@ from pipecat.frames.frames import (
     TTSUpdateSettingsFrame,
 )
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
 from pipecat.transcriptions.language import Language
 from pydantic import ValidationError
 
@@ -613,17 +613,23 @@ async def _speak_language_selection_prompt(
     spanish_voice = get_deepgram_tts_voices(Language.ES)
 
     await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
+        TTSUpdateSettingsFrame(
+            delta=DeepgramFluxTTSService.Settings(voice=english_voice)
+        )
     )
     await _log_spoken_text(flow_manager, english_prompt)
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=english_prompt))
     await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=spanish_voice))
+        TTSUpdateSettingsFrame(
+            delta=DeepgramFluxTTSService.Settings(voice=spanish_voice)
+        )
     )
     await _log_spoken_text(flow_manager, spanish_prompt)
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=spanish_prompt))
     await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=english_voice))
+        TTSUpdateSettingsFrame(
+            delta=DeepgramFluxTTSService.Settings(voice=english_voice)
+        )
     )
 
 
@@ -1262,7 +1268,7 @@ async def record_language(
         )
     )
     await flow_manager.worker.queue_frame(
-        TTSUpdateSettingsFrame(delta=DeepgramTTSService.Settings(voice=tts_voice))
+        TTSUpdateSettingsFrame(delta=DeepgramFluxTTSService.Settings(voice=tts_voice))
     )
     flow_manager.state["tts_voice"] = tts_voice
 

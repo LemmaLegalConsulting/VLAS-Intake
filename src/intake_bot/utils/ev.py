@@ -52,10 +52,7 @@ def get_ev(key: str, default: str = "") -> str:
 # --------------------------------------------------------------------
 
 
-DEEPGRAM_TTS_DEFAULT_LANGUAGE_VOICES = (
-    ("EN", "aura-2-mars-en"),
-    ("ES", "aura-2-olivia-es"),
-)
+DEEPGRAM_TTS_DEFAULT_LANGUAGE_VOICES = (("EN", "flux-alexis-en"),)
 DEEPGRAM_TTS_DEFAULT_VOICE_BY_LANGUAGE = dict(DEEPGRAM_TTS_DEFAULT_LANGUAGE_VOICES)
 DEEPGRAM_TTS_DEFAULT_VOICE = DEEPGRAM_TTS_DEFAULT_VOICE_BY_LANGUAGE["EN"]
 

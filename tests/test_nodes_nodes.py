@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from pipecat.flows import ContextStrategy
 from pipecat.frames.frames import TTSSpeakFrame, TTSUpdateSettingsFrame
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSSettings
 
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.intake_flow_result import Status
@@ -224,18 +225,21 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
 
     assert len(queued_frames) == 5
     assert isinstance(queued_frames[0], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[0].delta, DeepgramFluxTTSSettings)
     assert queued_frames[0].delta.voice == "voice-en"
     assert isinstance(queued_frames[1], TTSSpeakFrame)
     assert queued_frames[1].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_english"
     )
     assert isinstance(queued_frames[2], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[2].delta, DeepgramFluxTTSSettings)
     assert queued_frames[2].delta.voice == "voice-es"
     assert isinstance(queued_frames[3], TTSSpeakFrame)
     assert queued_frames[3].text == prompt_loader.get_spoken_prompt(
         "record_language_prompt_spanish"
     )
     assert isinstance(queued_frames[4], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[4].delta, DeepgramFluxTTSSettings)
     assert queued_frames[4].delta.voice == "voice-en"
     assert (
         prompt_loader.get_spoken_prompt("record_language_prompt_english")
@@ -303,6 +307,11 @@ async def test_record_language(flow_manager, prompt_loader):
     assert (
         flow_manager.worker.queue_frame.await_count == 2
     )  # STT + TTS language updates
+    queued_frames = [
+        call.args[0] for call in flow_manager.worker.queue_frame.await_args_list
+    ]
+    assert isinstance(queued_frames[1], TTSUpdateSettingsFrame)
+    assert isinstance(queued_frames[1].delta, DeepgramFluxTTSSettings)
     assert "record_phone_number_prompt" in next_node
     assert next_node["respond_immediately"] is False
 

@@ -52,8 +52,7 @@ This exercises the current websocket transport directly:
   metadata object with `caller_phone_number`, `call_id`, and optional
   `idle_timeout_secs`
 - transport uses the protobuf websocket serializer
-- caller simulation uses Deepgram Flux STT, Azure OpenAI, and Deepgram
-  Aura 2 TTS
+- caller simulation uses Deepgram Flux STT and TTS with Azure OpenAI
 
 The client transport is configured with a `SilenceMixer` so that the
 output transport sends continuous audio frames — TTS audio when

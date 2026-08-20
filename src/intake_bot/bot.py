@@ -34,7 +34,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
 from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
-from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.daily.transport import (
@@ -462,9 +462,9 @@ async def run_bot(
             ),
         )
 
-        tts = DeepgramTTSService(
+        tts = DeepgramFluxTTSService(
             api_key=require_ev("DEEPGRAM_API_KEY"),
-            settings=DeepgramTTSService.Settings(
+            settings=DeepgramFluxTTSService.Settings(
                 voice=tts_voice,
             ),
         )
@@ -487,7 +487,6 @@ async def run_bot(
             context,
             assistant_params=LLMAssistantAggregatorParams(),
             user_params=LLMUserAggregatorParams(
-                filter_incomplete_user_turns=False,
                 user_mute_strategies=user_mute_strategies,
                 user_idle_timeout=resolved_user_idle_timeout_secs,
                 user_turn_strategies=UserTurnStrategies(

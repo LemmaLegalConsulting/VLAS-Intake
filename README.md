@@ -161,10 +161,10 @@ Azure OpenAI notes:
 - The bot LLM now uses Azure OpenAI via your deployment name in `AZURE_LLM_MODEL`.
 - `AZURE_LLM_ENDPOINT` should be the Azure resource root such as `https://your-resource-name.openai.azure.com`, not an API path like `/openai/v1/`.
 - The bot STT now uses Deepgram Flux via `DEEPGRAM_API_KEY` and defaults to `DEEPGRAM_STT_MODEL=flux-general-multi`.
-- The bot TTS now uses language-scoped Deepgram Aura 2 env vars such as `DEEPGRAM_TTS_VOICE_EN` and `DEEPGRAM_TTS_VOICE_ES`.
+- The bot TTS uses `DeepgramFluxTTSService` with token streaming and language-scoped Flux voice env vars such as `DEEPGRAM_TTS_VOICE_EN` and `DEEPGRAM_TTS_VOICE_ES`. Both default to `flux-alexis-en`; set the Spanish override only when your Deepgram account has access to a Spanish Flux TTS voice.
 - Flux owns turn boundaries in both the bot and the scripted websocket client. The pipeline uses explicit external start/stop strategies instead of Pipecat-managed SmartTurn defaults.
 - Silero VAD is still enabled as an optional local signal path for tuning and observability, but it does not decide turn completion for Flux.
-- After the caller chooses Spanish, the bot narrows Flux language hints to Spanish and switches TTS to the configured Spanish voice for the remainder of the call.
+- After the caller chooses Spanish, the bot narrows Flux STT language hints to Spanish and switches TTS to the configured Flux voice for the remainder of the call.
 - The classifier's Azure providers default to using `AZURE_LLM_MODEL` unless you set model-specific deployment overrides.
 
 The root `server.py` file is only for local websocket testing and is intentionally not copied into the Docker image.
