@@ -1,3 +1,5 @@
+import asyncio
+
 import pytest
 from fastapi import WebSocketException
 from starlette.status import WS_1008_POLICY_VIOLATION
@@ -13,6 +15,7 @@ from server import (
     _rate_limit_check,
     _rate_limit_store,
     _receive_metadata,
+    _receive_metadata_with_timeout,
     create_app,
     generate_call_id,
 )
@@ -173,6 +176,15 @@ class TestParseMetadata:
     async def test_receive_metadata_rejects_disconnect(self):
         websocket = FakeWebSocket({"type": "websocket.disconnect"})
         assert await _receive_metadata(websocket) is None
+
+    @pytest.mark.asyncio
+    async def test_receive_metadata_timeout_returns_none(self, monkeypatch):
+        class BlockingWebSocket:
+            async def receive(self):
+                await asyncio.Future()
+
+        monkeypatch.setattr("server._METADATA_HANDSHAKE_TIMEOUT_SECS", 0.001)
+        assert await _receive_metadata_with_timeout(BlockingWebSocket()) is None
 
 
 class TestMetadataStr:

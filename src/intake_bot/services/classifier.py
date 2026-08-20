@@ -412,9 +412,7 @@ class Classifier:
             tasks.append((provider.model_name, task))
 
         timeout = Classifier.Provider.PROVIDER_TIMEOUT
-        results: list[ProviderResult] = []
         task_set = {t for _, t in tasks}
-        name_by_task = {t: n for n, t in tasks}
         done: set[asyncio.Task] = set()
         pending = set(task_set)
         try:
@@ -431,44 +429,45 @@ class Classifier:
                 await asyncio.gather(*pending, return_exceptions=True)
             raise
 
-        for task in done:
-            provider_name = name_by_task[task]
-            try:
-                result = task.result()
-                if isinstance(result, ProviderResult):
-                    results.append(result)
-                else:
-                    results.append(
-                        ProviderResult(
-                            model_name=provider_name,
-                            status=ProviderStatus.FAILURE,
-                            error="Unexpected non-ProviderResult return",
-                        )
-                    )
-            except Exception as e:  # noqa: BLE001 - provider tasks fail independently
-                results.append(
-                    ProviderResult(
-                        model_name=provider_name,
-                        status=ProviderStatus.FAILURE,
-                        error=f"{type(e).__name__}",
-                    )
-                )
+        result_by_task: dict[asyncio.Task, ProviderResult] = {}
 
-        # Cancel all pending (timed-out) tasks
+        # Cancel all pending (timed-out) tasks before collecting results.
         for task in pending:
-            provider_name = name_by_task[task]
             task.cancel()
-            results.append(
-                ProviderResult(
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
+        # Collect results in provider declaration order.  The completion set is
+        # unordered, so iterating it would make equal-weight votes unstable.
+        for provider_name, task in tasks:
+            if task in pending:
+                result_by_task[task] = ProviderResult(
                     model_name=provider_name,
                     status=ProviderStatus.TIMEOUT,
                     error=f"Provider timeout after {timeout}s",
                 )
-            )
+                continue
+            if task not in done:
+                continue
 
-        # Await all cancelled tasks to suppress warnings/noise
-        if pending:
-            await asyncio.gather(*pending, return_exceptions=True)
+            try:
+                result = task.result()
+                if isinstance(result, ProviderResult):
+                    result_by_task[task] = result
+                else:
+                    result_by_task[task] = ProviderResult(
+                        model_name=provider_name,
+                        status=ProviderStatus.FAILURE,
+                        error="Unexpected non-ProviderResult return",
+                    )
+            except Exception as e:  # noqa: BLE001 - provider tasks fail independently
+                result_by_task[task] = ProviderResult(
+                    model_name=provider_name,
+                    status=ProviderStatus.FAILURE,
+                    error=f"{type(e).__name__}",
+                )
+
+        results = [result_by_task[task] for _, task in tasks]
 
         # Always use weighted voting for aggregation
         response = await self._get_voted_results(results, taxonomy, language)

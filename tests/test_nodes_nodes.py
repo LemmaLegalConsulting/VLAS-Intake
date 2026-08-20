@@ -1294,7 +1294,9 @@ def test_strip_negative_prefix_supports_spanish(text, expected):
 
 
 @pytest.mark.asyncio
-async def test_record_case_type_handles_none_is_eligible(flow_manager, patch_validator):
+async def test_record_case_type_rejects_unknown_eligibility(
+    flow_manager, patch_validator
+):
     patch_validator.check_case_type = AsyncMock(
         return_value=ClassificationResponse(
             legal_problem_code=None,
@@ -1304,9 +1306,9 @@ async def test_record_case_type_handles_none_is_eligible(flow_manager, patch_val
         )
     )
     result, next_node = await record_case_type(flow_manager, "something")
-    assert result["status"] == Status.SUCCESS
-    assert result.get("is_eligible") in (True, None)
-    assert next_node is not None
+    assert result["status"] == Status.ERROR
+    assert "could not determine case-type eligibility" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio
@@ -1322,8 +1324,9 @@ async def test_record_case_type_requires_valid_legal_problem_code(
         )
     )
     result, next_node = await record_case_type(flow_manager, "legal problem")
-    assert result["status"] == Status.SUCCESS
-    assert next_node is not None
+    assert result["status"] == Status.ERROR
+    assert "could not determine case-type eligibility" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio
@@ -1784,6 +1787,42 @@ async def test_record_income_requires_every_confirmed_household_member(
     assert "betty smith" in result["error"]
     assert next_node is None
     assert "income" not in flow_manager.state
+    patch_validator.check_income.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_record_income_rejects_duplicate_normalized_member_names(
+    flow_manager, patch_validator
+):
+    flow_manager.state.update(
+        {
+            "household_members": {
+                "members": [
+                    {
+                        "name": "John Doe",
+                        "relationship": "self",
+                        "is_caller": True,
+                    }
+                ]
+            },
+            "household_composition": {
+                "number_of_adults": 1,
+                "number_of_children": 0,
+            },
+        }
+    )
+
+    result, next_node = await record_income(
+        flow_manager,
+        {
+            "John Doe": {"Employment": {"amount": 500, "period": "Monthly"}},
+            "JOHN DOE": {"Employment": {"amount": 500, "period": "Monthly"}},
+        },
+    )
+
+    assert result["status"] == Status.ERROR
+    assert "one income entry per household member" in result["error"]
+    assert next_node is None
     patch_validator.check_income.assert_not_called()
 
 

@@ -27,6 +27,8 @@ _rate_limit_store: dict[str, list[float]] = {}
 _rate_limit_lock = asyncio.Lock()
 _rate_limit_cleanup_counter = 0
 
+_METADATA_HANDSHAKE_TIMEOUT_SECS = 10.0
+
 
 async def _rate_limit_check(client_host: str) -> None:
     global _rate_limit_cleanup_counter
@@ -77,6 +79,17 @@ async def _receive_metadata(websocket: WebSocket) -> dict | None:
     if raw is None:
         return None
     return _parse_metadata(raw)
+
+
+async def _receive_metadata_with_timeout(websocket: WebSocket) -> dict | None:
+    try:
+        return await asyncio.wait_for(
+            _receive_metadata(websocket),
+            timeout=_METADATA_HANDSHAKE_TIMEOUT_SECS,
+        )
+    except TimeoutError:
+        logger.warning("WebSocket metadata handshake timed out")
+        return None
 
 
 def _metadata_str(metadata: dict, key: str, default: str = "") -> str:
@@ -207,7 +220,7 @@ def create_app(_env: str | None = None) -> FastAPI:
         await _rate_limit_check(client_host)
 
         # First-message JSON metadata handshake
-        metadata = await _receive_metadata(websocket)
+        metadata = await _receive_metadata_with_timeout(websocket)
         if metadata is None:
             await websocket.close(code=4002, reason="Invalid JSON metadata")
             return

@@ -15,8 +15,8 @@
 
     [[tool.bumpversion.files]]
         filename = "pyproject.toml"
-        replace  = 'version = "{new_version}"'
-        search   = 'version = "{current_version}"'
+        replace  = 'version         = "{new_version}"'
+        search   = 'version         = "{current_version}"'
 
     [tool.bumpversion.parts.release]
         calver_format = "{0Y}.{MM}"

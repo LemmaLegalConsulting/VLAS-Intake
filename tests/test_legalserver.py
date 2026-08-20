@@ -11,6 +11,7 @@ from intake_bot.models.legalserver import (
     OperationKind,
     OperationOutcome,
     RecordResult,
+    UpdatePayload,
 )
 from intake_bot.services.legalserver import (
     _build_matter_payload,
@@ -1656,6 +1657,18 @@ class TestSaveRejectionNote:
             session, "m-1", "Over Income", _far_deadline()
         )
         assert result.outcome == OperationOutcome.SUCCESS
+
+        post_payload = next(
+            call["kwargs"]["json"] for call in session.calls if call["method"] == "POST"
+        )
+        assert post_payload["subject"] == "Automatic Rejection: Over Income"
+        assert "Reason: Over Income" in post_payload["body"]
+
+    def test_update_payload_preserves_legalserver_api_typo(self):
+        payload = UpdatePayload(intale_program="Family Law").model_dump(
+            exclude_none=True
+        )
+        assert payload == {"intale_program": "Family Law"}
 
     @pytest.mark.asyncio
     async def test_save_rejection_note_failure(self):

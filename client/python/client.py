@@ -224,6 +224,23 @@ def _require_env(*names: str) -> str:
     return value
 
 
+def _build_websocket_metadata(
+    call_id: str,
+    phone_number: str,
+    idle_timeout_secs: float | None = None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "call_id": call_id,
+        "caller_phone_number": phone_number,
+    }
+    auth_token = _get_env("WS_AUTH_TOKEN")
+    if auth_token is not None:
+        metadata["auth_token"] = auth_token
+    if idle_timeout_secs is not None:
+        metadata["idle_timeout_secs"] = idle_timeout_secs
+    return metadata
+
+
 def _build_websocket_url(server_url: str) -> str:
     base_url = server_url.rstrip("/")
     if base_url.startswith("http://"):
@@ -269,12 +286,11 @@ async def run_client(
         "AZURE_OPENAI_API_VERSION",
         default="2024-09-01-preview",
     )
-    metadata = {
-        "call_id": call_id,
-        "caller_phone_number": phone_number,
-    }
-    if server_idle_timeout_secs is not None:
-        metadata["idle_timeout_secs"] = server_idle_timeout_secs
+    metadata = _build_websocket_metadata(
+        call_id,
+        phone_number,
+        server_idle_timeout_secs,
+    )
 
     websocket_url = _build_websocket_url(server_url)
     logger.info(f"""Client {client_name} connecting to {websocket_url}""")

@@ -1120,8 +1120,10 @@ async def _save_rejection_note(
     cache: _ChildCollectionCache | None = None,
 ) -> RecordResult:
     payload = NotePayload(
-        subject="Automatic Rejection",
-        body="This intake was automatically rejected.",
+        subject=f"Automatic Rejection: {rejection_reason_name}",
+        body=(
+            f"This intake was automatically rejected. Reason: {rejection_reason_name}"
+        ),
         note_type={"lookup_value_name": "General Notes"},
     )
     return await _save_note(

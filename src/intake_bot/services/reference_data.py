@@ -166,7 +166,7 @@ class ReferenceDataLoader:
                 "texas",
                 "utah",
                 "vermont",
-                "washington",
+                "washington state",
                 "west virginia",
                 "wisconsin",
                 "wyoming",
@@ -244,8 +244,12 @@ class ReferenceDataLoader:
                 phrase = " ".join(words[i : i + n])
                 if phrase in NON_VA_STATES:
                     return True
-        for w in words:
-            if w in NON_VA_STATES:
+        for i, word in enumerate(words):
+            if word == "washington":
+                if i + 1 < len(words) and words[i + 1] == "county":
+                    continue
+                return True
+            if word in NON_VA_STATES:
                 return True
         return bool(words and words[-1] in NON_VA_ABBREVS)
 

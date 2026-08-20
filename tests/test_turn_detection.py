@@ -15,7 +15,7 @@ from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
 CLIENT_PYTHON_DIR = Path(__file__).parents[1] / "client" / "python"
 sys.path.insert(0, str(CLIENT_PYTHON_DIR))
 try:
-    from client import InterimTranscriptionFinalizer
+    from client import InterimTranscriptionFinalizer, _build_websocket_metadata
 finally:
     sys.path.remove(str(CLIENT_PYTHON_DIR))
 
@@ -87,3 +87,13 @@ async def test_flux_start_of_turn_interrupts_bot_for_barge_in():
     stt.broadcast_frame.assert_awaited_once_with(UserStartedSpeakingFrame)
     stt.broadcast_interruption.assert_awaited_once_with()
     assert stt._user_is_speaking is True
+
+
+def test_python_client_metadata_includes_configured_auth_token(monkeypatch):
+    monkeypatch.setenv("WS_AUTH_TOKEN", "shared-secret")
+
+    assert _build_websocket_metadata("call-1", "+18665551234") == {
+        "call_id": "call-1",
+        "caller_phone_number": "+18665551234",
+        "auth_token": "shared-secret",
+    }

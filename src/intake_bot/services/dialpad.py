@@ -165,6 +165,7 @@ class SMS:
                         request["url"],
                         json=request["payload"],
                         headers=request["headers"],
+                        allow_redirects=False,
                     ) as response,
                 ):
                     # Retry on 429 (rate limit) and transient 5xx

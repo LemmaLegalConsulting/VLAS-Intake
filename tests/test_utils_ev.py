@@ -1,6 +1,15 @@
+import os
+
 import pytest
 
 from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, require_ev
+
+
+@pytest.fixture(autouse=True)
+def clear_deepgram_voice_environment(monkeypatch):
+    for key in list(os.environ):
+        if key.startswith("DEEPGRAM_TTS_VOICE_"):
+            monkeypatch.delenv(key, raising=False)
 
 
 def test_get_ev_returns_existing_value(monkeypatch):

@@ -2,7 +2,12 @@ import asyncio
 
 import pytest
 
-from intake_bot.models.classifier import ProviderLabel, ProviderResult, ProviderStatus
+from intake_bot.models.classifier import (
+    ClassificationResponse,
+    ProviderLabel,
+    ProviderResult,
+    ProviderStatus,
+)
 from intake_bot.services.classifier import Classifier
 
 TEST_TAXONOMY = {
@@ -285,6 +290,25 @@ async def test_malformed_json_error_handled(classifier):
     response = await _classify_with_providers(classifier, providers)
     assert response.legal_problem_code is None
     assert response.follow_up_questions
+
+
+@pytest.mark.asyncio
+async def test_provider_results_follow_declaration_order(classifier, monkeypatch):
+    providers = [
+        _MockLLMProvider("first", result={"labels": [], "questions": []}),
+        _MockLLMProvider("second", result={"labels": [], "questions": []}),
+    ]
+    captured = []
+
+    async def capture_results(results, *args):
+        captured.extend(results)
+        return ClassificationResponse()
+
+    monkeypatch.setattr(classifier, "_get_voted_results", capture_results)
+
+    await _classify_with_providers(classifier, providers)
+
+    assert [result.model_name for result in captured] == ["first", "second"]
 
 
 @pytest.mark.asyncio

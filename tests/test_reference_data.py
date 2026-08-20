@@ -131,6 +131,12 @@ def test_franklin_county_not_resolved(loader):
     # Not an exact/unserved match, so it will follow unresolved behavior
 
 
+def test_washington_county_is_not_misclassified_as_a_state(loader):
+    for location in ("Washington County", "Washington County, Virginia"):
+        result = loader.resolve_service_area(location)
+        assert result["outcome"] == "unresolved_service_area"
+
+
 def test_abbreviation_position_sensitive(loader):
     assert loader.resolve_service_area("NC")["outcome"] == "unserved"
     assert loader.resolve_service_area("nc")["outcome"] == "unserved"

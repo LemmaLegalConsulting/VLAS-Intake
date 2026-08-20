@@ -39,8 +39,8 @@ class _FakeSession:
     async def __aexit__(self, exc_type, exc, tb):
         return None
 
-    def post(self, url, json, headers):
-        self.calls.append({"url": url, "json": json, "headers": headers})
+    def post(self, url, json, headers, **kwargs):
+        self.calls.append({"url": url, "json": json, "headers": headers, **kwargs})
         return self.response
 
 
@@ -70,9 +70,9 @@ class _MultiResponseSession:
     async def __aexit__(self, exc_type, exc, tb):
         return None
 
-    def post(self, url, json, headers):
+    def post(self, url, json, headers, **kwargs):
         idx = len(self.calls)
-        self.calls.append({"url": url, "json": json, "headers": headers})
+        self.calls.append({"url": url, "json": json, "headers": headers, **kwargs})
         return self.responses[min(idx, len(self.responses) - 1)]
 
 
@@ -217,6 +217,7 @@ async def test_202_accepted_is_success(monkeypatch):
     result = await sms.send("+15096305855", "hello")
     assert result["status"] == 202
     assert result["body"] == {"id": "accepted-msg"}
+    assert session.calls[0]["allow_redirects"] is False
 
 
 @pytest.mark.asyncio
@@ -412,7 +413,7 @@ async def test_timeout_is_not_retried(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        def post(self, url, json, headers):
+        def post(self, url, json, headers, **kwargs):
             return _TimeoutResponse(status=200)
 
     monkeypatch.setattr(
@@ -447,7 +448,7 @@ async def test_client_error_is_not_retried(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        def post(self, url, json, headers):
+        def post(self, url, json, headers, **kwargs):
             nonlocal call_count
             call_count += 1
             raise aiohttp.ClientError("connection reset")
@@ -722,7 +723,7 @@ async def test_tiny_remaining_timeout_positive(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return None
 
-        def post(self, url, json, headers):
+        def post(self, url, json, headers, **kwargs):
             nonlocal call_count
             call_count += 1
             return self.response

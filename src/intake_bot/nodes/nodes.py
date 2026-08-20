@@ -1590,10 +1590,19 @@ async def record_case_type(
             error=error_text,
         )
         return result, None
+    if case_response.is_eligible is None:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error=(
+                    "The case-type classifier could not determine case-type eligibility. "
+                    "Please provide more details about the legal problem."
+                ),
+            ),
+            None,
+        )
 
-    is_eligible = (
-        case_response.is_eligible if case_response.is_eligible is not None else True
-    )
+    is_eligible = case_response.is_eligible
     legal_problem_code = case_response.legal_problem_code or ""
 
     result = CaseTypeResult(
@@ -1859,9 +1868,28 @@ async def record_income(
                 for member in members
                 if isinstance(member, dict) and isinstance(member.get("name"), str)
             }
-            submitted_names = {
-                _normalize_person_name(name) for name in income if isinstance(name, str)
-            }
+            submitted_name_counts: dict[str, int] = {}
+            for name in income:
+                if isinstance(name, str):
+                    normalized_name = _normalize_person_name(name)
+                    submitted_name_counts[normalized_name] = (
+                        submitted_name_counts.get(normalized_name, 0) + 1
+                    )
+            submitted_names = set(submitted_name_counts)
+            duplicate_names = sorted(
+                name for name, count in submitted_name_counts.items() if count > 1
+            )
+            if duplicate_names:
+                return (
+                    IntakeFlowResult(
+                        status=Status.ERROR,
+                        error=(
+                            "Provide one income entry per household member; duplicate "
+                            f"names were provided: {', '.join(duplicate_names)}."
+                        ),
+                    ),
+                    None,
+                )
             if submitted_names != expected_names:
                 missing_names = sorted(expected_names - submitted_names)
                 extra_names = sorted(submitted_names - expected_names)

@@ -608,7 +608,6 @@ async def run_bot(
         @context_aggregator.user().event_handler("on_user_turn_started")
         async def on_user_turn_started(aggregator, strategy):
             idle_retry_handler.reset()
-            empty_turn_retry_handler.reset()
 
         @context_aggregator.user().event_handler("on_user_turn_stopped")
         async def on_empty_user_turn_recovery(
@@ -624,6 +623,8 @@ async def run_bot(
                 await queue_idle_frames_with_transcript(
                     empty_turn_retry_handler.next_frames(language)
                 )
+            else:
+                empty_turn_retry_handler.reset()
 
         @context_aggregator.user().event_handler("on_user_turn_idle")
         async def on_user_turn_idle(aggregator):

@@ -282,7 +282,7 @@ class UpdatePayload(BaseModel):
     external_id: str | None = Field(default=None, description="External ID")
     first: str | None = Field(default=None, description="First name")
     intake_office: str | None = Field(default=None, description="Intake office")
-    intake_program: str | None = Field(
+    intale_program: str | None = Field(
         default=None, description="Intake program (note: field name has typo in API)"
     )
     is_lead_case: str | None = Field(

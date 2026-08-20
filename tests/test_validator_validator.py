@@ -427,16 +427,13 @@ async def test_check_date_of_birth_yesterday_is_accepted():
     from datetime import UTC, datetime, timedelta
 
     validator = IntakeValidator()
-    yesterday = (datetime.now(tz=UTC).astimezone() - timedelta(days=1)).strftime(
-        "%m/%d/%Y"
-    )
+    today = datetime.now(tz=UTC).astimezone()
+    yesterday = (today - timedelta(days=1)).strftime("%m/%d/%Y")
 
     is_valid, formatted_dob = await validator.check_date_of_birth(yesterday)
 
     assert is_valid is True
-    assert formatted_dob == (
-        datetime.now(tz=UTC).astimezone() - timedelta(days=1)
-    ).strftime("%Y-%m-%d")
+    assert formatted_dob == (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 @pytest.mark.asyncio

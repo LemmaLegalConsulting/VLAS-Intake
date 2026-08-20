@@ -711,8 +711,12 @@ class WebsocketClientApp {
 
             const callId = this.buildCallId();
             const phoneNumber = import.meta.env.VITE_CALLER_PHONE_NUMBER || '8665345243';
-            const metadata = { call_id: callId, caller_phone_number: phoneNumber };
-
+            const authToken = import.meta.env.VITE_WS_AUTH_TOKEN;
+            const metadata = {
+                call_id: callId,
+                caller_phone_number: phoneNumber,
+                ...(authToken ? { auth_token: authToken } : {}),
+            };
             const ws_opts = {
                 recorderSampleRate: 8000,
                 playerSampleRate: 8000,
