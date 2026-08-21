@@ -50,6 +50,74 @@ class FakeAzureClient:
         self.chat = type("Chat", (), {"completions": FakeChatCompletions()})()
 
 
+class EchoThenValidCompletions:
+    def __init__(self):
+        self.calls: list[dict[str, Any]] = []
+        self._responses = iter(["What is your name?", "Taylor Campbell"])
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        content = next(self._responses)
+        message = type("Message", (), {"content": content})()
+        choice = type("Choice", (), {"message": message})()
+        return type("Response", (), {"choices": [choice]})()
+
+
+class EchoThenValidClient:
+    def __init__(self):
+        self.chat = type("Chat", (), {"completions": EchoThenValidCompletions()})()
+
+
+@pytest.mark.asyncio
+async def test_azure_caller_retries_when_model_echoes_bot_prompt():
+    client = EchoThenValidClient()
+    caller = AzureCaller(
+        client=client,
+        model="gpt-4.1-mini",
+        system_prompt="Scenario facts",
+    )
+
+    reply = await caller.reply(("What is your name?",))
+
+    assert reply == "Taylor Campbell"
+    assert len(client.chat.completions.calls) == 2
+
+
+class QuestionThenValidCompletions:
+    def __init__(self):
+        self.calls: list[dict[str, Any]] = []
+        self._responses = iter(
+            ["Now, please provide your date of birth.", "I have no income."]
+        )
+
+    async def create(self, **kwargs):
+        self.calls.append(kwargs)
+        content = next(self._responses)
+        message = type("Message", (), {"content": content})()
+        choice = type("Choice", (), {"message": message})()
+        return type("Response", (), {"choices": [choice]})()
+
+
+class QuestionThenValidClient:
+    def __init__(self):
+        self.chat = type("Chat", (), {"completions": QuestionThenValidCompletions()})()
+
+
+@pytest.mark.asyncio
+async def test_azure_caller_retries_when_model_returns_bot_prompt():
+    client = QuestionThenValidClient()
+    caller = AzureCaller(
+        client=client,
+        model="gpt-4.1-mini",
+        system_prompt="Scenario facts",
+    )
+
+    reply = await caller.reply(("What income do you have?",))
+
+    assert reply == "I have no income."
+    assert len(client.chat.completions.calls) == 2
+
+
 @pytest.mark.asyncio
 async def test_azure_caller_preserves_scenario_conversation_history():
     client = FakeAzureClient()

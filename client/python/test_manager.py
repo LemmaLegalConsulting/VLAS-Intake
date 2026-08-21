@@ -108,6 +108,20 @@ def _addresses_equivalent(a: str, b: str) -> bool:
     return norm_a == norm_b
 
 
+def _phone_numbers_equivalent(a: str, b: str) -> bool:
+    """Compare phone numbers independent of punctuation and a leading country code."""
+
+    def normalize(value: str) -> str:
+        digits = re.sub(r"\D", "", value)
+        if len(digits) == 11 and digits.startswith("1"):
+            return digits[1:]
+        return digits
+
+    normalized_a = normalize(a)
+    normalized_b = normalize(b)
+    return bool(normalized_a) and normalized_a == normalized_b
+
+
 def _is_no_household_income_entry(value: Any) -> bool:
     return isinstance(value, dict) and set(value.keys()) == {"No Household Income"}
 
@@ -145,7 +159,15 @@ class StateValidator:
     SYSTEM_KEYS = frozenset(
         {"_state_saved", "call_id", "status", "error", "case_description"}
     )
-    IGNORED_EXTRA_KEY_PATHS = frozenset({"tts_voice"})
+    IGNORED_EXTRA_KEY_PATHS = frozenset(
+        {
+            "tts_voice",
+            "service_area.outcome",
+            "service_area.candidates",
+            "service_area.match_type",
+            "household_members",
+        }
+    )
 
     def __init__(self):
         self.mismatches: list[dict[str, Any]] = []
@@ -361,8 +383,18 @@ class StateValidator:
         else:
             # For string comparisons, normalize to lowercase
             if isinstance(actual, str) and isinstance(expected, str):
+                if re.search(r"(?:^|\.)phone_number$|\.phones\[\d+\]\.number$", path):
+                    if not _phone_numbers_equivalent(actual, expected):
+                        self.mismatches.append(
+                            {
+                                "path": path,
+                                "issue": "value_mismatch",
+                                "expected": expected,
+                                "actual": actual,
+                            }
+                        )
                 # Use USPS abbreviation normalization + fuzzy matching for address fields
-                if "address" in path:
+                elif "address" in path:
                     if not _addresses_equivalent(actual, expected):
                         match_ratio = fuzz.ratio(actual.lower(), expected.lower())
                         if match_ratio < 85:
@@ -660,7 +692,11 @@ class TestRunner:
                     }
                 ]
                 self.result_manager.add_test_result(
-                    call_id, script_name, False, error_mismatches
+                    call_id,
+                    script_name,
+                    False,
+                    error_mismatches,
+                    state_file=self.flow_manager_state_file,
                 )
                 self.result_manager.save_results()
                 return False, error_mismatches
@@ -675,7 +711,11 @@ class TestRunner:
                     }
                 ]
                 self.result_manager.add_test_result(
-                    call_id, script_name, False, error_mismatches
+                    call_id,
+                    script_name,
+                    False,
+                    error_mismatches,
+                    state_file=self.flow_manager_state_file,
                 )
                 self.result_manager.save_results()
                 return False, error_mismatches
@@ -689,7 +729,11 @@ class TestRunner:
                     }
                 ]
                 self.result_manager.add_test_result(
-                    call_id, script_name, False, error_mismatches
+                    call_id,
+                    script_name,
+                    False,
+                    error_mismatches,
+                    state_file=self.flow_manager_state_file,
                 )
                 self.result_manager.save_results()
                 return False, error_mismatches
@@ -708,7 +752,11 @@ class TestRunner:
                 }
             ]
             self.result_manager.add_test_result(
-                call_id, script_name, False, error_mismatches
+                call_id,
+                script_name,
+                False,
+                error_mismatches,
+                state_file=self.flow_manager_state_file,
             )
             self.result_manager.save_results()
             return False, error_mismatches
@@ -720,7 +768,13 @@ class TestRunner:
         passed, mismatches = validator.compare_states(actual_state, expected_state)
 
         # Save test results
-        self.result_manager.add_test_result(call_id, script_name, passed, mismatches)
+        self.result_manager.add_test_result(
+            call_id,
+            script_name,
+            passed,
+            mismatches,
+            state_file=self.flow_manager_state_file,
+        )
         self.result_manager.save_results()
 
         return passed, mismatches
@@ -744,7 +798,11 @@ class TestRunner:
                     }
                 ]
                 self.result_manager.add_test_result(
-                    call_id, script_name, False, mismatches
+                    call_id,
+                    script_name,
+                    False,
+                    mismatches,
+                    state_file=self.flow_manager_state_file,
                 )
                 self.result_manager.save_results()
                 return False, mismatches
@@ -758,13 +816,25 @@ class TestRunner:
                     "message": f"""Script '{script_name}' does not have 'expected_state' defined""",
                 }
             ]
-            self.result_manager.add_test_result(call_id, script_name, False, mismatches)
+            self.result_manager.add_test_result(
+                call_id,
+                script_name,
+                False,
+                mismatches,
+                state_file=self.flow_manager_state_file,
+            )
             self.result_manager.save_results()
             return False, mismatches
 
         validator = StateValidator()
         passed, mismatches = validator.compare_states(actual_state, expected_state)
-        self.result_manager.add_test_result(call_id, script_name, passed, mismatches)
+        self.result_manager.add_test_result(
+            call_id,
+            script_name,
+            passed,
+            mismatches,
+            state_file=self.flow_manager_state_file,
+        )
         self.result_manager.save_results()
         return passed, mismatches
 

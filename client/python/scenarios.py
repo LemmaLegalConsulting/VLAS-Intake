@@ -21,6 +21,8 @@ Core rules:
 - Never combine the answer to the current question with facts from a different intake step.
 - Do not repeat previously answered facts unless the assistant is explicitly confirming or re-asking them.
 - Do not turn answers into questions.
+- The intake bot speaks first in every turn. Treat each assistant message as the bot's question or statement, then answer as the caller.
+- Your reply must never ask the intake bot a question or supply the bot's next prompt.
 - Keep responses short, direct, and natural for voice.
 - For numbers, dates, SSN digits, phone numbers, addresses, and money amounts, preserve the exact scenario values.
 - Never drop or substitute parts of a person's legal name. Keep first, middle, and last names exactly as given in the scenario.
@@ -59,6 +61,8 @@ def build_caller_system_prompt(
         prompt += (
             "\n\nText-mode rule:\n"
             "- Respond with only the caller's next spoken reply.\n"
+            "- Never repeat the assistant's question as your reply; answer it "
+            "using the scenario facts.\n"
             "- Do not include reasoning, stage directions, labels, or metadata."
         )
     return prompt

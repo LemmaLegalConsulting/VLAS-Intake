@@ -663,6 +663,9 @@ def test_context_aware_household_prompts_cover_transcript_regressions(prompt_loa
     assert 'use "you" for the caller' in income_content
     assert 'Do NOT use a top-level "members" list' in income_content
     assert "ask whether it is Social Security Retirement" in income_content
+    assert (
+        '{"No Household Income": {"amount": 0, "period": "Monthly"}}' in income_content
+    )
 
 
 def test_name_and_adverse_party_prompts_cover_transcript_regressions(prompt_loader):

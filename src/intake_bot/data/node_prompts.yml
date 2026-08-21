@@ -533,7 +533,7 @@ record_income:
         1. Begin with a concise, context-aware income question for each recorded household member. This includes adults and children. Exclude anyone who has perpetrated domestic violence against the caller.
            - For the household member whose `is_caller` field is true, always use second-person wording: "What income or benefits do you receive?" Use "you" and "your" in every follow-up and confirmation. Do NOT speak the caller's name when discussing the caller's own income.
            - Use the recorded name only for household members whose `is_caller` field is false: "What income or benefits does [name] receive?"
-           - If the person has no income, that is fine. Record them with "No Household Income."
+           - If the person has no income, record exactly {"No Household Income": {"amount": 0, "period": "Monthly"}}. Do not omit amount or period.
            - Also ask about monetary public benefits like food stamps, TANF, or SSI for children or other non-earning members. Medicaid is collected in the next step and must not be submitted as income.
         2. For each household member with income, collect:
            - The person's name
@@ -585,7 +585,7 @@ record_income:
         [Additional Notes]
         - DO NOT collect income or asset information for any individual who has perpetrated domestic violence against you. These individuals should be completely excluded from the income calculation.
         - Income periods must be one of: Annually, Monthly, Weekly, Biweekly, Semi-Monthly, or Quarterly.
-        - If the caller or any household member reports no income, this is a valid response. Record them with "No Household Income."
+        - If the caller or any household member reports no income, this is a valid response. Record exactly {"No Household Income": {"amount": 0, "period": "Monthly"}} for that person.
         - When recording income, use the income category names as keys to ensure accurate processing.
         - After collecting the income details for each household member (including zero income if applicable), summarize the information back to the caller to confirm its accuracy. If any corrections are needed, update the details and repeat the confirmation process.
         - In the spoken summary, use "you" for the caller and names only for other household members. Continue using each person's actual recorded name as the key in the `income` function argument.
@@ -593,8 +593,8 @@ record_income:
         - The `income` argument MUST map each confirmed household member's name directly to a mapping of category names. Do NOT use a top-level "members" list and do NOT include relationship or is_caller fields.
         - Exact example: income = {"Jon Patrick Adamson": {"Social Security Retirement": {"amount": 500, "period": "Monthly"}, "Food Stamps": {"amount": 200, "period": "Monthly"}}}
         - If the function reports a structural error, correct the function argument using this exact shape. The household membership is already confirmed, so do NOT ask the caller to reconfirm who lives in the household.
-        - If a household member has NO income at all, submit ONLY "No Household Income" as their single income category. Do NOT enumerate every category at $0.
-        - Include ALL household members, not just those with income. Children with no income should have "No Household Income" recorded.
+        - If a household member has NO income at all, submit ONLY "No Household Income" as their single income category, with amount 0 and period "Monthly". Do NOT enumerate every category at $0.
+        - Include ALL household members, not just those with income. Children with no income should receive the exact zero-income entry above.
         - Include public benefits (food stamps, TANF, SSI) for children or other household members if the caller reports them.
 
         Important: Be sure to call the `record_income` function once the caller confirms the accuracy of the information, regardless of whether any income is reported. Use the income category names in the function call.

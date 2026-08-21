@@ -57,6 +57,36 @@ class AzureCaller:
             )
         ]
 
+    @staticmethod
+    def _is_assistant_echo(reply: str, assistant_text: str) -> bool:
+        def normalize(value: str) -> str:
+            return " ".join(value.lower().strip(" .!?").split())
+
+        return normalize(reply) == normalize(assistant_text)
+
+    @staticmethod
+    def _is_bot_like_reply(reply: str) -> bool:
+        normalized = " ".join(reply.lower().split())
+        if "?" in reply:
+            return True
+        return any(
+            phrase in normalized
+            for phrase in (
+                "please provide",
+                "welcome to virginia legal aid society",
+                "you have already chosen",
+                "i can only help with the intake process",
+                "let me continue",
+                "i'll continue",
+                "i will continue",
+                "next question",
+                "next step",
+                "move on to the next",
+                "move to the next",
+                "i have recorded that",
+            )
+        )
+
     async def reply(self, assistant_text: Sequence[str]) -> str:
         content = "\n".join(text.strip() for text in assistant_text if text.strip())
         if not content:
@@ -65,19 +95,39 @@ class AzureCaller:
         self.messages.append(
             cast(ChatCompletionMessageParam, {"role": "assistant", "content": content})
         )
-        response = await self.client.chat.completions.create(
-            model=self.model,
-            messages=list(self.messages),
-            temperature=0.0,
-        )
-        reply = (response.choices[0].message.content or "").strip()
-        if not reply:
-            raise RuntimeError("The Azure caller model returned an empty reply")
+        for attempt in range(2):
+            response = await self.client.chat.completions.create(
+                model=self.model,
+                messages=list(self.messages),
+                temperature=0.0,
+            )
+            reply = (response.choices[0].message.content or "").strip()
+            if not reply:
+                raise RuntimeError("The Azure caller model returned an empty reply")
+            if not self._is_assistant_echo(
+                reply, content
+            ) and not self._is_bot_like_reply(reply):
+                self.messages.append(
+                    cast(ChatCompletionMessageParam, {"role": "user", "content": reply})
+                )
+                return reply
+            if attempt == 0:
+                self.messages.append(
+                    cast(
+                        ChatCompletionMessageParam,
+                        {
+                            "role": "developer",
+                            "content": (
+                                "The previous output was not a caller reply. Do not "
+                                "repeat or ask the intake bot anything. Answer the "
+                                "assistant's latest message directly using the "
+                                "scenario facts, in one short caller response."
+                            ),
+                        },
+                    )
+                )
 
-        self.messages.append(
-            cast(ChatCompletionMessageParam, {"role": "user", "content": reply})
-        )
-        return reply
+        raise RuntimeError("The Azure caller model did not produce a caller reply")
 
 
 @dataclass

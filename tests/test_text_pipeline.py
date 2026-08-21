@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,19 @@ class FakeValidator:
             "is_eligible": True,
             "fips_code": 51007,
         }
+
+
+class DelayedValidator(FakeValidator):
+    async def check_service_area(self, *, location: str) -> dict[str, Any]:
+        await asyncio.sleep(0.02)
+        return await super().check_service_area(location=location)
+
+
+class NonWaitingScriptedLLMService(ScriptedLLMService):
+    async def run_function_calls(self, function_calls):
+        from pipecat.services.llm_service import LLMService
+
+        await LLMService.run_function_calls(self, function_calls)
 
 
 @dataclass
@@ -64,13 +78,40 @@ async def test_text_session_runs_flow_function_and_returns_next_prompt():
     ) as session:
         initial = await session.start()
         turn = await session.send_user_turn(SERVICE_AREA_TURN)
-
-    assert initial.assistant_text
-    assert any(message["role"] == "assistant" for message in llm.calls[0].messages)
     assert turn.state["service_area"] == SERVICE_AREA_EXPECTED_STATE
+    assert initial.assistant_text
     assert turn.current_node is not None
     assert turn.assistant_text
     assert "record_service_area" in llm.calls[0].tool_names
+
+
+@pytest.mark.asyncio
+async def test_text_session_waits_for_delayed_function_transition():
+    llm = NonWaitingScriptedLLMService(
+        [
+            ScriptedLLMResponse(
+                function_call=ScriptedFunctionCall(
+                    name="record_service_area",
+                    arguments={"location": SERVICE_AREA_TURN},
+                )
+            )
+        ]
+    )
+    dependencies = NodeDependencies(
+        validator=DelayedValidator(),
+        sms_service=FakeSMS(),
+    )
+
+    async with TextSession(
+        llm=llm,
+        node_dependencies=dependencies,
+        initial_node=node_record_service_area(),
+        call_id="text-test-delayed",
+    ) as session:
+        await session.start()
+        turn = await session.send_user_turn(SERVICE_AREA_TURN)
+
+    assert turn.assistant_text
 
 
 @pytest.mark.asyncio

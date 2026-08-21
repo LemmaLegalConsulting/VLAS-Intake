@@ -11,6 +11,7 @@ from typing import Any, Self
 
 from pipecat.flows import NodeConfig
 from pipecat.frames.frames import (
+    EndFrame,
     FunctionCallFromLLM,
     LLMAssistantPushAggregationFrame,
     LLMContextFrame,
@@ -151,9 +152,19 @@ class TextOutputAdapter(FrameProcessor):
     def __init__(self):
         super().__init__()
         self.outputs: list[str] = []
+        self._announced_text_counts: dict[str, int] = {}
+        self.finished = False
         self._llm_response_text: list[str] | None = None
 
+    def record_spoken_text(self, text: str) -> None:
+        if not text:
+            return
+        self.outputs.append(text)
+        self._announced_text_counts[text] = self._announced_text_counts.get(text, 0) + 1
+
     async def process_frame(self, frame, direction: FrameDirection):
+        if isinstance(frame, EndFrame):
+            self.finished = True
         await super().process_frame(frame, direction)
 
         if direction != FrameDirection.DOWNSTREAM:
@@ -181,7 +192,14 @@ class TextOutputAdapter(FrameProcessor):
             return
 
         if isinstance(frame, TTSSpeakFrame):
-            self.outputs.append(frame.text)
+            announced_count = self._announced_text_counts.get(frame.text, 0)
+            if announced_count:
+                if announced_count == 1:
+                    self._announced_text_counts.pop(frame.text)
+                else:
+                    self._announced_text_counts[frame.text] = announced_count - 1
+            else:
+                self.outputs.append(frame.text)
             context_id = str(uuid.uuid4())
             await self.push_frame(
                 TTSStartedFrame(
@@ -203,12 +221,42 @@ class TextOutputAdapter(FrameProcessor):
         await self.push_frame(frame, direction)
 
 
+class _TextTranscriptHandler:
+    def __init__(self, output: TextOutputAdapter):
+        self._output = output
+
+    async def save_assistant_tts(self, content: str) -> None:
+        self._output.record_spoken_text(content)
+
+
 @dataclass(frozen=True)
 class TextTurnResult:
     user_text: str
     assistant_text: tuple[str, ...]
     state: dict[str, Any]
     current_node: str | None
+
+
+class _TextFlowManager(StateContextFlowManager):
+    def __init__(
+        self,
+        *,
+        node_set_event: asyncio.Event,
+        terminal_event: asyncio.Event,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self._node_set_event = node_set_event
+        self._terminal_event = terminal_event
+
+    async def _set_node(self, node_id: str, node_config: NodeConfig) -> None:
+        await super()._set_node(node_id, node_config)
+        self._node_set_event.set()
+        if any(
+            action.get("type") == "end_conversation"
+            for action in node_config.get("post_actions", [])
+        ):
+            self._terminal_event.set()
 
 
 class TextSession:
@@ -234,6 +282,10 @@ class TextSession:
         self._finished = False
         self._closed = False
         self._runner_task: asyncio.Task | None = None
+        self._assistant_response = asyncio.Event()
+        self._function_call_started = asyncio.Event()
+        self._node_set_event = asyncio.Event()
+        self._terminal_event = asyncio.Event()
         self._pipeline_started = asyncio.Event()
         self.context_aggregator = build_context_aggregator(
             user_idle_timeout_secs=0,
@@ -254,12 +306,15 @@ class TextSession:
             cancel_on_idle_timeout=False,
         )
         self.runner = WorkerRunner(handle_sigint=False, handle_sigterm=False)
-        self.flow_manager = StateContextFlowManager(
+        self.flow_manager = _TextFlowManager(
             worker=self.worker,
             llm=self.llm,
             context_aggregator=self.context_aggregator,
             global_functions=[caller_ended_conversation, end_conversation],
+            node_set_event=self._node_set_event,
+            terminal_event=self._terminal_event,
         )
+        self.flow_manager._transcript_handler = _TextTranscriptHandler(self.output)
         self.flow_manager.state["call_id"] = call_id
         self.flow_manager.state["phone"] = caller_phone_number
         self.flow_manager._tts_services = {
@@ -277,9 +332,17 @@ class TextSession:
         async def _on_pipeline_finished(worker, frame):
             self._finished = True
 
+        @self.context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
+        async def _on_assistant_turn_stopped(aggregator, message):
+            self._assistant_response.set()
+
+        @self.llm.event_handler("on_function_calls_started")
+        async def _on_function_calls_started(service, function_calls):
+            self._function_call_started.set()
+
     @property
     def finished(self) -> bool:
-        return self._finished
+        return self._finished or self.output.finished or self._terminal_event.is_set()
 
     async def __aenter__(self) -> Self:
         return self
@@ -300,7 +363,7 @@ class TextSession:
                 self._pipeline_started.wait(), timeout=self._flush_timeout_secs
             )
             await self.flow_manager.initialize(self._initial_node or node_start())
-            await self._flush()
+            self._node_set_event.clear()
         except BaseException:
             await self.close()
             raise
@@ -318,6 +381,9 @@ class TextSession:
             raise RuntimeError("TextSession must be started and open")
 
         output_start = len(self.output.outputs)
+        self._assistant_response.clear()
+        self._function_call_started.clear()
+        self._node_set_event.clear()
         timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")
         await self.worker.queue_frames(
             [
@@ -331,6 +397,16 @@ class TextSession:
                 UserStoppedSpeakingFrame(),
             ]
         )
+        await asyncio.wait_for(
+            self._assistant_response.wait(), timeout=self._flush_timeout_secs
+        )
+        if self._function_call_started.is_set():
+            try:
+                await asyncio.wait_for(
+                    self._node_set_event.wait(), timeout=self._flush_timeout_secs
+                )
+            except TimeoutError:
+                pass
         await self._flush()
         return TextTurnResult(
             user_text=text,
@@ -340,11 +416,32 @@ class TextSession:
         )
 
     async def _flush(self) -> None:
-        if not await self.worker.flush_pipeline(timeout=self._flush_timeout_secs):
-            raise TimeoutError("TextSession pipeline did not drain")
-        await asyncio.sleep(0)
-        if not await self.worker.flush_pipeline(timeout=self._flush_timeout_secs):
-            raise TimeoutError("TextSession pipeline did not drain after tool calls")
+        previous_signature: tuple[str | None, int, bool, bool, bool, bool] | None = None
+        stable_polls = 0
+        max_polls = max(20, int(self._flush_timeout_secs / 0.01))
+        for _ in range(max_polls):
+            if not await self.worker.flush_pipeline(timeout=self._flush_timeout_secs):
+                raise TimeoutError("TextSession pipeline did not drain")
+
+            await asyncio.sleep(0)
+            signature = (
+                self.flow_manager.current_node,
+                len(self.output.outputs),
+                self.finished,
+                self.context_aggregator.assistant().has_function_calls_in_progress,
+                bool(getattr(self.llm, "_function_call_tasks", {})),
+                bool(getattr(self.flow_manager, "_pending_transition", None)),
+            )
+            if signature == previous_signature:
+                stable_polls += 1
+                if stable_polls >= 2:
+                    return
+            else:
+                previous_signature = signature
+                stable_polls = 0
+            await asyncio.sleep(0.01)
+
+        raise TimeoutError("TextSession pipeline did not reach a stable state")
 
     async def close(self) -> None:
         if self._closed:

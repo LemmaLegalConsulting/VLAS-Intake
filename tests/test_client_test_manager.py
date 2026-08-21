@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 
 import pytest
@@ -55,6 +56,52 @@ def test_state_validator_ignores_storage_only_tts_voice_extra_key():
     assert mismatches == []
 
 
+def test_state_validator_normalizes_phone_number_formatting():
+    module = _load_test_manager_module()
+
+    validator = module.StateValidator()
+
+    passed, mismatches = validator.compare_states(
+        actual_state={
+            "phone": {"phone_number": "+18665345243"},
+            "adverse_parties": {
+                "adverse_parties": [{"phones": [{"number": "+18665345256"}]}]
+            },
+        },
+        expected_state={
+            "phone": {"phone_number": "(866) 534-5243"},
+            "adverse_parties": {
+                "adverse_parties": [{"phones": [{"number": "(866) 534-5256"}]}]
+            },
+        },
+    )
+
+    assert passed is True
+    assert mismatches == []
+
+
+def test_state_validator_ignores_service_area_metadata():
+    module = _load_test_manager_module()
+
+    validator = module.StateValidator()
+
+    passed, mismatches = validator.compare_states(
+        actual_state={
+            "service_area": {
+                "location": "Amelia County",
+                "outcome": "exact_match",
+                "candidates": [],
+                "match_type": "canonical",
+            },
+            "household_members": {"members": []},
+        },
+        expected_state={"service_area": {"location": "Amelia County"}},
+    )
+
+    assert passed is True
+    assert mismatches == []
+
+
 @pytest.mark.asyncio
 async def test_test_runner_validates_in_memory_state(tmp_path):
     module = _load_test_manager_module()
@@ -71,4 +118,6 @@ async def test_test_runner_validates_in_memory_state(tmp_path):
     )
 
     assert passed is True
+    result = json.loads((tmp_path / "results.json").read_text())
+    assert result["text-1"]["state_file"] == str(tmp_path / "state.json")
     assert mismatches == []
