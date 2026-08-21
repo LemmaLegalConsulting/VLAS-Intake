@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 def _load_test_manager_module():
     module_path = (
@@ -47,6 +49,25 @@ def test_state_validator_ignores_storage_only_tts_voice_extra_key():
     passed, mismatches = validator.compare_states(
         actual_state={"language": "en", "tts_voice": "aura-2-mars-en"},
         expected_state={"language": "en"},
+    )
+
+    assert passed is True
+    assert mismatches == []
+
+
+@pytest.mark.asyncio
+async def test_test_runner_validates_in_memory_state(tmp_path):
+    module = _load_test_manager_module()
+    runner = module.TestRunner(
+        results_file=tmp_path / "results.json",
+        flow_manager_state_file=tmp_path / "state.json",
+    )
+
+    passed, mismatches = await runner.validate_state(
+        call_id="text-1",
+        script_name="celeste",
+        actual_state={"language": {"language": "English"}},
+        expected_state={"language": {"language": "English"}},
     )
 
     assert passed is True

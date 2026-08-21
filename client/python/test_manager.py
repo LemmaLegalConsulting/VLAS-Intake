@@ -725,6 +725,49 @@ class TestRunner:
 
         return passed, mismatches
 
+    async def validate_state(
+        self,
+        call_id: str,
+        script_name: str,
+        actual_state: dict[str, Any],
+        expected_state: dict[str, Any] | None = None,
+    ) -> tuple[bool, list[dict[str, Any]]]:
+        """Compare an in-memory state snapshot and record the result."""
+        if expected_state is None:
+            script_config = self.scripts.get(script_name)
+            if not isinstance(script_config, dict):
+                mismatches = [
+                    {
+                        "path": "root",
+                        "issue": "script_not_found",
+                        "message": f"""Script '{script_name}' not found or invalid""",
+                    }
+                ]
+                self.result_manager.add_test_result(
+                    call_id, script_name, False, mismatches
+                )
+                self.result_manager.save_results()
+                return False, mismatches
+            expected_state = script_config.get("expected_state")
+
+        if not isinstance(expected_state, dict):
+            mismatches = [
+                {
+                    "path": "root",
+                    "issue": "missing_expected_state",
+                    "message": f"""Script '{script_name}' does not have 'expected_state' defined""",
+                }
+            ]
+            self.result_manager.add_test_result(call_id, script_name, False, mismatches)
+            self.result_manager.save_results()
+            return False, mismatches
+
+        validator = StateValidator()
+        passed, mismatches = validator.compare_states(actual_state, expected_state)
+        self.result_manager.add_test_result(call_id, script_name, passed, mismatches)
+        self.result_manager.save_results()
+        return passed, mismatches
+
     def print_summary(self):
         """Print summary of all test results."""
         if not self.result_manager.results:

@@ -91,3 +91,20 @@ The scripted client now matches the bot's turn handling: it uses
 `FilterIncompleteUserTurnStrategies` with explicit external start/stop
 strategies so Flux, not Pipecat timeout defaults, owns turn
 boundaries.
+
+## Text pipeline client
+
+The text client runs the real intake pipeline without WebSocket, STT, TTS, or
+audio timing. Azure GPT-4.1-mini acts as the automated caller, while the bot
+uses the deployment in `AZURE_LLM_MODEL`:
+
+```sh
+python ./client/python/text_client.py --script celeste
+```
+
+Run every scenario sequentially with `--all`. Override the caller deployment
+with `--caller-model` or `AZURE_CALLER_MODEL` (default: `gpt-4.1-mini`).
+The client writes comparison results to
+`logs/text_client_results.json` and state snapshots to
+`logs/text_flow_manager_state.json`. Referral SMS is recorded locally and is
+not sent to Dialpad.

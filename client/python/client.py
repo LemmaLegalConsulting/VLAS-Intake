@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
-import yaml
 from dotenv import load_dotenv
 from loguru import logger
 from openai import AsyncAzureOpenAI
@@ -46,6 +45,7 @@ from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
 )
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 from pipecat.workers.runner import WorkerRunner
+from scenarios import build_client_system_prompt, load_scripts
 from test_manager import TestRunner
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
@@ -86,43 +86,7 @@ load_dotenv(override=True)
 logger.remove()
 logger.add(sys.stderr, level="DEBUG")
 
-scripts_file = Path(__file__).parent / "scripts.yml"
-with open(scripts_file) as file_handle:
-    scripts: dict = yaml.safe_load(file_handle)
-
-
-AUTOMATED_CALLER_SYSTEM_PROMPT = """This is an automated intake test caller.
-Your job is to behave like a cooperative human caller while preserving the scenario facts exactly.
-
-Core rules:
-- Never change the spelling of names, streets, cities, counties, or other proper nouns from the scenario.
-- Never invent phonetic spellings, STT-style errors, or alternate spellings unless the scenario explicitly says the value is different.
-- If you are unsure, repeat the exact scenario wording verbatim instead of paraphrasing or guessing.
-- If asked for a phone type, answer with the exact scenario phone type using one short phrase.
-- If the assistant reads back or confirms a name, address, or other value that sounds close to the correct scenario value, confirm it briefly even if the spelling differs slightly. Do not attempt to correct minor differences caused by speech recognition.
-- When asked to spell something, spell it using the exact canonical letters from the scenario.
-- Answer only the question that was asked. Do not volunteer extra facts unless the question requires them.
-- Never combine the answer to the current question with facts from a different intake step.
-- Do not repeat previously answered facts unless the assistant is explicitly confirming or re-asking them.
-- Do not turn answers into questions.
-- Keep responses short, direct, and natural for voice.
-- For numbers, dates, SSN digits, phone numbers, addresses, and money amounts, preserve the exact scenario values.
-- Never drop or substitute parts of a person's legal name. Keep first, middle, and last names exactly as given in the scenario.
-- If asked about household income, include every person in the scenario who has income.
-- Attribute each income source to the person who actually receives it. Child support paid for a child still belongs to the adult who receives it unless the scenario says otherwise.
-- A minor child can still have income. If asked whether a minor is an adult, say no while preserving that child's income.
-- Only provide alternate names that the scenario explicitly says should be included in the legal file.
-- For asset questions, follow the assistant's scope exactly. Do not volunteer exempt assets when the assistant is asking only about countable assets.
-- In Spanish, answer naturally in Spanish, but keep proper nouns and factual values exactly aligned with the scenario.
-"""
-
-
-def build_client_system_prompt(script: str) -> str:
-    return (
-        AUTOMATED_CALLER_SYSTEM_PROMPT
-        + "\n\nScenario:\n"
-        + scripts[script]["system_prompt"]
-    )
+scripts: dict = load_scripts()
 
 
 INTERIM_FINALIZE_TIMEOUT_SECS = 1.5

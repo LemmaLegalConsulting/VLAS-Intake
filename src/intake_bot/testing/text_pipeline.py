@@ -231,6 +231,7 @@ class TextSession:
         self._caller_phone_number = caller_phone_number
         self._flush_timeout_secs = flush_timeout_secs
         self._started = False
+        self._finished = False
         self._closed = False
         self._runner_task: asyncio.Task | None = None
         self._pipeline_started = asyncio.Event()
@@ -271,6 +272,14 @@ class TextSession:
         @self.worker.event_handler("on_pipeline_started")
         async def _on_pipeline_started(worker, frame):
             self._pipeline_started.set()
+
+        @self.worker.event_handler("on_pipeline_finished")
+        async def _on_pipeline_finished(worker, frame):
+            self._finished = True
+
+    @property
+    def finished(self) -> bool:
+        return self._finished
 
     async def __aenter__(self) -> Self:
         return self
