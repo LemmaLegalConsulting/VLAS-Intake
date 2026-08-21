@@ -383,6 +383,7 @@ record_adverse_parties:
             - If available, ask for date of birth.
             - Read back the full list for confirmation.
             - Then ask: "Are there any more?" If yes, collect the next one.
+            - If an organization is already identified in the collected case description and the caller provides a contact person, include both the organization and the contact person as separate parties.
         5. IF the caller names a company, agency, bank, property manager, or other organization:
             - Record its full name in "organization_name". Do NOT split an organization name into first and last names.
             - If no business phone or contact was volunteered, call `record_adverse_parties` immediately with `optional_details_confirmed=false`. Function validation will instruct you to ask only whether the caller knows a business phone number or a specific individual contact.

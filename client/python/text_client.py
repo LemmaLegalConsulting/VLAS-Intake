@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from __future__ import annotations
 
 import argparse
@@ -31,6 +33,9 @@ from intake_bot.testing.text_pipeline import TextSession, TextTurnResult
 
 DEFAULT_CALLER_MODEL = "gpt-4.1-mini"
 DEFAULT_MAX_TURNS = 80
+DEFAULT_TEXT_FLUSH_TIMEOUT_SECS = 30.0
+DEFAULT_CALLER_RETRY_ATTEMPTS = 4
+DEFAULT_SCENARIO_ATTEMPTS = 3
 DEFAULT_RESULTS_FILE = PROJECT_ROOT / "logs" / "text_client_results.json"
 DEFAULT_STATE_FILE = PROJECT_ROOT / "logs" / "text_flow_manager_state.json"
 
@@ -95,7 +100,7 @@ class AzureCaller:
         self.messages.append(
             cast(ChatCompletionMessageParam, {"role": "assistant", "content": content})
         )
-        for attempt in range(2):
+        for attempt in range(DEFAULT_CALLER_RETRY_ATTEMPTS):
             response = await self.client.chat.completions.create(
                 model=self.model,
                 messages=list(self.messages),
@@ -111,7 +116,7 @@ class AzureCaller:
                     cast(ChatCompletionMessageParam, {"role": "user", "content": reply})
                 )
                 return reply
-            if attempt == 0:
+            if attempt + 1 < DEFAULT_CALLER_RETRY_ATTEMPTS:
                 self.messages.append(
                     cast(
                         ChatCompletionMessageParam,
@@ -121,7 +126,9 @@ class AzureCaller:
                                 "The previous output was not a caller reply. Do not "
                                 "repeat or ask the intake bot anything. Answer the "
                                 "assistant's latest message directly using the "
-                                "scenario facts, in one short caller response."
+                                "scenario facts, in one short caller response. "
+                                "Follow any exact response instruction in the "
+                                "scenario."
                             ),
                         },
                     )
@@ -173,6 +180,7 @@ async def run_text_scenario(
         node_dependencies=node_dependencies,
         call_id=call_id,
         caller_phone_number=caller_phone_number,
+        flush_timeout_secs=DEFAULT_TEXT_FLUSH_TIMEOUT_SECS,
     ) as session:
         turn: TextTurnResult = await session.start()
         turn_count = 0
@@ -306,6 +314,15 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Continue running scenarios after one fails",
     )
+    parser.add_argument(
+        "--scenario-attempts",
+        type=int,
+        default=DEFAULT_SCENARIO_ATTEMPTS,
+        help=(
+            "Attempts per scenario to tolerate transient caller-model or "
+            "network failures (default: 3)"
+        ),
+    )
     return parser
 
 
@@ -375,19 +392,29 @@ async def _run_one_from_cli(
 
 async def _run(args: argparse.Namespace) -> int:
     load_dotenv(override=True)
+    if args.scenario_attempts < 1:
+        raise ValueError("--scenario-attempts must be at least 1")
     scripts = load_scripts(args.scripts_file)
     script_names = [args.script] if args.script else list(scripts)
     failures = 0
 
     for script_name in script_names:
-        try:
-            if not isinstance(script_name, str) or script_name not in scripts:
-                raise ValueError(f"Script '{script_name}' not found in scripts.yml")
-            if not await _run_one_from_cli(args, scripts, script_name):
-                failures += 1
-        except Exception as exc:  # noqa: BLE001 - isolate scenario failures
+        scenario_passed = False
+        for attempt in range(args.scenario_attempts):
+            try:
+                scenario_passed = await _run_one_from_cli(args, scripts, script_name)
+            except Exception as exc:  # noqa: BLE001 - isolate scenario failures
+                print(
+                    f"ERROR {script_name} attempt {attempt + 1}/"
+                    f"{args.scenario_attempts}: {type(exc).__name__}: {exc}"
+                )
+            if scenario_passed:
+                break
+            if attempt + 1 < args.scenario_attempts:
+                print(f"RETRY {script_name} ({attempt + 1}/{args.scenario_attempts})")
+
+        if not scenario_passed:
             failures += 1
-            print(f"ERROR {script_name}: {type(exc).__name__}: {exc}")
             if not args.continue_on_failure:
                 break
 

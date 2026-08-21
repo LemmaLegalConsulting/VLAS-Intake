@@ -63,6 +63,9 @@ def build_caller_system_prompt(
             "- Respond with only the caller's next spoken reply.\n"
             "- Never repeat the assistant's question as your reply; answer it "
             "using the scenario facts.\n"
+            "- If the scenario gives an exact response instruction for a "
+            "question, follow that instruction exactly, even when the "
+            "assistant's wording invites a shorter answer.\n"
             "- Do not include reasoning, stage directions, labels, or metadata."
         )
     return prompt
