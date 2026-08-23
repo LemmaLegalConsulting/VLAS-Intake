@@ -92,6 +92,7 @@ def _node_dependencies(flow_manager: FlowManager) -> NodeDependencies:
 
 _ADVERSE_PARTIES_FOLLOW_UP_KEY = "_adverse_parties_follow_up_requested"
 _HOUSEHOLD_COMPOSITION_PENDING_KEY = "_pending_household_composition"
+_HOUSEHOLD_MEMBERS_KNOWN_KEY = "household_members_known"
 _SERVICE_AREA_PENDING_KEY = "_pending_service_area"
 _SERVICE_AREA_RETRY_KEY = "_service_area_unresolved_count"
 
@@ -209,15 +210,100 @@ def _household_composition_pending(flow_manager: FlowManager) -> dict | None:
     return pending
 
 
+def _normalize_known_household_members(
+    known_members: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]] | None, str | None]:
+    if known_members is None:
+        return [], None
+    if not isinstance(known_members, list):
+        return None, "known_members must be a list of household member objects."
+
+    normalized: list[dict[str, Any]] = []
+    for member in known_members:
+        if not isinstance(member, dict):
+            return None, "Each known household member must be an object."
+        name = member.get("name")
+        if not isinstance(name, str) or not name.strip():
+            return None, "Each known household member must include a name."
+        if _is_placeholder_household_member_name(name.strip()):
+            return (
+                None,
+                "Known household members must use actual names, not placeholders.",
+            )
+        normalized_member: dict[str, Any] = {"name": name.strip()}
+        relationship = member.get("relationship")
+        if isinstance(relationship, str) and relationship.strip():
+            normalized_member["relationship"] = relationship.strip()
+        if member.get("is_caller") is True:
+            normalized_member["is_caller"] = True
+        normalized.append(normalized_member)
+    return normalized, None
+
+
+def _is_placeholder_household_member_name(name: str) -> bool:
+    normalized = " ".join(name.lower().split())
+    tokens = normalized.split()
+    placeholder_numbers = {
+        "one",
+        "two",
+        "three",
+        "four",
+        "five",
+        "six",
+        "seven",
+        "eight",
+        "nine",
+        "ten",
+    }
+    numbered_placeholder = (
+        len(tokens) == 2
+        and tokens[0] in {"child", "adult"}
+        and (tokens[1].isdigit() or tokens[1] in placeholder_numbers)
+    )
+    return (
+        normalized.startswith(
+            ("unknown child", "unknown adult", "unknown household", "unnamed child")
+        )
+        or numbered_placeholder
+    )
+
+
+def _known_household_members_with_caller(
+    flow_manager: FlowManager, known_members: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    caller_name = _caller_full_name(flow_manager) or "Caller"
+    members = [
+        {
+            "name": caller_name,
+            "relationship": "self",
+            "is_caller": True,
+        }
+    ]
+    caller_key = _normalize_person_name(caller_name)
+    for member in known_members:
+        if _normalize_person_name(member["name"]) == caller_key:
+            continue
+        members.append(dict(member, is_caller=False))
+    return members
+
+
+def _clear_known_household_members(flow_manager: FlowManager) -> None:
+    flow_manager.state.pop(_HOUSEHOLD_MEMBERS_KNOWN_KEY, None)
+
+
 def _store_household_composition_pending(
     flow_manager: FlowManager,
     number_of_adults: int,
     number_of_children: int,
+    known_members: list[dict[str, Any]] | None = None,
 ) -> None:
-    flow_manager.state[_HOUSEHOLD_COMPOSITION_PENDING_KEY] = {
+    pending: dict[str, Any] = {
         "number_of_adults": number_of_adults,
         "number_of_children": number_of_children,
     }
+    if known_members:
+        pending["known_members"] = known_members
+    flow_manager.state[_HOUSEHOLD_COMPOSITION_PENDING_KEY] = pending
 
 
 def _clear_household_composition_pending(flow_manager: FlowManager) -> None:
@@ -619,6 +705,22 @@ async def _speak_dynamic_prompt(action: dict, flow_manager: FlowManager) -> None
     await flow_manager.worker.queue_frame(TTSSpeakFrame(text=text))
 
 
+async def _queue_tts_frame_and_wait(flow_manager: FlowManager, text: str) -> None:
+    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=text))
+    await flow_manager.worker.flush_pipeline()
+
+
+def _user_turn_started_count(flow_manager: FlowManager) -> int:
+    count = flow_manager.state.get("_user_turn_started_count", 0)
+    return count if isinstance(count, int) else 0
+
+
+def _language_prompt_was_interrupted(
+    flow_manager: FlowManager, initial_user_turn_count: int
+) -> bool:
+    return _user_turn_started_count(flow_manager) != initial_user_turn_count
+
+
 async def _select_tts_language(flow_manager: FlowManager, language: Language) -> str:
     tts_services = getattr(flow_manager, "_tts_services", None)
     if not isinstance(tts_services, dict) or language not in tts_services:
@@ -641,21 +743,34 @@ async def _select_tts_language(flow_manager: FlowManager, language: Language) ->
 async def _speak_language_selection_prompt(
     action: dict, flow_manager: FlowManager
 ) -> None:
+    initial_user_turn_count = _user_turn_started_count(flow_manager)
     welcome_prompt_key = action.get("welcome_prompt_key")
     if welcome_prompt_key:
         welcome_prompt = prompts.get_spoken_prompt(welcome_prompt_key)
         await _log_spoken_text(flow_manager, welcome_prompt)
-        await flow_manager.worker.queue_frame(TTSSpeakFrame(text=welcome_prompt))
+        await _queue_tts_frame_and_wait(flow_manager, welcome_prompt)
+        if _language_prompt_was_interrupted(flow_manager, initial_user_turn_count):
+            await _select_tts_language(flow_manager, Language.EN)
+            return
 
     english_prompt = prompts.get_spoken_prompt(action["english_prompt_key"])
     spanish_prompt = prompts.get_spoken_prompt(action["spanish_prompt_key"])
 
+    if _language_prompt_was_interrupted(flow_manager, initial_user_turn_count):
+        await _select_tts_language(flow_manager, Language.EN)
+        return
     await _select_tts_language(flow_manager, Language.EN)
     await _log_spoken_text(flow_manager, english_prompt)
-    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=english_prompt))
+    await _queue_tts_frame_and_wait(flow_manager, english_prompt)
+    if _language_prompt_was_interrupted(flow_manager, initial_user_turn_count):
+        await _select_tts_language(flow_manager, Language.EN)
+        return
     await _select_tts_language(flow_manager, Language.ES)
     await _log_spoken_text(flow_manager, spanish_prompt)
-    await flow_manager.worker.queue_frame(TTSSpeakFrame(text=spanish_prompt))
+    await _queue_tts_frame_and_wait(flow_manager, spanish_prompt)
+    if _language_prompt_was_interrupted(flow_manager, initial_user_turn_count):
+        await _select_tts_language(flow_manager, Language.EN)
+        return
     await _select_tts_language(flow_manager, Language.EN)
 
 
@@ -1713,8 +1828,9 @@ async def record_household_composition(
     flow_manager: FlowManager,
     number_of_other_adults: int,
     number_of_children: int,
+    known_members: list[dict[str, Any]] | None = None,
 ) -> tuple[IntakeFlowResult | dict[str, Any] | None, NodeConfig | None]:
-    """Propose household counts; the caller is always added to the adult total."""
+    """Propose household counts and preserve names supplied in the same answer."""
     if (
         not isinstance(number_of_other_adults, int)
         or isinstance(number_of_other_adults, bool)
@@ -1724,6 +1840,32 @@ async def record_household_composition(
             IntakeFlowResult(
                 status=Status.ERROR,
                 error="Please provide the number of adults other than the caller as zero or more.",
+            ).model_dump(exclude_none=True, mode="json"),
+            None,
+        )
+
+    normalized_known_members, known_members_error = _normalize_known_household_members(
+        known_members
+    )
+    if known_members_error:
+        return (
+            IntakeFlowResult(status=Status.ERROR, error=known_members_error).model_dump(
+                exclude_none=True, mode="json"
+            ),
+            None,
+        )
+    caller_key = _normalize_person_name(_caller_full_name(flow_manager) or "")
+    known_noncaller_members = [
+        member
+        for member in normalized_known_members or []
+        if not member.get("is_caller")
+        and _normalize_person_name(member["name"]) != caller_key
+    ]
+    if len(known_noncaller_members) > number_of_other_adults + number_of_children:
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="The known household members exceed the confirmed household count.",
             ).model_dump(exclude_none=True, mode="json"),
             None,
         )
@@ -1746,6 +1888,7 @@ async def record_household_composition(
         flow_manager,
         number_of_adults=number_of_adults,
         number_of_children=number_of_children,
+        known_members=normalized_known_members,
     )
     return None, NodeConfig(
         node_confirm_household_composition(number_of_adults, number_of_children)
@@ -1768,6 +1911,7 @@ async def confirm_household_composition(
 
     if not confirmed:
         _clear_household_composition_pending(flow_manager)
+        _clear_known_household_members(flow_manager)
         return None, NodeConfig(node_record_household_composition())
 
     _clear_household_composition_pending(flow_manager)
@@ -1776,21 +1920,26 @@ async def confirm_household_composition(
         number_of_adults=pending["number_of_adults"],
         number_of_children=pending["number_of_children"],
     )
-    if pending["number_of_adults"] == 1 and pending["number_of_children"] == 0:
-        only_member = HouseholdMembers.model_validate(
-            [
-                {
-                    "name": _caller_full_name(flow_manager) or "Caller",
-                    "relationship": "self",
-                    "is_caller": True,
-                }
-            ]
-        )
+    known_members = pending.get("known_members", [])
+    candidate_members = _known_household_members_with_caller(
+        flow_manager, known_members
+    )
+    expected_count = pending["number_of_adults"] + pending["number_of_children"]
+    complete = len(candidate_members) == expected_count and all(
+        isinstance(member.get("relationship"), str) and member["relationship"].strip()
+        for member in candidate_members
+    )
+    if complete:
+        validated_members = HouseholdMembers.model_validate(candidate_members)
         flow_manager.state["household_members"] = {
-            "members": only_member.model_dump(mode="json", exclude_none=True)
+            "members": validated_members.model_dump(mode="json", exclude_none=True)
         }
+        _clear_known_household_members(flow_manager)
         return result, NodeConfig(node_record_income())
 
+    flow_manager.state[_HOUSEHOLD_MEMBERS_KNOWN_KEY] = {
+        "members": candidate_members,
+    }
     return result, NodeConfig(node_record_household_members())
 
 
@@ -1798,6 +1947,19 @@ async def confirm_household_composition(
 async def record_household_members(
     flow_manager: FlowManager, members: list[dict]
 ) -> tuple[IntakeFlowResult | None, NodeConfig | None]:
+    if any(
+        isinstance(member, dict)
+        and isinstance(member.get("name"), str)
+        and _is_placeholder_household_member_name(member["name"])
+        for member in members
+    ):
+        return (
+            IntakeFlowResult(
+                status=Status.ERROR,
+                error="Ask for the actual name of each household member; do not use placeholder names such as Unknown Child 1.",
+            ),
+            None,
+        )
     try:
         validated_members = HouseholdMembers.model_validate(members)
     except ValidationError as e:
@@ -1868,6 +2030,7 @@ async def record_household_members(
                 None,
             )
 
+    _clear_known_household_members(flow_manager)
     return (
         HouseholdMembersResult(status=Status.SUCCESS, members=validated_members),
         NodeConfig(node_record_income()),
@@ -2063,7 +2226,11 @@ async def record_assets_other_property(
     )
     result = AssetCategoryResult(status=Status.SUCCESS, listing=assets_validated)
     next_node = NodeConfig(
-        node_record_assets_list(IntakeValidator.assets_prompt_text(merged_assets))
+        node_record_assets_list(
+            IntakeValidator.assets_prompt_text(
+                merged_assets, language=_caller_language(flow_manager)
+            )
+        )
     )
     return result, next_node
 

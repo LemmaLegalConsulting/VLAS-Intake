@@ -1,3 +1,4 @@
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import ExitStack
@@ -16,7 +17,7 @@ from openai import (
 from openai import (
     RateLimitError as OpenAIRateLimitError,
 )
-from pipecat.flows import ContextStrategy, FlowManager
+from pipecat.flows import ContextStrategy, FlowManager, NodeConfig
 from pipecat.frames.frames import (
     EndFrame,
     TTSSpeakFrame,
@@ -77,6 +78,26 @@ from intake_bot.utils.node_prompts import NodePrompts
 TransportSetup = Callable[
     [BaseTransport, PipelineWorker, FlowManager, str], Awaitable[None]
 ]
+
+
+def schedule_flow_initialization(
+    flow_manager: FlowManager,
+    initial_node: NodeConfig | None,
+    call_id: str,
+) -> asyncio.Task:
+    """Initialize a flow outside the transport processor task."""
+
+    async def initialize() -> None:
+        try:
+            await flow_manager.initialize(initial_node)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - background initialization must report failures
+            logger.exception(f"Flow initialization failed for call {call_id}")
+
+    task = asyncio.create_task(initialize(), name=f"flow-init-{call_id}")
+    cast(Any, flow_manager)._initialization_task = task
+    return task
 
 
 class StateContextFlowManager(FlowManager):
@@ -324,7 +345,7 @@ async def bot(runner_args: RunnerArguments):
 
                 flow_initialized = True
                 logger.info(log_message.format(call_id=call_id))
-                await flow_manager.initialize(node_start())
+                schedule_flow_initialization(flow_manager, node_start(), call_id)
 
         return configure_daily_transport
 
@@ -604,9 +625,9 @@ async def run_bot(
                 end_conversation,
             ],
         )
-
         flow_manager.state["call_id"] = call_id
         flow_manager.state["phone"] = caller_phone_number
+        flow_manager.state["_user_turn_started_count"] = 0
         flow_manager._transcript_handler = transcript_handler
         flow_manager._tts_services = {
             Language.EN: english_tts,
@@ -626,6 +647,9 @@ async def run_bot(
 
         @context_aggregator.user().event_handler("on_user_turn_started")
         async def on_user_turn_started(aggregator, strategy):
+            flow_manager.state["_user_turn_started_count"] = (
+                flow_manager.state.get("_user_turn_started_count", 0) + 1
+            )
             idle_retry_handler.reset()
 
         @context_aggregator.user().event_handler("on_user_turn_stopped")
@@ -666,6 +690,14 @@ async def run_bot(
         if configure_transport is not None:
             await configure_transport(transport, worker, flow_manager, call_id)
 
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info(f"""Client disconnected for call {call_id}""")
+            initialization_task = getattr(flow_manager, "_initialization_task", None)
+            if initialization_task is not None and not initialization_task.done():
+                initialization_task.cancel()
+            await worker.stop_when_done()
+
         @transport.event_handler("on_session_timeout")
         async def handle_timeout(transport, participant):
             logger.info("Call timed out; ending.")
@@ -680,11 +712,6 @@ async def run_bot(
                     EndFrame(),
                 ]
             )
-
-        @transport.event_handler("on_client_disconnected")
-        async def on_client_disconnected(transport, client):
-            logger.info(f"""Client disconnected for call {call_id}""")
-            await worker.stop_when_done()
 
         @worker.event_handler("on_pipeline_finished")
         async def on_pipeline_finished(worker, frame):

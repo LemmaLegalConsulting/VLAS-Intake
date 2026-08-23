@@ -15,7 +15,7 @@ from pipecat.transports.websocket.fastapi import (
 )
 from starlette.status import WS_1008_POLICY_VIOLATION
 
-from intake_bot.bot import run_bot
+from intake_bot.bot import run_bot, schedule_flow_initialization
 from intake_bot.nodes.nodes import node_start
 from intake_bot.utils.call_logging import runtime_log_filter
 from intake_bot.utils.ev import get_ev
@@ -262,7 +262,7 @@ def create_app(_env: str | None = None) -> FastAPI:
             async def on_client_connected(transport, client):
                 with logger.contextualize(call_id=call_id):
                     logger.info(f"""WebSocket client connected for call {call_id}""")
-                await flow_manager.initialize(node_start())
+                schedule_flow_initialization(flow_manager, node_start(), call_id)
 
         await run_bot(
             transport=transport,

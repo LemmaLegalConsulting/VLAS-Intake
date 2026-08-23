@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -10,8 +11,26 @@ from intake_bot.bot import (
     IdleRetryHandler,
     StateContextFlowManager,
     TranscriptHandler,
+    schedule_flow_initialization,
 )
 from intake_bot.utils.node_prompts import NodePrompts
+
+
+@pytest.mark.asyncio
+async def test_schedule_flow_initialization_runs_outside_callback():
+    initialized = asyncio.Event()
+
+    async def initialize(node):
+        initialized.set()
+
+    flow_manager = SimpleNamespace(initialize=initialize)
+    task = schedule_flow_initialization(
+        flow_manager, {"id": "record_language"}, "test-call"
+    )
+
+    assert not task.done()
+    await asyncio.wait_for(initialized.wait(), timeout=1.0)
+    await task
 
 
 def test_idle_retry_handler_progresses_through_prompts():

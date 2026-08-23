@@ -12,6 +12,7 @@ try:
     from text_client import (
         AzureCaller,
         TextScenarioResult,
+        _scenario_phone_number,
         run_text_scenario,
     )
 finally:
@@ -24,6 +25,13 @@ def test_scenario_loader_reads_expected_state_and_prompt():
     assert "celeste" in scripts
     assert "expected_state" in scripts["celeste"]
     assert "Scenario:" in build_caller_system_prompt("celeste", scripts)
+
+
+def test_scenario_phone_number_uses_expected_scenario_phone():
+    scripts = load_scripts()
+
+    assert _scenario_phone_number(scripts["angela"], "0000000000") == "(434) 555-0643"
+    assert _scenario_phone_number({}, "0000000000") == "0000000000"
 
 
 class FakeAzureResponse:
@@ -185,3 +193,4 @@ async def test_run_text_scenario_returns_final_state():
     assert result.call_id == "text-1"
     assert result.turn_count == 1
     assert result.state == {"name": "Taylor"}
+    assert result.assistant_transcript == ("What is your name?", "Thank you. Goodbye.")

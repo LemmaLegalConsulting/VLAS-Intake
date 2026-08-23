@@ -355,6 +355,31 @@ async def test_check_assets(assets_data, expected_eligible, expected_value):
     assert assets_value == expected_value
 
 
+def test_assets_prompt_text_uses_spoken_sentence_format():
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"savings account": 1200}, {"jewelry": 1500}]
+        )
+        == "savings account: $1,200 and jewelry: $1,500"
+    )
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"savings account": 1200}], language="Spanish"
+        )
+        == "cuenta de ahorros: $1,200"
+    )
+    assert (
+        IntakeValidator.assets_prompt_text([], language="Spanish")
+        == "No se han reportado bienes contables hasta ahora."
+    )
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"cash": 40}, {"jewelry": 1500}], language="Spanish"
+        )
+        == "efectivo: $40 y joyas: $1,500"
+    )
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("value", [True, False, 1.5, "100"])
 async def test_check_assets_rejects_boolean_and_non_integer_values(value):

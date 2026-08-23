@@ -222,6 +222,13 @@ def _new_call_id(script_name: str) -> str:
     return f"text-test-{script_name}-{uuid.uuid4().hex[:10]}"
 
 
+def _scenario_phone_number(script_config: dict[str, Any], fallback: str) -> str:
+    expected_state = script_config.get("expected_state", {})
+    phone = expected_state.get("phone", {}) if isinstance(expected_state, dict) else {}
+    configured = phone.get("phone_number") if isinstance(phone, dict) else None
+    return str(configured).strip() if configured else fallback
+
+
 def _azure_endpoint() -> str:
     endpoint = os.getenv("AZURE_LLM_ENDPOINT") or os.getenv("AZURE_CHATGPT_ENDPOINT")
     if not endpoint:
@@ -362,7 +369,7 @@ async def _run_one_from_cli(
         bot_llm=bot_llm,
         caller=caller,
         call_id=call_id,
-        caller_phone_number=args.phone,
+        caller_phone_number=_scenario_phone_number(script_config, args.phone),
         node_dependencies=node_dependencies,
         max_turns=args.max_turns,
     )

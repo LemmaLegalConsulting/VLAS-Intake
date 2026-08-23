@@ -167,16 +167,44 @@ class IntakeValidator:
             state.pop(state_key, None)
 
     @classmethod
-    def assets_prompt_text(cls, assets: list[dict]) -> str:
-        assets = cls.assets_filter_countable_entries(assets)
+    def assets_prompt_text(cls, assets: list[dict], language: str = "English") -> str:
+        normalized_language = language.strip().lower()
         if not assets:
-            return "No countable assets have been reported so far."
+            return (
+                "No se han reportado bienes contables hasta ahora."
+                if normalized_language == "spanish"
+                else "No countable assets have been reported so far."
+            )
 
+        labels = {
+            "spanish": {
+                "cash": "efectivo",
+                "savings": "ahorros",
+                "savings account": "cuenta de ahorros",
+                "checking": "cuenta corriente",
+                "checking account": "cuenta corriente",
+                "jewelry": "joyas",
+                "vacant land": "terreno baldío",
+                "land": "terreno",
+                "investments": "inversiones",
+                "stocks": "acciones",
+                "bonds": "bonos",
+                "crypto": "criptomonedas",
+                "business assets": "bienes del negocio",
+                "truck": "camioneta",
+                "vehicle": "vehículo",
+                "car": "vehículo",
+            }
+        }.get(normalized_language, {})
         asset_lines = []
-        for asset_entry in assets:
+        for asset_entry in cls.assets_filter_countable_entries(assets):
             for asset_name, value in asset_entry.items():
-                asset_lines.append(f"- {asset_name}: ${value}")
-        return "\n".join(asset_lines)
+                label = labels.get(asset_name.lower(), asset_name)
+                asset_lines.append(f"{label}: ${value:,}")
+        if len(asset_lines) == 1:
+            return asset_lines[0]
+        conjunction = "y" if normalized_language == "spanish" else "and"
+        return f"{', '.join(asset_lines[:-1])} {conjunction} {asset_lines[-1]}"
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         """

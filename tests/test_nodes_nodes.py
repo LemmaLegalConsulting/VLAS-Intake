@@ -115,8 +115,8 @@ async def _assert_spoken_next_node(
 def flow_manager():
     fm = MagicMock()
     fm.state = {}
-    fm.worker = MagicMock()
     fm.worker.queue_frame = AsyncMock()
+    fm.worker.flush_pipeline = AsyncMock(return_value=True)
     fm._tts_services = {
         Language.EN: MagicMock(name="english_tts"),
         Language.ES: MagicMock(name="spanish_tts"),
@@ -267,6 +267,73 @@ async def test_system_phone_number_queues_bilingual_language_prompt(
     assert (
         prompt_loader.get_spoken_prompt("record_language_prompt_spanish")
         == "Por favor, diga inglés o español para elegir su idioma preferido."
+    )
+
+
+@pytest.mark.asyncio
+async def test_initial_language_prompt_drains_each_utterance_before_switching(
+    flow_manager,
+):
+    events = []
+
+    async def record_queue(frame):
+        events.append(("queue", frame))
+
+    async def record_flush():
+        events.append(("flush",))
+        return True
+
+    flow_manager.worker.queue_frame = AsyncMock(side_effect=record_queue)
+    flow_manager.worker.flush_pipeline = AsyncMock(side_effect=record_flush)
+    action = node_record_language(include_initial_greeting=True)["pre_actions"][0]
+
+    with patch(
+        "intake_bot.nodes.nodes.get_deepgram_tts_voices",
+        side_effect=["voice-en", "voice-es", "voice-en"],
+    ):
+        await action["handler"](action, flow_manager)
+
+    tts_positions = [
+        index
+        for index, event in enumerate(events)
+        if event[0] == "queue" and isinstance(event[1], TTSSpeakFrame)
+    ]
+    assert len(tts_positions) == 3
+    assert all(events[index + 1][0] == "flush" for index in tts_positions)
+
+
+@pytest.mark.asyncio
+async def test_initial_language_prompt_stops_when_caller_starts_speaking(
+    flow_manager, prompt_loader
+):
+    flow_manager.state["_user_turn_started_count"] = 0
+    flush_count = 0
+
+    async def flush_and_interrupt():
+        nonlocal flush_count
+        flush_count += 1
+        if flush_count == 1:
+            flow_manager.state["_user_turn_started_count"] += 1
+        return True
+
+    flow_manager.worker.flush_pipeline = AsyncMock(side_effect=flush_and_interrupt)
+    action = node_record_language(include_initial_greeting=True)["pre_actions"][0]
+
+    with patch(
+        "intake_bot.nodes.nodes.get_deepgram_tts_voices",
+        side_effect=["voice-en", "voice-es", "voice-en"],
+    ):
+        await action["handler"](action, flow_manager)
+
+    spoken_texts = [
+        call.args[0].text
+        for call in flow_manager.worker.queue_frame.await_args_list
+        if isinstance(call.args[0], TTSSpeakFrame)
+    ]
+    assert spoken_texts == [prompt_loader.get_spoken_prompt("initial_greeting")]
+    assert (
+        flow_manager.worker.queue_frame.await_args_list[-1].args[0].service
+        is (flow_manager._tts_services[Language.EN])
     )
 
 
@@ -651,12 +718,19 @@ def test_context_aware_household_prompts_cover_transcript_regressions(prompt_loa
         "content"
     ]
     income_content = prompt_loader.get("record_income")["task_messages"][0]["content"]
+    case_content = prompt_loader.get("record_case_type")["task_messages"][0]["content"]
 
     assert "Besides you" in composition_content
     assert '"none," "no one," or "nobody"' in composition_content
+    assert "known_members" in composition_content
     assert "zero other adults and zero children" in composition_content
     assert "Is your [relationship] [known name]" in members_content
     assert "Never silently assume" in members_content
+    assert "Do not repeat any confirmed household names or counts" in members_content
+    assert "ask for that person's name and relationship together" in members_content
+    assert "Never use placeholders" in members_content
+    assert "do not ask a generic category question" in case_content
+    assert "Do not explain internal household exclusion rules" in income_content
     assert "Do not ask for them again" in income_content
     assert "whose `is_caller` field is true" in income_content
     assert "Do NOT speak the caller's name" in income_content
@@ -1550,6 +1624,85 @@ async def test_record_household_composition_valid(
     assert _household_composition_pending(flow_manager) is None
     assert "record_household_members_prompt" in next_node
     assert "pre_actions" not in next_node
+
+
+@pytest.mark.asyncio
+async def test_household_composition_preserves_known_members_and_skips_reask(
+    flow_manager, patch_validator
+):
+    flow_manager.state["names"] = {
+        "names": [{"first": "Celeste", "middle": "Caroline", "last": "Campbell"}]
+    }
+    patch_validator.check_household_composition = AsyncMock(return_value=(True, 3))
+
+    await record_household_composition(
+        flow_manager,
+        number_of_other_adults=0,
+        number_of_children=2,
+        known_members=[
+            {"name": "Celeste Caroline Campbell", "is_caller": True},
+            {"name": "James Campbell", "relationship": "child"},
+            {"name": "Thomas Campbell", "relationship": "child"},
+        ],
+    )
+
+    _, next_node = await confirm_household_composition(flow_manager, True)
+
+    assert "record_income_prompt" in next_node
+    assert flow_manager.state["household_members"]["members"] == [
+        {
+            "name": "Celeste Caroline Campbell",
+            "relationship": "self",
+            "is_caller": True,
+        },
+        {"name": "James Campbell", "relationship": "child", "is_caller": False},
+        {"name": "Thomas Campbell", "relationship": "child", "is_caller": False},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_household_composition_retains_known_name_when_relationship_missing(
+    flow_manager, patch_validator
+):
+    flow_manager.state["names"] = {
+        "names": [{"first": "Jon", "middle": "Patrick", "last": "Adamson"}]
+    }
+    patch_validator.check_household_composition = AsyncMock(return_value=(True, 2))
+
+    await record_household_composition(
+        flow_manager,
+        number_of_other_adults=1,
+        number_of_children=0,
+        known_members=[{"name": "Sarah Marshall"}],
+    )
+
+    _, _next_node = await confirm_household_composition(flow_manager, True)
+
+    assert flow_manager.state["household_members_known"] == {
+        "members": [
+            {"name": "Jon Patrick Adamson", "relationship": "self", "is_caller": True},
+            {"name": "Sarah Marshall", "is_caller": False},
+        ]
+    }
+
+
+@pytest.mark.asyncio
+async def test_household_members_rejects_placeholder_names(flow_manager):
+    flow_manager.state["household_composition"] = {
+        "number_of_adults": 1,
+        "number_of_children": 1,
+    }
+
+    result, next_node = await record_household_members(
+        flow_manager,
+        [
+            {"name": "Jon Adamson", "relationship": "self", "is_caller": True},
+            {"name": "Unknown Child 1", "relationship": "child"},
+        ],
+    )
+    assert result["status"] == Status.ERROR
+    assert "actual name" in result["error"]
+    assert next_node is None
 
 
 @pytest.mark.asyncio
