@@ -9,11 +9,11 @@ from intake_bot.models.validator import (
     Assets,
     CashAssets,
     HouseholdIncome,
-    IncomePeriod,
     InvestmentAssets,
     OtherPropertyAssets,
 )
 from intake_bot.services.classifier import Classifier
+from intake_bot.services.income import monthly_income_rows
 from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.services.poverty import poverty_scale_income_qualifies
 from intake_bot.services.reference_data import ReferenceDataLoader
@@ -317,26 +317,7 @@ class IntakeValidator:
         """
         Check the caller's income eligibility.
         """
-        total_monthly_income = 0.0
-        for member_income in income.root.values():
-            for income_detail in member_income.root.values():
-                amt = income_detail.amount
-                period = income_detail.period
-                if period == IncomePeriod.ANNUALLY:
-                    total_monthly_income += amt / 12
-                elif period == IncomePeriod.MONTHLY:
-                    total_monthly_income += amt
-                elif period == IncomePeriod.WEEKLY:
-                    total_monthly_income += (amt * 52) / 12
-                elif period == IncomePeriod.BIWEEKLY:
-                    total_monthly_income += (amt * 26) / 12
-                elif period == IncomePeriod.SEMI_MONTHLY:
-                    total_monthly_income += amt * 2
-                elif period == IncomePeriod.QUARTERLY:
-                    total_monthly_income += (amt * 4) / 12
-                else:
-                    raise ValueError(f"""Unknown period: {period}""")
-        total_monthly_income = int(total_monthly_income)
+        total_monthly_income = int(sum(row["monthly"] for row in monthly_income_rows(income)))
         if household_size is None or household_size < 1:
             household_size = max(len(income.root.keys()), 1)
         is_eligible = poverty_scale_income_qualifies(

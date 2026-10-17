@@ -302,9 +302,11 @@ class Classifier:
                         )
                     )
 
-        # Merge questions semantically
-        merged_questions = await self._semantically_merge_questions(all_question_objs)
-        final_top_questions = merged_questions[:3] if merged_questions else []
+        # Only spend another model call merging questions if a follow-up is needed.
+        needs_follow_up = not sorted_labels or sorted_labels[0][1] < self.follow_up_threshold
+        merged_questions = (await self._semantically_merge_questions(all_question_objs)
+                            if needs_follow_up and len(all_question_objs) > 1 else all_question_objs)
+        final_top_questions = merged_questions[:3] if needs_follow_up else []
 
         # Debug log all labels that survived voting
         if DEBUG and sorted_labels:
@@ -355,6 +357,14 @@ class Classifier:
             response_data["weighted_label_scores"] = dict(normalized_label_scores)
 
         logger.info(f"""_get_voted_results response_data: {response_data}""")
+        response_data["provider_votes"] = [
+            {"provider": provider, "code": taxonomy_dict[label["legal_problem_code"]],
+             "confidence": label.get("confidence", 1.0),
+             "weight": self.model_weights.get(provider, 1.0)}
+            for provider, result in results_with_providers if isinstance(result, dict)
+            for label in result.get("labels", [])
+            if label.get("legal_problem_code") in (taxonomy_dict or {})
+        ]
         return ClassificationResponse(**response_data)
 
     async def classify(

@@ -188,3 +188,9 @@ The root `server.py` file is only for local websocket testing and is intentional
         1. Connect to [http://localhost:5173](http://localhost:5173)
 
             The UI will automatically connect to `ws://localhost:9090` by default.
+
+## Public browser demo
+
+The standalone [Lemma Legal voice demo](demo/README.md) adds click-to-start browser audio,
+structured intake summaries, and Fly.io sleep/wake deployment configuration. It reuses
+this intake flow with case submission, SMS, and file persistence disabled explicitly.

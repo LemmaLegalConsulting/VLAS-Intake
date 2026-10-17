@@ -233,6 +233,8 @@ def _node_referral_and_end(
 async def _send_referral_sms(
     flow_manager: FlowManager, content: ReferralContent
 ) -> None:
+    if flow_manager.state.get("_demo_mode"):
+        return
     phone_number = _caller_phone_number(flow_manager)
     if not phone_number:
         logger.info(
@@ -511,7 +513,20 @@ async def record_case_type(
     Args:
         case_description (str): The description of the legal case that the caller has.
     """
+    if flow_manager.state.get("_demo_mode"):
+        flow_manager.state["_demo_classification"] = {
+            "status": "matching", "description": case_description,
+        }
     case_response = await validator.check_case_type(case_description=case_description)
+    if flow_manager.state.get("_demo_mode"):
+        flow_manager.state["_demo_classification"] = {
+            "status": "needs_details" if case_response.follow_up_questions else "matched",
+            "description": case_description,
+            "code": case_response.legal_problem_code,
+            "score": case_response.confidence,
+            "votes": case_response.provider_votes,
+            "questions": [q.question for q in case_response.follow_up_questions or []],
+        }
     logger.debug(f"""case_response: {case_response}""")
 
     # Check if we need to ask follow-up questions

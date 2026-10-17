@@ -18,6 +18,7 @@ class ClassificationResponse(BaseModel):
     confidence: Optional[float] = Field(default=None)
     is_eligible: Optional[bool] = Field(default=None)
     follow_up_questions: Optional[List[FollowUpQuestion]] = Field(default=None)
+    provider_votes: List[Dict[str, Any]] = Field(default_factory=list)
     # Debug fields (only populated when DEBUG mode is enabled)
     raw_provider_results: Optional[Dict[str, Any]] = Field(default=None)
     weighted_label_scores: Optional[Dict[str, float]] = Field(default=None)

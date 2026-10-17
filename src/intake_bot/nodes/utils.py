@@ -39,6 +39,11 @@ def convert_and_log_result(state_key: str):
     def decorator(func):
         @wraps(func)
         async def wrapper(flow_manager, *args, **kwargs):
+            if (flow_manager.state.get("_demo_mode")
+                    and not flow_manager.state.get("_demo_has_user_answer")):
+                return {"status": "error", "error":
+                        "The visitor has not answered yet. Ask the current question and wait. "
+                        "Do not record an answer from your own question or an example."}, None
             result, next_node = await func(flow_manager, *args, **kwargs)
             if isinstance(result, BaseModel):
                 flow_manager.state[state_key] = result.model_dump(

@@ -1170,6 +1170,11 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+demo = [
+    { name = "fastapi" },
+    { name = "pipecat-ai", extra = ["websocket"] },
+    { name = "uvicorn" },
+]
 dev = [
     { name = "fastapi" },
     { name = "pipecat-ai", extra = ["websocket"] },
@@ -1199,6 +1204,11 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+demo = [
+    { name = "fastapi", specifier = ">=0.136.1" },
+    { name = "pipecat-ai", extras = ["websocket"], specifier = ">=1.2.1" },
+    { name = "uvicorn", specifier = ">=0.47.0" },
+]
 dev = [
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "pipecat-ai", extras = ["websocket"], specifier = ">=1.2.1" },

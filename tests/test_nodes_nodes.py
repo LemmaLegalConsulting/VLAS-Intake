@@ -46,6 +46,37 @@ def flow_manager():
     return fm
 
 
+@pytest.mark.asyncio
+async def test_demo_cannot_record_before_visitor_answers(flow_manager):
+    flow_manager.state.update(_demo_mode=True, _demo_has_user_answer=False)
+    result, next_node = await record_language(flow_manager, "English")
+    assert result["status"] == "error"
+    assert next_node is None
+    assert "language" not in flow_manager.state
+    flow_manager.task.queue_frame.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_demo_can_record_after_visitor_answers(flow_manager):
+    flow_manager.state.update(_demo_mode=True, _demo_has_user_answer=True)
+    result, next_node = await record_language(flow_manager, "English")
+    assert result["status"] == "success"
+    assert flow_manager.state["language"] == {"language": "English"}
+    assert next_node is not None
+
+
+def test_demo_answer_rules_survive_prompt_transitions(monkeypatch):
+    monkeypatch.setenv("DEMO_REQUIRE_EXPLICIT_ANSWERS", "true")
+    prompts = NodePrompts()
+    for name in ("record_language", "record_phone_type", "record_name", "record_household_composition"):
+        messages = prompts.get(name)["task_messages"]
+        assert "Asking a question does not answer it" in messages[-1]["content"]
+        assert "reuse facts the visitor explicitly provided earlier" in messages[-1]["content"]
+    monkeypatch.delenv("DEMO_REQUIRE_EXPLICIT_ANSWERS")
+    assert all("Asking a question does not answer it" not in m["content"]
+               for m in prompts.get("record_language")["task_messages"])
+
+
 @pytest.fixture(autouse=True)
 def patch_validator(monkeypatch):
     validator_mock = MagicMock()
@@ -1409,3 +1440,15 @@ async def test_record_address_empty(flow_manager):
     assert result["status"] == Status.SUCCESS
     assert result.get("address") is None
     assert next_node is not None
+
+
+@pytest.mark.asyncio
+async def test_demo_never_sends_referral_sms(flow_manager):
+    from intake_bot.nodes.nodes import _send_referral_sms
+
+    flow_manager.state.update({"_demo_mode": True, "phone": "+12025550123"})
+    with patch("intake_bot.nodes.nodes.sms_service") as sms:
+        sms.is_configured = True
+        sms.send = AsyncMock()
+        await _send_referral_sms(flow_manager, GENERAL_REFERRAL)
+        sms.send.assert_not_awaited()

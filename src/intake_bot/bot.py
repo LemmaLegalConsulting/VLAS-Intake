@@ -59,7 +59,6 @@ from intake_bot.nodes.nodes import (
     node_initial,
 )
 from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
-from intake_bot.services.legalserver import save_intake_legalserver
 from intake_bot.utils.daily_dialin import (
     looks_like_daily_dialin_body,
     normalize_daily_dialin_body,
@@ -70,6 +69,13 @@ from intake_bot.utils.node_prompts import NodePrompts
 TransportSetup = Callable[
     [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
 ]
+
+
+async def save_intake_legalserver(state):
+    # Demo and browser sessions do not need case-system credentials at import time.
+    from intake_bot.services.legalserver import save_intake_legalserver as save
+
+    return await save(state)
 
 
 class TranscriptHandler:
@@ -300,6 +306,9 @@ async def run_bot(
     handle_sigint: bool,
     configure_transport: TransportSetup | None = None,
     user_idle_timeout_secs: float | None = None,
+    demo_mode: bool = False,
+    audio_out_sample_rate: int = 8000,
+    audio_in_sample_rate: int = 8000,
 ):
     """
     Main function to set up and run the VLAS intake bot.
@@ -364,7 +373,7 @@ async def run_bot(
             user_idle_timeout=resolved_user_idle_timeout_secs,
             user_turn_strategies=UserTurnStrategies(
                 start=[
-                    MinWordsUserTurnStartStrategy(min_words=2),
+                    MinWordsUserTurnStartStrategy(min_words=2, use_interim=not demo_mode),
                 ],
                 stop=[
                     TurnAnalyzerUserTurnStopStrategy(
@@ -410,7 +419,7 @@ async def run_bot(
 
     # Create transcript handler
     transcript_file = None
-    if ev_is_true("LOG_TO_FILE"):
+    if not demo_mode and ev_is_true("LOG_TO_FILE"):
         os.makedirs("logs", exist_ok=True)
         transcript_file = f"""logs/transcript_{call_id}.txt"""
         logger.info(f"""Logging transcript to file: {transcript_file}""")
@@ -437,11 +446,11 @@ async def run_bot(
     )
 
     observers = list()
-    if ev_is_true("ENABLE_TAIL_OBSERVER"):
+    if not demo_mode and ev_is_true("ENABLE_TAIL_OBSERVER"):
         from pipecat_tail.observer import TailObserver
 
         observers.append(TailObserver())
-    if ev_is_true("ENABLE_WHISKER"):
+    if not demo_mode and ev_is_true("ENABLE_WHISKER"):
         from pipecat_whisker import WhiskerObserver
 
         whisker = WhiskerObserver(pipeline)
@@ -450,8 +459,8 @@ async def run_bot(
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            audio_in_sample_rate=8000,
-            audio_out_sample_rate=8000,
+            audio_in_sample_rate=audio_in_sample_rate,
+            audio_out_sample_rate=audio_out_sample_rate,
             enable_metrics=True,
             enable_usage_metrics=True,
         ),
@@ -470,6 +479,9 @@ async def run_bot(
         ],
     )
 
+    if demo_mode:
+        flow_manager.state["_demo_mode"] = True
+        flow_manager.state["_demo_has_user_answer"] = False
     flow_manager.state["call_id"] = call_id
     flow_manager.state["phone"] = caller_phone_number
 
@@ -483,6 +495,8 @@ async def run_bot(
     async def on_empty_user_turn_recovery(
         aggregator, strategy, message: UserTurnStoppedMessage
     ):
+        if demo_mode and message.content and message.content.strip():
+            flow_manager.state["_demo_has_user_answer"] = True
         if not message.content or not message.content.strip():
             logger.warning(
                 f"""Empty user turn detected for call {call_id}; triggering idle recovery"""
@@ -532,6 +546,8 @@ async def run_bot(
 
     @task.event_handler("on_pipeline_finished")
     async def on_pipeline_finished(task, frame):
+        if demo_mode:
+            return
         log_flow_manager_state(flow_manager)
         await save_state_to_json(flow_manager.state)
         await save_intake_legalserver(flow_manager.state)
@@ -541,7 +557,7 @@ async def run_bot(
     # after the runner finishes running a task which could be useful for
     # long running applications with multiple clients connecting.
 
-    if ev_is_true("ENABLE_TAIL_RUNNER"):
+    if not demo_mode and ev_is_true("ENABLE_TAIL_RUNNER"):
         from pipecat_tail.runner import TailRunner
 
         runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)

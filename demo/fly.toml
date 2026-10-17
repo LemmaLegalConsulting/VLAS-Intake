@@ -1,0 +1,44 @@
+app = "lemma-voice-demo"
+primary_region = "iad"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+[build]
+  # Relative to this config; deploy with the repository root as build context.
+  dockerfile = "Dockerfile"
+
+[env]
+  DEMO_REQUIRE_EXPLICIT_ANSWERS = "true"
+  SMART_TURN_STOP_SECS = "2.0"
+  USER_TURN_STOP_TIMEOUT_SECS = "3.0"
+  AZURE_STT_TTFS_P99_LATENCY = "0.8"
+  DEMO_ALLOWED_ORIGINS = "https://lemma-voice-demo.fly.dev,https://voice.lemmalegal.com"
+  LOG_LEVEL = "WARNING"
+  LOG_TO_FILE = "false"
+  ENABLE_TAIL_OBSERVER = "false"
+  ENABLE_TAIL_RUNNER = "false"
+  ENABLE_WHISKER = "false"
+  LEGALSERVER_TESTING_DISABLE_CONNECTION = "true"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 1
+    hard_limit = 20
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-2x"
+  memory = "2gb"

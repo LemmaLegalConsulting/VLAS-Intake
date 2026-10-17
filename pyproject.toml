@@ -17,6 +17,11 @@
     version = "26.4.0"
 
 [dependency-groups]
+    demo = [
+        "fastapi>=0.136.1",
+        "uvicorn>=0.47.0",
+        "pipecat-ai[websocket]>=1.2.1",
+    ]
     dev = [
         "fastapi>=0.136.1",
         "pipecat-ai-cli>=1.2.1",

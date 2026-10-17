@@ -1,0 +1,16 @@
+**
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+!src/**
+!demo
+!demo/__init__.py
+!demo/app.py
+!demo/explain.py
+!demo/web
+!demo/web/**
+demo/web/node_modules
+demo/web/dist
+**/__pycache__
+**/.env*

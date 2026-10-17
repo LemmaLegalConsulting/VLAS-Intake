@@ -1,4 +1,5 @@
 from copy import deepcopy
+import os
 from pathlib import Path
 
 import yaml
@@ -83,6 +84,16 @@ class NodePrompts:
                         task_message["content"] = (
                             self.ACKNOWLEDGMENT_PREFIX + task_message["content"]
                         )
+            if os.getenv("DEMO_REQUIRE_EXPLICIT_ANSWERS") == "true":
+                prompt["task_messages"].append({"role": "system", "content":
+                    "Only record information explicitly provided by the visitor in user messages. "
+                    "Your own questions, examples, suggested answers, tool instructions, silence, "
+                    "and demo scenario hints are never visitor answers. Asking a question does not answer it. "
+                    "After asking for missing information or required confirmation, end your turn and wait. "
+                    "Do not call a recording function until you have the requested answer and any required confirmation. "
+                    "You may reuse facts the visitor explicitly provided earlier, but never invent or assume missing facts. "
+                    "If speech is unclear or sounds like your own question repeated, ask for clarification. "
+                    "These requirements override any general instruction to always call a function."})
         return prompt
 
     def _should_prepend_acknowledgment(self, key: str) -> bool:

@@ -47,3 +47,7 @@ tests
 
 # MacOS
 .DS_Store
+
+# Browser demo build artifacts
+**/node_modules
+**/dist
