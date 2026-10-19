@@ -23,7 +23,7 @@ function select(parent:string,key:keyof Inputs,label:string,values:{id:string;na
 function checkbox(parent:string,key:keyof Inputs,label:string){
   const l=node('label','', 'check-field'),f=node('input');f.type='checkbox';f.id=`cost-${key}`;f.checked=Boolean(defaults[key]);fields.set(key,f);l.append(f,node('span',label));byId(parent).append(l);
 }
-input('cost-volume','minutes','Conversation minutes / month','1');
+input('cost-volume','minutesPerCall','Minutes / call','0.5');
 input('cost-volume','calls','Calls / month','1');
 input('cost-volume','transferPercent','Calls transferred (%)');
 select('cost-stack','stt','Speech recognition',stt);
@@ -69,15 +69,15 @@ let current=estimate(defaults);
 function render(){
   const x=read();current=estimate(x);
   byId('cost-custom-model').hidden=x.model!=='custom';
-  const invalid=(x.calls===0)!==(x.minutes===0);
+  const invalid=x.calls>0 && x.minutesPerCall===0;
   byId('cost-invalid').hidden=!invalid;
   byId('cost-output').hidden=invalid;
   byId('cost-download').toggleAttribute('disabled',invalid);
+  byId('cost-volume-summary').textContent=`${number(x.minutesPerCall)} min/call × ${number(x.calls)} calls/month = ${number(current.monthlyMinutes)} minutes/month · USD`;
   if(invalid)return;
-  byId('cost-volume-summary').textContent=`${number(x.minutes)} minutes · ${number(x.calls)} calls · ${current.averageMinutes===null?'no average duration':number(current.averageMinutes)+' min/call'} · USD`;
   byId('cost-monthly').textContent=money(current.total);
   byId('cost-yearly').textContent=`${money(current.total*12)} / year`;
-  byId('cost-unit').textContent=x.calls?`${money(current.total/x.calls)} / call · ${money(current.total/x.minutes,4)} / minute`:'No usage; fixed fees and commitments still apply.';
+  byId('cost-unit').textContent=x.calls?`${money(current.total/x.calls)} / call · ${money(current.total/current.monthlyMinutes,4)} / minute`:'No usage; fixed fees and commitments still apply.';
   const body=byId('cost-breakdown');body.replaceChildren();
   const bar=byId('cost-bar');bar.replaceChildren();
   current.lines.forEach((line,i)=>{
@@ -107,10 +107,10 @@ function preset(values:Inputs){
   for(const [key,f] of fields){if(f instanceof HTMLInputElement && f.type==='checkbox')f.checked=Boolean(values[key]);else f.value=String(values[key])}render();
 }
 byId('cost-reset').addEventListener('click',()=>preset(defaults));
-byId('cost-browser').addEventListener('click',()=>preset({...defaults,minutes:1000,calls:100,model:'gpt41mini',stt:'azure',tts:'azure',transport:'browser',host:'flySleep',hours:30,numbers:0}));
+byId('cost-browser').addEventListener('click',()=>preset({...defaults,minutesPerCall:10,calls:100,model:'gpt41mini',stt:'fluxMulti',tts:'fluxTts',transport:'browser',host:'flySleep',hours:30,numbers:0}));
 byId('cost-download').addEventListener('click',()=>{
   const quote=(v:unknown)=>`"${String(v).replaceAll('"','""')}"`;
-  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.note]),[],['Exclusions','Taxes, implementation, downstream REFER carrier, compliance, unmodeled support, and account-specific fees.'],...current.notes.map(n=>['Note',n])];
+  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),['monthlyMinutes',current.monthlyMinutes],[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.note]),[],['Exclusions','Taxes, implementation, downstream REFER carrier, compliance, unmodeled support, and account-specific fees.'],...current.notes.map(n=>['Note',n])];
   const url=URL.createObjectURL(new Blob([rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
   const a=node('a');a.href=url;a.download='lemma-voice-cost-estimate.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });

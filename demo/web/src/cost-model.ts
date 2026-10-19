@@ -1,6 +1,6 @@
 import {models, stt, tts, transports, hosts} from './pricing-data.ts';
 export type Inputs = {
-  minutes:number; calls:number; transferPercent:number; transferMinutes:number; numbers:number;
+  minutesPerCall:number; calls:number; transferPercent:number; transferMinutes:number; numbers:number;
   model:string; stt:string; tts:string; transport:string; host:string;
   inputTokens:number; outputTokens:number; characters:number; audioTokens:number;
   customInput:number; customOutput:number; modelExtra:number;
@@ -11,7 +11,7 @@ export type Inputs = {
   blandCarrier:number; blandTransferCarrier:number; blandNumber:number;
 };
 export const defaults: Inputs = {
-  minutes:22000,calls:1500,transferPercent:0,transferMinutes:3,numbers:1,
+  minutesPerCall:15,calls:1500,transferPercent:0,transferMinutes:3,numbers:1,
   model:'gpt41mini',stt:'fluxMulti',tts:'fluxTts',transport:'dailyPstn',host:'cloud',
   inputTokens:525,outputTokens:157,characters:511.5,audioTokens:600,
   customInput:.4,customOutput:1.6,modelExtra:0,
@@ -20,7 +20,7 @@ export const defaults: Inputs = {
   telnyxModel:.0064,telnyxCarrier:.0032,blandCarrier:.0085,blandTransferCarrier:.0225,blandNumber:1.15,
 };
 export const limits: Partial<Record<keyof Inputs, number>> = {
-  minutes:1e7,calls:1e6,transferPercent:100,transferMinutes:120,numbers:10000,
+  minutesPerCall:120,calls:1e6,transferPercent:100,transferMinutes:120,numbers:10000,
   inputTokens:1e7,outputTokens:1e7,characters:1e6,audioTokens:1e6,
   hours:720,machines:10000,rootGb:10000,reserveHours:1e7,
 };
@@ -40,7 +40,7 @@ export type Line = {label:string;cost:number;basis:string;source?:string};
 export type Comparison = {name:string;monthly:number;note:string;source?:string;lines:Line[]};
 const pick = <T extends {id:string}>(values:T[],id:string):T => values.find(v=>v.id===id) ?? values[0];
 export function estimate(raw: Inputs) {
-  const x=normalize(raw), m=x.minutes;
+  const x=normalize(raw), m=x.minutesPerCall*x.calls;
   const model=pick(models,x.model), recognition=pick(stt,x.stt), voice=pick(tts,x.tts);
   const transport=pick(transports,x.transport),host=pick(hosts,x.host);
   const notes:string[]=[];
@@ -88,12 +88,12 @@ export function estimate(raw: Inputs) {
   if(isDaily && !isCloud) notes.push('Daily transport pricing shown is the Pipecat Cloud rate card. Confirm eligibility for Fly/VPS hosting; this combination needs a quote.');
   if(host.id.startsWith('fly') && m/60>x.machines*activeHours*2) notes.push('Capacity: these Fly active hours cannot fit the volume at two concurrent sessions per machine, even with perfect overlap.');
   if(host.id.startsWith('fly') && x.machines>1) notes.push('Multiple Fly machines require shared session routing/state; the current demo runs on one machine.');
-  if(m>0 && x.calls===0 || m===0 && x.calls>0) notes.push('Enter both monthly minutes and calls, or set both to zero. Per-call estimates require consistent volume.');
+  if(x.calls>0 && x.minutesPerCall===0) notes.push('Enter minutes per call greater than zero, or set calls per month to zero.');
   const total=lines.reduce((sum,line)=>sum+line.cost,0);
   const transfers=x.calls*x.transferPercent/100, transferMinutes=transfers*x.transferMinutes;
   // Telnyx bills the voice engine in 60-second increments. With only aggregate
   // inputs, rounding every call at the average duration is an estimate, not telemetry.
-  const roundedMinutes=x.calls?x.calls*Math.ceil(m/x.calls):m;
+  const roundedMinutes=x.calls?x.calls*Math.ceil(x.minutesPerCall):m;
   const comparisons:Comparison[]=[{name:'Your component stack',monthly:total,note:'Selected services, usage assumptions, and hosting.',lines}];
   for(const [name,fee,minute,transfer] of [['Bland Start',0,.14,.05],['Bland Build',299,.12,.04]] as const){
     const breakdown:Line[]=[
@@ -111,5 +111,5 @@ export function estimate(raw: Inputs) {
     {label:'Transfers',cost:transfers*.1,basis:'$0.10/transfer; downstream call excluded'},
   ];
   comparisons.push({name:'Telnyx Voice AI',monthly:telnyxLines.reduce((s,l)=>s+l.cost,0),note:'PAYG voice engine + model allowance + local inbound carrier. Uses average-call rounding; actual call lengths can cost more.',source:'https://telnyx.com/pricing/voice-ai-agents',lines:telnyxLines});
-  return {inputs:x,lines,total,comparisons,notes,referCount,roundedMinutes,averageMinutes:x.calls?m/x.calls:null};
+  return {inputs:x,monthlyMinutes:m,lines,total,comparisons,notes,referCount,roundedMinutes,averageMinutes:x.calls?m/x.calls:null};
 }

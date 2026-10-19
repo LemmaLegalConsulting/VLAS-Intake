@@ -146,14 +146,16 @@ first nonempty visitor turn.
 
 ### Case-study presentation
 
-The public page now covers the configured screening flow, a responsive component
-and data-flow diagram, an illustrative LegalServer API handoff, and an interactive
-operating-cost comparison. The handoff is documentation only: the demo never invokes
+The public page shows a plain-language, eight-step intake diagram ending in a
+completed LegalServer intake for staff review, plus an interactive operating-cost
+comparison. The handoff is documentation only: the demo never invokes
 the LegalServer client. The fictional conflict search is explicitly
 separate from the repository's adverse-party collection and export.
 
-The calculator starts from the client workbook's 22,000 monthly minutes and 1,500
-calls. It offers selectable STT, LLM, TTS, transport, and hosting, plus Bland Start,
+The calculator takes average minutes per call and calls per month, then derives
+monthly minutes for all cost comparisons and the CSV. It defaults to 15 minutes
+× 1,500 calls = 22,500 minutes; 15 minutes rounds the workbook’s original
+22,000 / 1,500 average. It offers selectable STT, LLM, TTS, transport, and hosting, plus Bland Start,
 Bland Build (with modeled BYOT carrier costs), and Telnyx Voice AI comparisons.
 Monthly, annual, per-call, and per-minute totals include explicit assumptions and
 can be exported as CSV. The workbook itself is not shipped in the public site.

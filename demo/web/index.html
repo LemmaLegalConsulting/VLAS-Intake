@@ -3,8 +3,8 @@
 <body><a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header"><a href="https://lemmalegal.com" class="brand"><img src="/brand/lemma-legal.svg" alt="Lemma Legal" width="156" height="55"></a><nav aria-label="Main navigation"><a href="https://lemmalegal.com">Home</a><a href="https://lemmalegal.com/what-we-build/">What We Build</a><a href="#demo">Voice demo</a><a href="#costs">Cost calculator</a></nav></header>
 <main id="main">
-<section class="case-hero" id="overview"><div class="hero-inner"><p class="eyebrow">Virginia Legal Aid Society · Voice intake</p><h1>Scaling legal aid for<br>rural Virginia.</h1><p class="intro">AI voice intake helps residents explain their legal problem and gives staff the details they need to follow up.</p><a class="button coral" href="#demo">Try the voice demo</a></div></section>
-<nav class="case-nav" aria-label="Case study sections"><a href="#demo">Try the demo</a><a href="#workflow">What intake covers</a><a href="#architecture">How it works</a><a href="#legalserver">Staff handoff</a><a href="#costs">Operating costs</a></nav>
+<section class="case-hero" id="overview"><div class="hero-inner"><p class="eyebrow">Virginia Legal Aid Society · Voice intake</p><h1>Scaling legal aid for<br>rural Virginia.</h1><p class="intro">Help rural residents complete intake by phone, with their story and screening details ready for staff in LegalServer.</p><a class="button coral" href="#demo">Try the voice demo</a></div></section>
+<nav class="case-nav" aria-label="Case study sections"><a href="#demo">Try the demo</a><a href="#architecture">The intake flow</a><a href="#legalserver">Completed intake</a><a href="#costs">Operating costs</a></nav>
 
 <div id="demo" class="chapter"></div>
 
@@ -69,100 +69,37 @@
 <div id="conflict-detail"></div>
 <p class="note">A name match prompts staff review; it does not establish a conflict.</p></article></div></section>
 
-<details id="workflow" class="technical">
-
-<summary>What the intake covers</summary>
-<ol class="workflow"><li>
-<h3>Establish the basics</h3>
-<p>Ask how to reach the caller and where they need help.</p></li><li>
-<h3>Understand the legal problem</h3>
-<p>Let callers explain what happened in their own words, with follow-up questions to clarify what they need.</p></li><li>
-<h3>Screen the household</h3>
-<p>Gather household and financial details to check the program’s eligibility rules and identify referral needs.</p></li><li>
-<h3>Prepare the handoff</h3>
-<p>Organize the caller’s story and screening details for staff review in LegalServer.</p></li></ol>
-<aside class="editor-note">The 300% poverty-guideline screen is specific to this project. Programs must validate their own rules and reference data.</aside></details>
-<section id="architecture" class="chapter">
-<p class="eyebrow">03 · SYSTEM ARCHITECTURE</p>
-<h2>One intake engine. Two entry points.</h2>
-<p class="intro">Browser and telephone intake share a Pipecat engine; each has its own deployment.</p>
-<figure class="architecture">
-<div class="arch-lanes">
-<div class="arch-node"><span class="badge">LIVE DEMO</span>
-<h3>Browser microphone</h3>
-<p>Click to start · echo cancellation<br>PCM audio over secure WebSocket</p></div>
-<div class="arch-node alternate"><span class="badge">PROJECT TELEPHONE PATH</span>
-<h3>Telephone caller</h3>
-<p>Daily PSTN dial-in → Daily transport<br>Separate deployment from this demo</p></div></div>
-<div class="arrow" aria-hidden="true">↓ audio into the shared pipeline ↓</div>
-<div class="arch-core">
-<h3>Pipecat + Pipecat Flows</h3>
-<div class="arch-pipeline">
-<div><b>Listen</b>
-<p>Deepgram Flux recognition<br>English + Spanish<br>Integrated turn detection</p></div><span aria-hidden="true">→</span>
-<div><b>Decide</b>
-<p>Azure language model<br>Flow nodes + typed tools<br>Answer validation</p></div><span aria-hidden="true">→</span>
-<div><b>Speak</b>
-<p>Deepgram Flux / Aura 2<br>Audio streamed to caller<br>Interruption support</p></div></div></div>
-<div class="arrow" aria-hidden="true">↕ tool calls and validated state</div>
-<div class="arch-lanes">
-<div class="arch-node">
-<h3>Screening services</h3>
-<p>County / FIPS reference data<br>LSC classifier ensemble<br>Income, benefits, and asset rules</p></div>
-<div class="arch-node">
-<h3>Structured intake state</h3>
-<p>Names · parties · household · narrative<br>Independent fields and screening outcomes</p></div></div>
-<div class="arrow" aria-hidden="true">↓ different outputs by deployment ↓</div>
-<div class="arch-lanes">
-<div class="arch-node"><span class="badge">LIVE DEMO</span>
-<h3>Browser summary</h3>
-<p>Live explanations + JSON download<br>In-memory session · no case submission<br>Fictional conflict-check illustration</p></div>
-<div class="arch-node alternate"><span class="badge">PROJECT ADAPTER</span>
-<h3>LegalServer API v2</h3>
-<p>Matter → related records → notes<br>Configured server-side credentials<br>Staff review in the case system</p></div></div><figcaption>The demo runs on one Fly Machine, with Azure language models and Deepgram speech.</figcaption></figure>
-<details class="technical"><summary>Deployment and turn-taking details</summary>
-<p>FastAPI and TypeScript run on one Fly Machine (2 shared CPUs, 2 GB RAM). Sessions stay in memory, last up to ten minutes, and are limited to two concurrent conversations.</p>
-<p>Voice activity detection, Smart Turn, and echo cancellation support natural turn-taking. Recognition and speaker-echo errors remain possible.</p>
-<p>Keeping the machine warm avoids startup delay. Speech recognition, turn detection, model generation, and synthesis still add latency; performance is not benchmarked.</p>
-<p>This demo combines the Azure + Deepgram intake flow with browser audio and isolated sample sessions.</p></details></section>
-<section id="legalserver" class="chapter">
-<p class="eyebrow">04 · FROM INTAKE TO CASE SYSTEM</p>
-<h2>How it goes into LegalServer.</h2>
-<p class="intro">The adapter validates the intake, creates a matter, and attaches related records using its UUID.</p>
-<p class="badge">ILLUSTRATIVE HANDOFF · NO LIVE LEGALSERVER CONNECTION</p>
-<div class="handoff">
-<div>
-<h3>A field-by-field translation</h3>
-<div class="table-scroll"><table><caption>Selected mappings implemented in the adapter</caption><thead><tr><th>Intake answer</th><th>LegalServer field</th></tr></thead><tbody><tr><td>Alex Parker</td><td><code>first_name / last_name</code></td></tr><tr><td>Private landlord / tenant issue</td><td><code>legal_problem_code: "63"</code></td></tr><tr><td>Campbell County</td><td><code>county_of_dispute.county_FIPS</code></td></tr><tr><td>2 adults, 1 child</td><td><code>number_of_adults / number_of_children</code></td></tr><tr><td>Income / asset screen</td><td><code>income_eligible / asset_eligible</code></td></tr><tr><td>Contact and address</td><td>Phone-type field, home address, county of residence</td></tr></tbody></table></div></div>
-<div class="record-preview">
-<p class="eyebrow">ILLUSTRATIVE REQUEST EXCERPT</p>
-<h3>Create the matter</h3><pre><code>POST /api/v2/matters
-{
-  "first_name": "Alex",
-  "last_name": "Parker",
-  "legal_problem_code": "63",
-  "county_of_dispute": {
-    "county_FIPS": "51031"
-  },
-  "number_of_adults": 2,
-  "number_of_children": 1,
-  "income_eligible": true
-}</code></pre>
-<p class="note">Fictional excerpt; not a complete request.</p></div></div>
-<ol class="write-sequence"><li><b>Create & validate</b>
-<p>Build a typed payload and POST to <code>/matters</code>. A successful response must include a matter UUID.</p></li><li><b>Attach structured records</b>
-<p>POST to <code>/matters/{uuid}/incomes</code>, <code>/adverse_parties</code>, and <code>/additional_names</code> as applicable.</p></li><li><b>Add the narrative</b>
-<p>Attach the narrative, assets, and applicable rejection notes at <code>/matters/{uuid}/notes</code>.</p></li></ol>
-<aside class="editor-note"><b>Staff review is still required.</b> Failed child writes can leave an incomplete matter; there is no transactional queue. Validate lookup fields and rejection rules for the receiving site. An unfinished intake without an address currently maps to “Other” rejection.</aside>
-<details class="technical"><summary>Conflict checking: what is real, what is illustrated?</summary>
-<p>The intake collects adverse parties. This demo checks two invented records, not LegalServer’s database. Production conflict checks require authorized data and staff review.</p></details></section>
+<section id="architecture" class="chapter" aria-labelledby="flow-title">
+<p class="eyebrow">From first call to completed intake</p>
+<h2 id="flow-title">A conversation. A completed intake in LegalServer.</h2>
+<p class="intro">The caller answers one question at a time. Staff receive an organized intake, ready to review.</p>
+<ol class="intake-flow" aria-label="Steps in a completed intake">
+<li><span class="step-number" aria-hidden="true">1</span><h3>Choose a language</h3><p>Continue in English or Spanish.</p></li>
+<li><span class="step-number" aria-hidden="true">2</span><h3>Share contact details</h3><p>Give a name and a number for follow-up.</p></li>
+<li><span class="step-number" aria-hidden="true">3</span><h3>Check the location</h3><p>Find out whether the program serves the caller’s area.</p></li>
+<li><span class="step-number" aria-hidden="true">4</span><h3>Explain the problem</h3><p>Tell the story and answer a few follow-up questions.</p></li>
+<li><span class="step-number" aria-hidden="true">5</span><h3>Identify people &amp; safety needs</h3><p>Name the other people involved and flag safety concerns.</p></li>
+<li><span class="step-number" aria-hidden="true">6</span><h3>Check household eligibility</h3><p>Review household size, income, benefits, and assets.</p></li>
+<li><span class="step-number" aria-hidden="true">7</span><h3>Finish the details</h3><p>Collect the remaining identity and address information.</p></li>
+<li class="flow-result"><span class="step-number" aria-hidden="true">8</span><h3>Completed intake in LegalServer</h3><p>Caller details, screening results, and the story together for staff review.</p></li>
+</ol>
+<p class="note">If the caller does not meet the program’s requirements, the conversation can offer referral information instead.</p>
+</section>
+<section id="legalserver" class="chapter" aria-labelledby="handoff-title">
+<p class="eyebrow">Ready for the intake team</p>
+<h2 id="handoff-title">Start with the intake already filled in.</h2>
+<div class="legalserver-outcome">
+<div><h3>One organized record</h3><ul><li>Caller’s name, contact details, and address</li><li>Legal problem and the caller’s story</li><li>Household, income, and eligibility information</li><li>Other people involved, for staff to review</li></ul></div>
+<div><h3>Staff take the next step</h3><p>Review the completed intake in LegalServer, check for conflicts, and decide how to help.</p><p class="note">Requires a configured LegalServer connection. This public demo shows a browser summary and does not submit an intake.</p></div>
+</div>
+</section>
 <section id="costs" class="chapter">
   <p class="eyebrow">Operating costs</p>
   <h2>Build your intake budget.</h2>
   <p class="intro">Choose your services and compare the running cost with hosted voice platforms.</p>
   <p class="note">USD · Rates checked October 19, 2026 · Planning estimates, not a quote.</p>
   <div class="calculator">
-    <div class="calculator-heading"><h3>Your call volume</h3><div class="preset-buttons"><button type="button" id="cost-reset" class="secondary">Spreadsheet defaults</button><button type="button" id="cost-browser" class="secondary">Small browser demo</button></div></div>
+    <div class="calculator-heading"><h3>Your call volume</h3><div class="preset-buttons"><button type="button" id="cost-reset" class="secondary">Reset estimate</button><button type="button" id="cost-browser" class="secondary">Small browser demo</button></div></div>
     <div id="cost-volume" class="cost-controls"></div>
     <p id="cost-volume-summary" class="note"></p>
     <h3>Choose your stack</h3>
@@ -177,7 +114,7 @@
       <h4>Hosting &amp; other costs</h4><div id="cost-hosting" class="cost-controls"></div>
       <h4>Hosted platform comparison</h4><div id="cost-platforms" class="cost-controls"></div>
     </details>
-    <p id="cost-invalid" role="status" hidden>Enter both monthly minutes and calls, or set both to zero.</p>
+    <p id="cost-invalid" role="status" hidden>Enter minutes per call greater than zero, or set calls per month to zero.</p>
     <div id="cost-output">
       <div class="cost-highlight" aria-live="polite" aria-atomic="true"><div><span>Your component stack / month</span><strong id="cost-monthly"></strong></div><div><p id="cost-yearly"></p><p id="cost-unit"></p></div></div>
       <div id="cost-bar" class="cost-bar" aria-hidden="true"></div>
@@ -190,7 +127,7 @@
     <button type="button" id="cost-download" class="secondary">Download estimate (CSV)</button>
   </div>
   <details class="technical"><summary>Sources &amp; changes from the spreadsheet</summary>
-    <p>Starts at the workbook’s 22,000 minutes and 1,500 calls per month. GPT-4.1 mini replaces the unverified PhoneLLM default; PhoneLLM and VPS budgets remain available as labeled workbook assumptions.</p>
+    <p>Starts at 15 minutes per call × 1,500 calls per month = 22,500 monthly minutes. The call length is rounded from the workbook’s 22,000 minutes across 1,500 calls. GPT-4.1 mini replaces the unverified PhoneLLM default; PhoneLLM and VPS budgets remain available as labeled workbook assumptions.</p>
     <p>Deepgram no longer charges extra to opt out of model improvement. Growth has one shared annual minimum. Google free characters are optional and never produce a negative bill. Azure speech is priced in audio hours and characters. Flux TTS is included as its own product; LMNT is unavailable. Rime Arcana is a legacy rate; Mist and Coda use the current rate card.</p>
     <p>Annual totals assume 12 identical months at today’s rates. Excludes taxes, implementation, LegalServer, unmodeled support, and carrier time after SIP REFER. Promotional credits are excluded. Telnyx rounding uses average call length; actual per-call rounding and account rates may differ.</p>
     <ul id="cost-source-links" class="source-links"></ul>
