@@ -34,11 +34,11 @@ test('Krisp free minutes are bounded and limited to Daily on Pipecat Cloud',()=>
  close(line(estimate({...defaults,minutesPerCall:10,calls:50,krisp:true}),'Krisp noise suppression'),0);
  assert.equal(estimate({...defaults,host:'flyWarm',krisp:true}).lines.some(l=>l.label==='Krisp noise suppression'),false);
 });
-test('REFER fees use transferred calls; Bland uses transferred minutes',()=>{
+test('REFER fees use transferred calls; Bland BYOT waives platform transfer fees',()=>{
  const r=estimate({...defaults,transferPercent:20,transferMinutes:3});
  close(line(r,'Telephone & transfers'),456);
- close(r.comparisons[1].lines.find(l=>l.label==='Transfer time').cost,45);
- close(r.comparisons[2].lines.find(l=>l.label==='Transfer time').cost,36);
+ close(r.comparisons[1].lines.find(l=>l.label==='Bland transfer fee').cost,0);
+ close(r.comparisons[2].lines.find(l=>l.label==='Bland transfer fee').cost,0);
 });
 test('Twilio includes updated Media Streams and local number rental',()=>{
  close(line(estimate({...defaults,transport:'twilioPstn'}),'Telephone & transfers'),284.95);
@@ -101,4 +101,22 @@ test('fractional call lengths and zero calls produce correct monthly volume',()=
  assert.equal(r.monthlyMinutes,7.5);
  assert.equal(r.roundedMinutes,9);
  assert.equal(estimate({...uiDefaults,calls:0}).monthlyMinutes,0);
+});
+
+test('Dialpad prices billable conversations independently of call duration',()=>{
+ const r=estimate(uiDefaults);
+ close(r.comparisons[4].monthly,2985);
+ close(estimate({...uiDefaults,minutesPerCall:30}).comparisons[4].monthly,2985);
+ close(estimate({...uiDefaults,dialpadBillablePercent:50,dialpadMonthly:200,dialpadCarrier:.01}).comparisons[4].monthly,1492.5+200+225);
+ close(estimate({...uiDefaults,calls:0,dialpadMonthly:200}).comparisons[4].monthly,200);
+ assert.equal(normalize({...uiDefaults,dialpadBillablePercent:150}).dialpadBillablePercent,100);
+});
+test('custom work is budgeted for all platforms, setup stays separate',()=>{
+ const baseline=estimate(uiDefaults);
+ const r=estimate({...uiDefaults,stackIntegration:10,blandIntegration:20,telnyxIntegration:30,dialpadIntegration:40,modelExtra:.02,maintenance:100,setupBudget:5000});
+ const hosting=[10,20,20,30,40];
+ r.comparisons.forEach((c,i)=>close(c.monthly-baseline.comparisons[i].monthly,hosting[i]+30+100));
+ close(r.total-baseline.total,140);
+ assert.equal(r.setupBudget,5000);
+ close(r.total,r.lines.reduce((s,l)=>s+l.cost,0));
 });

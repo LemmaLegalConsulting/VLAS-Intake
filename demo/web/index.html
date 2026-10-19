@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Using AI voice intake to help legal aid reach rural residents of Virginia. Try the demo and explore the cost of serving more callers."><title>Voice intake for rural Virginia · Lemma Legal</title><link rel="icon" type="image/svg+xml" href="/brand/lemma-mark.svg"></head>
 <body><a class="skip-link" href="#main">Skip to content</a>
-<header class="site-header"><a href="https://lemmalegal.com" class="brand"><img src="/brand/lemma-legal.svg" alt="Lemma Legal" width="156" height="55"></a><nav aria-label="Main navigation"><a href="https://lemmalegal.com">Home</a><a href="https://lemmalegal.com/what-we-build/">What We Build</a><a href="#demo">Voice demo</a><a href="#costs">Cost calculator</a></nav></header>
+<header class="site-header"><a href="https://lemmalegal.com" class="brand"><img src="/brand/lemma-legal.svg" alt="Lemma Legal" width="156" height="55"></a><nav aria-label="Main navigation"><a href="https://lemmalegal.com">Home</a><a href="https://lemmalegal.com/what-we-build/">What We Build</a><a href="#demo">Voice demo</a><a href="#costs">Cost calculator</a><a href="/compare/">Compare platforms</a></nav></header>
 <main id="main">
 <section class="case-hero" id="overview"><div class="hero-inner"><p class="eyebrow">Virginia Legal Aid Society · Voice intake</p><h1>Scaling legal aid for<br>rural Virginia.</h1><p class="intro">Help rural residents complete intake by phone, with their story and screening details ready for staff in LegalServer.</p><a class="button coral" href="#demo">Try the voice demo</a></div></section>
 <nav class="case-nav" aria-label="Case study sections"><a href="#demo">Try the demo</a><a href="#architecture">The intake flow</a><a href="#legalserver">Completed intake</a><a href="#costs">Operating costs</a></nav>
@@ -77,7 +77,7 @@
 <li><span class="step-number" aria-hidden="true">1</span><h3>Choose a language</h3><p>Continue in English or Spanish.</p></li>
 <li><span class="step-number" aria-hidden="true">2</span><h3>Share contact details</h3><p>Give a name and a number for follow-up.</p></li>
 <li><span class="step-number" aria-hidden="true">3</span><h3>Check the location</h3><p>Find out whether the program serves the caller’s area.</p></li>
-<li><span class="step-number" aria-hidden="true">4</span><h3>Explain the problem</h3><p>Tell the story and answer a few follow-up questions.</p></li>
+<li><span class="step-number" aria-hidden="true">4</span><h3>Explain the problem</h3><p>Tell the story. A simplified version of <a href="https://lemmalegal.com/fetch">FETCH</a> identifies the legal problem and guides follow-up questions.</p></li>
 <li><span class="step-number" aria-hidden="true">5</span><h3>Identify people &amp; safety needs</h3><p>Name the other people involved and flag safety concerns.</p></li>
 <li><span class="step-number" aria-hidden="true">6</span><h3>Check household eligibility</h3><p>Review household size, income, benefits, and assets.</p></li>
 <li><span class="step-number" aria-hidden="true">7</span><h3>Finish the details</h3><p>Collect the remaining identity and address information.</p></li>
@@ -93,10 +93,16 @@
 <div><h3>Staff take the next step</h3><p>Review the completed intake in LegalServer, check for conflicts, and decide how to help.</p><p class="note">Requires a configured LegalServer connection. This public demo shows a browser summary and does not submit an intake.</p></div>
 </div>
 </section>
+<section id="why-pipecat" class="chapter licensing-section">
+<p class="eyebrow">Why Pipecat?</p><h2>No software licensing fees.</h2>
+<p class="intro">Pipecat is a free, open-source framework for building maintainable AI voice tools that connect to the web or a phone line. It gives us the flexibility to handle legal intakes while keeping costs under our control.</p>
+<p>We pay for the services we use—AI, speech, phone calls, and hosting—and the work to build and maintain the intake. The Pipecat framework itself has no licensing fee.</p>
+<p><a href="/compare/">Compare Pipecat, Bland, Telnyx &amp; Dialpad →</a> · <a href="https://github.com/pipecat-ai/pipecat/blob/main/LICENSE">Open-source license</a></p>
+</section>
 <section id="costs" class="chapter">
   <p class="eyebrow">Operating costs</p>
   <h2>Build your intake budget.</h2>
-  <p class="intro">Choose your services and compare the running cost with hosted voice platforms.</p>
+  <p class="intro">Compare voice services and budget for the work that turns a call into a completed LegalServer intake.</p>
   <p class="note">USD · Rates checked October 19, 2026 · Planning estimates, not a quote.</p>
   <div class="calculator">
     <div class="calculator-heading"><h3>Your call volume</h3><div class="preset-buttons"><button type="button" id="cost-reset" class="secondary">Reset estimate</button><button type="button" id="cost-browser" class="secondary">Small browser demo</button></div></div>
@@ -105,6 +111,11 @@
     <h3>Choose your stack</h3>
     <div id="cost-stack" class="cost-controls"></div>
     <p class="note">Selections estimate costs; they do not change the voice demo. Different services require integration and testing.</p>
+    <details class="technical" open><summary>Legal-intake integration &amp; support budget</summary>
+      <p class="note">Every option needs your screening rules, a classifier such as our simplified <a href="https://lemmalegal.com/fetch">FETCH</a>, and a tested LegalServer connection. Hosted platforms can call custom services; those services may have their own costs. Enter hosting, extra model usage, and maintenance below. Zero means not budgeted, not free.</p>
+      <div id="cost-integration" class="cost-controls"></div>
+      <p id="cost-setup-summary" class="note" aria-live="polite"></p>
+    </details>
     <details class="technical"><summary>Usage, discounts &amp; billing assumptions</summary>
       <h4>Model and speech usage</h4><div id="cost-usage" class="cost-controls"></div>
       <div id="cost-custom-model" class="cost-controls" hidden></div>
@@ -116,11 +127,11 @@
     </details>
     <p id="cost-invalid" role="status" hidden>Enter minutes per call greater than zero, or set calls per month to zero.</p>
     <div id="cost-output">
-      <div class="cost-highlight" aria-live="polite" aria-atomic="true"><div><span>Your component stack / month</span><strong id="cost-monthly"></strong></div><div><p id="cost-yearly"></p><p id="cost-unit"></p></div></div>
+      <div class="cost-highlight" aria-live="polite" aria-atomic="true"><div><span>Your component stack / monthly subtotal</span><strong id="cost-monthly"></strong></div><div><p id="cost-yearly"></p><p id="cost-unit"></p></div></div>
       <div id="cost-bar" class="cost-bar" aria-hidden="true"></div>
       <div class="table-scroll"><table class="cost-table"><caption>Where the monthly budget goes</caption><thead><tr><th scope="col">Component</th><th scope="col">Rate &amp; billing basis</th><th scope="col">Monthly</th></tr></thead><tbody id="cost-breakdown"></tbody></table></div>
       <h3>Compare the same call volume</h3>
-      <p class="note">Bland uses bring-your-own-telephony rates; Telnyx uses its local inbound carrier and model allowance. Feature sets and call billing differ.</p>
+      <p class="note">Running-cost subtotals include the custom-work allowances above. Bland uses BYOT; Telnyx uses local inbound calling; Dialpad bills conversations. Dialpad plan and calling fees need a quote. <a href="/compare/">See what each platform includes and what still needs building.</a></p>
       <div id="cost-comparisons" class="cost-results"></div>
       <details id="cost-notes-wrap" class="technical"><summary>Notes for your selections</summary><ul id="cost-notes"></ul></details>
     </div>
@@ -129,7 +140,7 @@
   <details class="technical"><summary>Sources &amp; changes from the spreadsheet</summary>
     <p>Starts at 15 minutes per call × 1,500 calls per month = 22,500 monthly minutes. The call length is rounded from the workbook’s 22,000 minutes across 1,500 calls. GPT-4.1 mini replaces the unverified PhoneLLM default; PhoneLLM and VPS budgets remain available as labeled workbook assumptions.</p>
     <p>Deepgram no longer charges extra to opt out of model improvement. Growth has one shared annual minimum. Google free characters are optional and never produce a negative bill. Azure speech is priced in audio hours and characters. Flux TTS is included as its own product; LMNT is unavailable. Rime Arcana is a legacy rate; Mist and Coda use the current rate card.</p>
-    <p>Annual totals assume 12 identical months at today’s rates. Excludes taxes, implementation, LegalServer, unmodeled support, and carrier time after SIP REFER. Promotional credits are excluded. Telnyx rounding uses average call length; actual per-call rounding and account rates may differ.</p>
+    <p>Annual totals assume 12 identical months at today’s rates. Setup is shown separately. Excludes taxes, LegalServer, unmodeled support and account fees, and carrier time after SIP REFER. Zero allowances mean not budgeted. Bland BYOT transfer fees are waived; carrier legs still cost money. Promotional credits are excluded. Telnyx rounding uses average call length; actual per-call rounding and account rates may differ.</p>
     <ul id="cost-source-links" class="source-links"></ul>
   </details>
   <noscript><p>Enable JavaScript to use the cost calculator.</p></noscript>

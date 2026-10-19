@@ -35,7 +35,7 @@ input('cost-usage','inputTokens','Model input tokens / call minute','any','Count
 input('cost-usage','outputTokens','Model output tokens / call minute','any','Include reasoning tokens when billed.');
 input('cost-usage','characters','Voice characters / call minute','any','Workbook assumption: 511.5, independent of model token counts.');
 input('cost-usage','audioTokens','TTS audio tokens / call minute','any','OpenAI TTS only; 600 is an editable estimate, not measured usage.');
-input('cost-usage','modelExtra','Additional model budget / call ($)','0.01','For classification or other work not counted in the token estimate.');
+input('cost-integration','modelExtra','Extra classification / call ($)','0.01','Applied to every option. Only add usage not already covered by its voice model.');
 input('cost-custom-model','customInput','Custom input rate / million tokens ($)');
 input('cost-custom-model','customOutput','Custom output rate / million tokens ($)');
 checkbox('cost-discounts','growth','Deepgram Growth: $4,000/year prepaid minimum');
@@ -43,7 +43,7 @@ checkbox('cost-discounts','regular','Use Deepgram regular STT rates instead of c
 checkbox('cost-discounts','googleFree','Apply unused Google TTS monthly free allowance (1M characters)');
 checkbox('cost-discounts','krisp','Add Krisp noise suppression on Daily / Pipecat Cloud');
 input('cost-telephone','numbers','Local phone numbers','1');
-input('cost-telephone','transferMinutes','Minutes after transfer','any','Used for Bland’s transfer-time billing. Component stack uses SIP REFER event fees.');
+input('cost-telephone','transferMinutes','Minutes after transfer','any','Used for Bland BYOT carrier charges after transfer. Component stack uses SIP REFER event fees.');
 input('cost-telephone','sipRate','Daily SIP rate / minute ($)','any','Workbook $0.005 assumption; published range $0.003–$0.02.');
 input('cost-telephone','carrierRate','Extra upstream carrier / minute ($)','any','For SIP or destination surcharges on your component stack.');
 input('cost-hosting','machines','Fly machines','1');
@@ -57,6 +57,16 @@ input('cost-platforms','telnyxCarrier','Telnyx inbound carrier / minute ($)','an
 input('cost-platforms','blandCarrier','Bland BYOT inbound carrier / minute ($)');
 input('cost-platforms','blandTransferCarrier','Bland BYOT carrier / transfer minute ($)','any','Twilio assumption: $0.0085 inbound + $0.014 outbound.');
 input('cost-platforms','blandNumber','Bland BYOT number rental / month ($)');
+input('cost-integration','stackIntegration','Pipecat integration hosting / month ($)');
+input('cost-integration','blandIntegration','Bland integration hosting / month ($)');
+input('cost-integration','telnyxIntegration','Telnyx integration hosting / month ($)');
+input('cost-integration','dialpadIntegration','Dialpad integration hosting / month ($)');
+input('cost-integration','maintenance','Maintenance & support / month ($)','any','Same allowance for each option; actual effort varies.');
+input('cost-integration','setupBudget','One-time build & setup ($)','any','Separate from running costs. Shared starting budget, not a quote for any platform.');
+input('cost-platforms','dialpadConversation','Dialpad / billable conversation ($)','0.01','Published US voice rate: $1.99. Replace with your contracted rate.');
+input('cost-platforms','dialpadBillablePercent','Dialpad calls billable (%)','any','Default 100%. A responding agent that retrieves information or takes action can trigger billing, including transferred sessions.');
+input('cost-platforms','dialpadMonthly','Dialpad plan & seats / month ($)','any','Enter account-specific fees. Zero means excluded, not a free plan.');
+input('cost-platforms','dialpadCarrier','Dialpad calling / minute ($)','any','Enter any separate calling rate from your quote. Zero means excluded.');
 function read():Inputs{
   const result={...defaults};
   for(const [key,f] of fields){
@@ -75,6 +85,7 @@ function render(){
   byId('cost-download').toggleAttribute('disabled',invalid);
   byId('cost-volume-summary').textContent=`${number(x.minutesPerCall)} min/call × ${number(x.calls)} calls/month = ${number(current.monthlyMinutes)} minutes/month · USD`;
   if(invalid)return;
+  byId('cost-setup-summary').textContent=x.setupBudget?`One-time build & setup allowance: ${money(x.setupBudget)} per option, separate from monthly and annual running costs.`:'Build & setup: not yet budgeted. Monthly figures are running-cost subtotals, not complete project quotes.';
   byId('cost-monthly').textContent=money(current.total);
   byId('cost-yearly').textContent=`${money(current.total*12)} / year`;
   byId('cost-unit').textContent=x.calls?`${money(current.total/x.calls)} / call · ${money(current.total/current.monthlyMinutes,4)} / minute`:'No usage; fixed fees and commitments still apply.';
@@ -92,7 +103,7 @@ function render(){
     const unit=node('p',`${money(item.monthly*12)} / year${x.calls?' · '+money(item.monthly/x.calls)+'/call':''}`,'note');
     const details=node('details');details.append(node('summary','Cost breakdown'));
     const list=node('dl');for(const line of item.lines)list.append(node('dt',line.label),node('dd',money(line.cost)));details.append(list);
-    article.append(title,total,node('p','per month','cost-period'),unit,node('p',item.note,'note'),details);
+    article.append(title,total,node('p','monthly subtotal','cost-period'),unit,node('p',item.note,'note'),details);
     if(item.source)article.append(link('Provider pricing ↗',item.source));compare.append(article);
   }
   const notes=byId('cost-notes');notes.replaceChildren();
@@ -110,10 +121,10 @@ byId('cost-reset').addEventListener('click',()=>preset(defaults));
 byId('cost-browser').addEventListener('click',()=>preset({...defaults,minutesPerCall:10,calls:100,model:'gpt41mini',stt:'fluxMulti',tts:'fluxTts',transport:'browser',host:'flySleep',hours:30,numbers:0}));
 byId('cost-download').addEventListener('click',()=>{
   const quote=(v:unknown)=>`"${String(v).replaceAll('"','""')}"`;
-  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),['monthlyMinutes',current.monthlyMinutes],[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.note]),[],['Exclusions','Taxes, implementation, downstream REFER carrier, compliance, unmodeled support, and account-specific fees.'],...current.notes.map(n=>['Note',n])];
+  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),['monthlyMinutes',current.monthlyMinutes],[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.note]),[],['Exclusions','Taxes, LegalServer, downstream REFER carrier and unmodeled account fees. Setup budget is separate from running costs. Zero allowances are not estimates of free services.'],...current.notes.map(n=>['Note',n])];
   const url=URL.createObjectURL(new Blob([rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
   const a=node('a');a.href=url;a.download='lemma-voice-cost-estimate.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 const sourceList=byId('cost-source-links');
-for(const [label,url] of [['Deepgram',sources.deepgram],['Opt-out pricing change',sources.mip],['OpenAI','https://developers.openai.com/api/docs/pricing'],['Gemini',sources.googleModel],['Azure East US 2 retail rates',sources.azure],['Google STT',sources.googleStt],['Google TTS',sources.googleTts],['Daily / Pipecat',sources.daily],['Twilio US',sources.twilio],['Telnyx',sources.telnyx],['Bland',sources.bland],['Fly',sources.fly],['Rime',sources.rime],['LMNT closure',sources.lmnt]]){const li=node('li');li.append(link(label,url));sourceList.append(li)}
+for(const [label,url] of [['Deepgram',sources.deepgram],['Opt-out pricing change',sources.mip],['OpenAI','https://developers.openai.com/api/docs/pricing'],['Gemini',sources.googleModel],['Azure East US 2 retail rates',sources.azure],['Google STT',sources.googleStt],['Google TTS',sources.googleTts],['Daily / Pipecat',sources.daily],['Twilio US',sources.twilio],['Telnyx',sources.telnyx],['Bland',sources.bland],['Dialpad voice rates','https://www.dialpad.com/rates/ai-agent/'],['Dialpad billing rules','https://help.dialpad.com/hc/en-us/articles/54920201345179-AI-Agent-Conversations-Credits'],['Fly',sources.fly],['Rime',sources.rime],['LMNT closure',sources.lmnt]]){const li=node('li');li.append(link(label,url));sourceList.append(li)}
 render();
