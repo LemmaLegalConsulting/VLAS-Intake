@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {estimate,defaults as uiDefaults,normalize} from '../src/cost-model.ts';
+import {estimate,defaults as productionDefaults,normalize} from '../src/cost-model.ts';
 import {models,stt,tts,hosts,transports} from '../src/pricing-data.ts';
+const uiDefaults={...productionDefaults,modelExtra:0,stackIntegration:0,blandIntegration:0,telnyxIntegration:0,dialpadIntegration:0,maintenance:0,setupBudget:0,hostedMaintenance:0,hostedSetup:0,dialpadMonthly:0,dialpadCarrier:0};
 const defaults={...uiDefaults,minutesPerCall:22000/1500};
 const close=(actual,expected)=>assert.ok(Math.abs(actual-expected)<1e-8,`${actual} != ${expected}`);
 const line=(result,name)=>result.lines.find(l=>l.label===name).cost;
@@ -119,4 +120,29 @@ test('custom work is budgeted for all platforms, setup stays separate',()=>{
  close(r.total-baseline.total,140);
  assert.equal(r.setupBudget,5000);
  close(r.total,r.lines.reduce((s,l)=>s+l.cost,0));
+});
+
+test('public defaults include paid operations and hosted-backend work',()=>{
+ const r=estimate(productionDefaults);
+ close(r.total,2003.77075);
+ close(r.comparisons[3].monthly,2337);
+ close(r.comparisons[4].monthly,4455);
+ close(r.comparisons[0].setup,6000);
+ close(r.comparisons[3].setup,9000);
+ close(r.comparisons[3].monthly*12+r.comparisons[3].setup,37044);
+ for(const c of r.comparisons){
+  assert.ok(c.lines.find(l=>l.label==='Extra classification usage').cost>0);
+  assert.ok(c.lines.find(l=>l.label==='Maintenance & support').cost>0);
+ }
+ const zero=estimate({...productionDefaults,calls:0});
+ close(zero.total,625);
+ close(zero.comparisons[3].monthly,951);
+});
+test('hosted upkeep and setup affect only hosted platforms',()=>{
+ const r=estimate({...uiDefaults,hostedMaintenance:200,hostedSetup:3000});
+ const base=estimate(uiDefaults);
+ r.comparisons.forEach((c,i)=>{
+  close(c.monthly-base.comparisons[i].monthly,i?200:0);
+  close(c.setup,i?3000:0);
+ });
 });

@@ -9,18 +9,18 @@ export type Inputs = {
   sipRate:number; carrierRate:number; extraMonthly:number;
   telnyxModel:number; telnyxCarrier:number;
   stackIntegration:number; blandIntegration:number; telnyxIntegration:number; dialpadIntegration:number;
-  maintenance:number; setupBudget:number; dialpadConversation:number; dialpadBillablePercent:number; dialpadMonthly:number; dialpadCarrier:number;
+  maintenance:number; setupBudget:number; hostedMaintenance:number; hostedSetup:number; dialpadConversation:number; dialpadBillablePercent:number; dialpadMonthly:number; dialpadCarrier:number;
   blandCarrier:number; blandTransferCarrier:number; blandNumber:number;
 };
 export const defaults: Inputs = {
   minutesPerCall:15,calls:1500,transferPercent:0,transferMinutes:3,numbers:1,
   model:'gpt41mini',stt:'fluxMulti',tts:'fluxTts',transport:'dailyPstn',host:'cloud',
   inputTokens:525,outputTokens:157,characters:511.5,audioTokens:600,
-  customInput:.4,customOutput:1.6,modelExtra:0,
+  customInput:.4,customOutput:1.6,modelExtra:.03,
   growth:false,regular:false,googleFree:false,krisp:false,
   hours:400,machines:1,rootGb:2,reserveHours:0,vps:125,sipRate:.005,carrierRate:0,extraMonthly:0,
-  stackIntegration:0,blandIntegration:0,telnyxIntegration:0,dialpadIntegration:0,maintenance:0,setupBudget:0,
-  dialpadConversation:1.99,dialpadBillablePercent:100,dialpadMonthly:0,dialpadCarrier:0,
+  stackIntegration:25,blandIntegration:50,telnyxIntegration:50,dialpadIntegration:50,maintenance:600,setupBudget:6000,hostedMaintenance:300,hostedSetup:3000,
+  dialpadConversation:1.99,dialpadBillablePercent:100,dialpadMonthly:250,dialpadCarrier:.01,
   telnyxModel:.0064,telnyxCarrier:.0032,blandCarrier:.0085,blandTransferCarrier:.0225,blandNumber:1.15,
 };
 export const limits: Partial<Record<keyof Inputs, number>> = {
@@ -41,7 +41,7 @@ export function normalize(input: Inputs): Inputs {
   return result;
 }
 export type Line = {label:string;cost:number;basis:string;source?:string};
-export type Comparison = {name:string;monthly:number;note:string;source?:string;lines:Line[]};
+export type Comparison = {name:string;monthly:number;setup:number;note:string;source?:string;lines:Line[]};
 const pick = <T extends {id:string}>(values:T[],id:string):T => values.find(v=>v.id===id) ?? values[0];
 export function estimate(raw: Inputs) {
   const x=normalize(raw), m=x.minutesPerCall*x.calls;
@@ -93,19 +93,20 @@ export function estimate(raw: Inputs) {
   if(host.id.startsWith('fly') && m/60>x.machines*activeHours*2) notes.push('Capacity: these Fly active hours cannot fit the volume at two concurrent sessions per machine, even with perfect overlap.');
   if(host.id.startsWith('fly') && x.machines>1) notes.push('Multiple Fly machines require shared session routing/state; the current demo runs on one machine.');
   if(x.calls>0 && x.minutesPerCall===0) notes.push('Enter minutes per call greater than zero, or set calls per month to zero.');
-  const integrationLines=(monthly:number):Line[]=>[
+  const integrationLines=(monthly:number,hosted=false):Line[]=>[
     {label:'Custom integration hosting',cost:monthly,basis:'Your monthly allowance for classification and LegalServer services; zero means not budgeted'},
     {label:'Extra classification usage',cost:x.calls*x.modelExtra,basis:`${x.calls} calls × $${x.modelExtra}; shared assumption, exclude work already in the voice model`},
-    {label:'Maintenance & support',cost:x.maintenance,basis:'Shared monthly planning allowance; replace with a scoped estimate'},
+    {label:'Maintenance & support',cost:x.maintenance,basis:'Planning assumption: 4 hours/month × $150; editable, not a service quote'},
+    ...(hosted?[{label:'Platform-to-backend upkeep',cost:x.hostedMaintenance,basis:'Planning assumption: 2 extra hours/month × $150 for the hosted-platform connection'}]:[]),
   ];
   lines.push(...integrationLines(x.stackIntegration));
-  notes.push('These are running-cost subtotals, not turnkey intake quotes. Zero custom-work allowances mean not budgeted, not free. Setup is separate; LegalServer fees and unmodeled account charges are excluded.');
+  notes.push('Totals combine published usage rates with editable planning allowances, not measured production costs or vendor quotes. Zero custom-work allowances mean not budgeted, not free. Setup is separate; LegalServer fees and unmodeled account charges are excluded.');
   const total=lines.reduce((sum,line)=>sum+line.cost,0);
   const transfers=x.calls*x.transferPercent/100, transferMinutes=transfers*x.transferMinutes;
   // Telnyx bills the voice engine in 60-second increments. With only aggregate
   // inputs, rounding every call at the average duration is an estimate, not telemetry.
   const roundedMinutes=x.calls?x.calls*Math.ceil(x.minutesPerCall):m;
-  const comparisons:Comparison[]=[{name:'Your component stack',monthly:total,note:'Selected services, usage assumptions, and hosting.',lines}];
+  const comparisons:Comparison[]=[{name:'Your component stack',monthly:total,setup:x.setupBudget,note:'Selected voice services plus classification, operations, and maintenance allowances.',lines}];
   for(const [name,fee,minute] of [['Bland Start',0,.14],['Bland Build',299,.12]] as const){
     const breakdown:Line[]=[
       {label:'AI talk time',cost:m*minute,basis:`$${minute}/connected minute`},
@@ -113,8 +114,8 @@ export function estimate(raw: Inputs) {
       {label:'Bland transfer fee',cost:0,basis:'Waived for BYOT per Bland FAQ; carrier transfer legs still billed'},
       {label:'BYOT carrier & numbers',cost:m*x.blandCarrier+transferMinutes*x.blandTransferCarrier+x.numbers*x.blandNumber,basis:'Editable Twilio US local assumptions; transfer rate covers inbound + outbound legs'},
     ];
-    breakdown.push(...integrationLines(x.blandIntegration));
-    comparisons.push({name,monthly:breakdown.reduce((s,l)=>s+l.cost,0),note:'BYOT estimate: AI and speech bundled; carrier charges separate. No Bland transfer fee for BYOT. Custom-work allowances added; plan limits apply.',source:'https://www.bland.ai/pricing',lines:breakdown});
+    breakdown.push(...integrationLines(x.blandIntegration,true));
+    comparisons.push({name,setup:x.setupBudget+x.hostedSetup,monthly:breakdown.reduce((s,l)=>s+l.cost,0),note:'BYOT estimate: AI and speech bundled; carrier charges separate. No Bland transfer fee for BYOT. Custom-work allowances added; plan limits apply.',source:'https://www.bland.ai/pricing',lines:breakdown});
   }
   const telnyxLines:Line[]=[
     {label:'Voice engine',cost:roundedMinutes*.05,basis:`$0.05/min; ${roundedMinutes.toLocaleString('en-US')} estimated rounded minutes`},
@@ -122,14 +123,14 @@ export function estimate(raw: Inputs) {
     {label:'Carrier & numbers',cost:m*x.telnyxCarrier+x.numbers,basis:`$${x.telnyxCarrier}/min + $1/local number/month`},
     {label:'Transfers',cost:transfers*.1,basis:'$0.10/transfer; downstream call excluded'},
   ];
-  telnyxLines.push(...integrationLines(x.telnyxIntegration));
-  comparisons.push({name:'Telnyx Voice AI',monthly:telnyxLines.reduce((s,l)=>s+l.cost,0),note:'PAYG voice engine + model allowance + local inbound carrier. Uses average-call rounding; actual call lengths can cost more.',source:'https://telnyx.com/pricing/voice-ai-agents',lines:telnyxLines});
+  telnyxLines.push(...integrationLines(x.telnyxIntegration,true));
+  comparisons.push({name:'Telnyx Voice AI',setup:x.setupBudget+x.hostedSetup,monthly:telnyxLines.reduce((s,l)=>s+l.cost,0),note:'PAYG voice engine + model allowance + local inbound carrier. Uses average-call rounding; actual call lengths can cost more.',source:'https://telnyx.com/pricing/voice-ai-agents',lines:telnyxLines});
   const dialpadLines:Line[]=[
     {label:'AI voice conversations',cost:x.calls*x.dialpadBillablePercent/100*x.dialpadConversation,basis:`$${x.dialpadConversation}/billable conversation; ${x.dialpadBillablePercent}% of calls assumed billable`,source:'https://www.dialpad.com/rates/ai-agent/'},
-    {label:'Dialpad plan / seats allowance',cost:x.dialpadMonthly,basis:'Account-specific quote; zero means not budgeted'},
+    {label:'Dialpad plan / seats allowance',cost:x.dialpadMonthly,basis:'Planning allowance for account-specific fees; not a published Dialpad plan price'},
     {label:'Dialpad calling allowance',cost:m*x.dialpadCarrier,basis:'Editable per-minute allowance; confirm calling charges with Dialpad'},
-    ...integrationLines(x.dialpadIntegration),
+    ...integrationLines(x.dialpadIntegration,true),
   ];
-  comparisons.push({name:'Dialpad AI Agent',monthly:dialpadLines.reduce((s,l)=>s+l.cost,0),note:'Published $1.99/voice conversation, not per minute. Assumes one session per call and all calls billable unless adjusted. Plan, seats, calling and integration charges need allowances; this is a subtotal.',source:'https://www.dialpad.com/rates/ai-agent/',lines:dialpadLines});
+  comparisons.push({name:'Dialpad AI Agent',setup:x.setupBudget+x.hostedSetup,monthly:dialpadLines.reduce((s,l)=>s+l.cost,0),note:'Published $1.99/voice conversation, not per minute. Assumes one session per call and all calls billable unless adjusted. Plan, seats, calling and integration charges need allowances; this is a subtotal.',source:'https://www.dialpad.com/rates/ai-agent/',lines:dialpadLines});
   return {setupBudget:x.setupBudget,inputs:x,monthlyMinutes:m,lines,total,comparisons,notes,referCount,roundedMinutes,averageMinutes:x.calls?m/x.calls:null};
 }

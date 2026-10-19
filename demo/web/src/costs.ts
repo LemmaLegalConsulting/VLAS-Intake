@@ -35,7 +35,7 @@ input('cost-usage','inputTokens','Model input tokens / call minute','any','Count
 input('cost-usage','outputTokens','Model output tokens / call minute','any','Include reasoning tokens when billed.');
 input('cost-usage','characters','Voice characters / call minute','any','Workbook assumption: 511.5, independent of model token counts.');
 input('cost-usage','audioTokens','TTS audio tokens / call minute','any','OpenAI TTS only; 600 is an editable estimate, not measured usage.');
-input('cost-integration','modelExtra','Extra classification / call ($)','0.01','Applied to every option. Only add usage not already covered by its voice model.');
+input('cost-integration','modelExtra','Extra classification / call ($)','0.01','Planning allowance: $0.03 for separate FETCH model calls and follow-ups; not measured usage. Applied to every option.');
 input('cost-custom-model','customInput','Custom input rate / million tokens ($)');
 input('cost-custom-model','customOutput','Custom output rate / million tokens ($)');
 checkbox('cost-discounts','growth','Deepgram Growth: $4,000/year prepaid minimum');
@@ -57,16 +57,18 @@ input('cost-platforms','telnyxCarrier','Telnyx inbound carrier / minute ($)','an
 input('cost-platforms','blandCarrier','Bland BYOT inbound carrier / minute ($)');
 input('cost-platforms','blandTransferCarrier','Bland BYOT carrier / transfer minute ($)','any','Twilio assumption: $0.0085 inbound + $0.014 outbound.');
 input('cost-platforms','blandNumber','Bland BYOT number rental / month ($)');
-input('cost-integration','stackIntegration','Pipecat integration hosting / month ($)');
+input('cost-integration','stackIntegration','Pipecat supporting services / month ($)','any','Planning allowance: $25 for storage, monitoring, or supporting services beyond the selected app hosting.');
 input('cost-integration','blandIntegration','Bland integration hosting / month ($)');
 input('cost-integration','telnyxIntegration','Telnyx integration hosting / month ($)');
 input('cost-integration','dialpadIntegration','Dialpad integration hosting / month ($)');
-input('cost-integration','maintenance','Maintenance & support / month ($)','any','Same allowance for each option; actual effort varies.');
-input('cost-integration','setupBudget','One-time build & setup ($)','any','Separate from running costs. Shared starting budget, not a quote for any platform.');
+input('cost-integration','maintenance','Maintenance & support / month ($)','any','Planning assumption: 4 hours/month × $150 for intake rules, testing, and support on every option.');
+input('cost-integration','setupBudget','One-time build & setup ($)','any','Planning assumption: 40 hours × $150 to adapt and test the existing intake. Not a greenfield build or service quote.');
 input('cost-platforms','dialpadConversation','Dialpad / billable conversation ($)','0.01','Published US voice rate: $1.99. Replace with your contracted rate.');
 input('cost-platforms','dialpadBillablePercent','Dialpad calls billable (%)','any','Default 100%. A responding agent that retrieves information or takes action can trigger billing, including transferred sessions.');
-input('cost-platforms','dialpadMonthly','Dialpad plan & seats / month ($)','any','Enter account-specific fees. Zero means excluded, not a free plan.');
-input('cost-platforms','dialpadCarrier','Dialpad calling / minute ($)','any','Enter any separate calling rate from your quote. Zero means excluded.');
+input('cost-platforms','dialpadMonthly','Dialpad plan & seats / month ($)','any','Illustrative $250/month reserve, not a published plan price. Replace with a Dialpad quote.');
+input('cost-platforms','dialpadCarrier','Dialpad calling / minute ($)','any','Illustrative $0.01/minute calling reserve, not a published Dialpad rate. Replace with your quote.');
+input('cost-integration','hostedMaintenance','Hosted platform: extra upkeep / month ($)','any','Bland, Telnyx, and Dialpad: 2 extra hours/month × $150 for the connection to our backend. Editable estimate.');
+input('cost-integration','hostedSetup','Hosted platform: extra setup ($)','any','Bland, Telnyx, and Dialpad: 20 extra hours × $150 to expose and connect the existing backend, map state, and test failures.');
 function read():Inputs{
   const result={...defaults};
   for(const [key,f] of fields){
@@ -85,7 +87,7 @@ function render(){
   byId('cost-download').toggleAttribute('disabled',invalid);
   byId('cost-volume-summary').textContent=`${number(x.minutesPerCall)} min/call × ${number(x.calls)} calls/month = ${number(current.monthlyMinutes)} minutes/month · USD`;
   if(invalid)return;
-  byId('cost-setup-summary').textContent=x.setupBudget?`One-time build & setup allowance: ${money(x.setupBudget)} per option, separate from monthly and annual running costs.`:'Build & setup: not yet budgeted. Monthly figures are running-cost subtotals, not complete project quotes.';
+  byId('cost-setup-summary').textContent=x.setupBudget?`One-time setup: ${money(x.setupBudget)} for the existing Pipecat intake; ${money(x.setupBudget+x.hostedSetup)} for a hosted platform plus our backend. First-year budgets below include setup.`:'Build & setup: not yet budgeted. Monthly figures are running-cost subtotals, not complete project quotes.';
   byId('cost-monthly').textContent=money(current.total);
   byId('cost-yearly').textContent=`${money(current.total*12)} / year`;
   byId('cost-unit').textContent=x.calls?`${money(current.total/x.calls)} / call · ${money(current.total/current.monthlyMinutes,4)} / minute`:'No usage; fixed fees and commitments still apply.';
@@ -103,7 +105,7 @@ function render(){
     const unit=node('p',`${money(item.monthly*12)} / year${x.calls?' · '+money(item.monthly/x.calls)+'/call':''}`,'note');
     const details=node('details');details.append(node('summary','Cost breakdown'));
     const list=node('dl');for(const line of item.lines)list.append(node('dt',line.label),node('dd',money(line.cost)));details.append(list);
-    article.append(title,total,node('p','monthly subtotal','cost-period'),unit,node('p',item.note,'note'),details);
+    article.append(title,total,node('p','estimated monthly running cost','cost-period'),unit,node('p',`${money(item.setup)} one-time setup · ${money(item.monthly*12+item.setup)} first year`,'note'),node('p',item.note,'note'),details);
     if(item.source)article.append(link('Provider pricing ↗',item.source));compare.append(article);
   }
   const notes=byId('cost-notes');notes.replaceChildren();
@@ -121,7 +123,7 @@ byId('cost-reset').addEventListener('click',()=>preset(defaults));
 byId('cost-browser').addEventListener('click',()=>preset({...defaults,minutesPerCall:10,calls:100,model:'gpt41mini',stt:'fluxMulti',tts:'fluxTts',transport:'browser',host:'flySleep',hours:30,numbers:0}));
 byId('cost-download').addEventListener('click',()=>{
   const quote=(v:unknown)=>`"${String(v).replaceAll('"','""')}"`;
-  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),['monthlyMinutes',current.monthlyMinutes],[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.note]),[],['Exclusions','Taxes, LegalServer, downstream REFER carrier and unmodeled account fees. Setup budget is separate from running costs. Zero allowances are not estimates of free services.'],...current.notes.map(n=>['Note',n])];
+  const rows:unknown[][]=[['Voice intake cost estimate','USD',`Rates checked ${checkedOn}`],['Assumption','Value'],...Object.entries(current.inputs),['monthlyMinutes',current.monthlyMinutes],[],['Component','Monthly USD','Basis','Source'],...current.lines.map(l=>[l.label,l.cost.toFixed(6),l.basis,l.source??'User/workbook assumption']),[],['Comparison','Monthly USD','Annual running USD','One-time setup USD','First year USD','Notes'],...current.comparisons.map(c=>[c.name,c.monthly.toFixed(6),(c.monthly*12).toFixed(6),c.setup.toFixed(6),(c.monthly*12+c.setup).toFixed(6),c.note]),[],['Exclusions','Taxes, LegalServer, downstream REFER carrier and unmodeled account fees. Setup budget is separate from running costs. Zero allowances are not estimates of free services.'],...current.notes.map(n=>['Note',n])];
   const url=URL.createObjectURL(new Blob([rows.map(r=>r.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));
   const a=node('a');a.href=url;a.download='lemma-voice-cost-estimate.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
