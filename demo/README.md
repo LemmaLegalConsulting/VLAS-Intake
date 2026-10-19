@@ -149,16 +149,63 @@ operating-cost comparison. The handoff is documentation only: it does not import
 or enable the LegalServer client. The fictional conflict search is explicitly
 separate from the repository's adverse-party collection and export.
 
-`web/src/costs.ts` compares one sleeping machine, one warm machine, and two warm
-machines. Fly's published Ashburn 2 shared CPU / 2 GB price was checked October
-17, 2026 ($13.39 per 30-day month); stopped storage assumes 2 GB at $0.15/GB/month.
-Azure speech rates and the model-per-intake allowance are explicitly editable
-illustrative assumptions, not verified account rates or measured consumption.
-The page lists billing exclusions, formulas, source links, and capacity caveats.
-At the initial 100 ten-minute calls, estimates are $27.91 / $40.46 / $53.85
-per month for the three hosting scenarios. These are planning figures only.
+The calculator starts from the client workbook's 22,000 monthly minutes and 1,500
+calls. It offers selectable STT, LLM, TTS, transport, and hosting, plus Bland Start,
+Bland Build (with modeled BYOT carrier costs), and Telnyx Voice AI comparisons.
+Monthly, annual, per-call, and per-minute totals include explicit assumptions and
+can be exported as CSV. The workbook itself is not shipped in the public site.
 
-Validation: TypeScript/Vite build, desktop and 390px/320px browser checks,
-existing county/income/classification fixtures, calculator totals, zero-call
-hosting, capacity warning, and browser error monitoring. No voice-runtime code
-or credentials changed for this presentation update.
+`web/src/pricing-data.ts` holds the October 19, 2026 rate snapshot and primary
+source URLs. `cost-model.ts` contains the pure billing calculations; `costs.ts`
+binds controls and results. The default uses GPT-4.1 mini direct-API pricing in
+place of the unverified PhoneLLM allowance. PhoneLLM remains labeled as a workbook
+estimate, and direct OpenAI rates must not be mistaken for Azure deployment rates.
+
+Key updates from the workbook:
+
+- Deepgram opt-out no longer changes pricing (March 5, 2026 change). Current STT
+  promotions can be switched to regular rates. Growth applies one shared $4,000
+  annual prepaid minimum, allocated monthly; sufficient prepaid credits assumed.
+- Azure East US 2 retail API confirms S1 STT at $1/audio hour (meter
+  `3bd267f0-01d5-4348-ba67-70e2473f0c27`) and neural TTS at $15/M characters
+  (`0f98e708-a16c-407b-8089-a0ed9e14ab49`). No S1 free tier is assumed.
+- Google TTS deducts optional unused characters, not a flat dollar credit, with
+  costs bounded at zero. Google STT V2 uses marginal volume tiers.
+- Twilio Media Streams is $0.0044/min. Number rentals, REFER event fees, and
+  Bland's transfer-minute fees are separate. SIP-only routes exclude upstream
+  carrier costs unless entered. Daily's number rental is not assumed to be free.
+- Telnyx Voice AI has a $0.05/min engine plus model/carrier costs. The calculator
+  rounds the average call duration up to a minute for the engine; individual call
+  rounding may be higher. Its $0.0064/min model figure is a provider example,
+  not a token-based quote for the selected component model.
+- LMNT has shut down. Rime Mist/Coda use current character rates; Arcana is labeled
+  legacy. Deprecated OpenAI options are labeled. Flux TTS is a distinct product.
+- Fly replaces the workbook's flat $150 allowance with machine uptime and stopped
+  rootfs pricing. Multiple machines require changes to the demo's session routing.
+
+Validation:
+
+```sh
+npm test --prefix demo/web
+npm run build --prefix demo/web
+```
+
+The billing tests cover independent expected totals, tier boundaries, bounded free
+allowances, Growth commitments, transfers, number rental, reserved hosting, zero
+usage, and finite totals across provider choices. Browser checks exercise presets,
+custom model rates, invalid volume, CSV download, and 320–1440px layouts.
+
+### Brand assets and opening
+
+The page follows lemmalegal.com's measured layout and typography: Livvic 300 body,
+600 charcoal headings, snow background, rounded lavender panels, coral actions,
+and the same mountain cover photo. The opening focuses on rural access to legal
+aid; the technical workflow is available later in an expandable section.
+
+Local assets in `web/public/brand/` come from:
+
+- Official SVG logo and favicon: https://github.com/LemmaLegalConsulting/Logos,
+  commit `0f02f4b0a700351bc075780cdc2ae1db72389370`.
+- Livvic fonts: the main site's theme; OFL license included alongside the fonts.
+- Mountain cover: the main site's `egor-myznik-p7Zch98meq8-unsplash` image,
+  https://lemmalegal.com/wp-content/uploads/2025/06/egor-myznik-p7Zch98meq8-unsplash-1536x1028.jpg.
