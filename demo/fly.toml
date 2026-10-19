@@ -9,9 +9,10 @@ kill_timeout = "30s"
 
 [env]
   DEMO_REQUIRE_EXPLICIT_ANSWERS = "true"
-  SMART_TURN_STOP_SECS = "2.0"
-  USER_TURN_STOP_TIMEOUT_SECS = "3.0"
-  AZURE_STT_TTFS_P99_LATENCY = "0.8"
+  DEEPGRAM_STT_MODEL = "flux-general-multi"
+  DEEPGRAM_TTS_VOICE_EN = "flux-alexis-en"
+  DEEPGRAM_TTS_VOICE_ES = "aura-2-olivia-es"
+  EXTERNAL_TURN_STOP_TIMEOUT_SECS = "0.2"
   DEMO_ALLOWED_ORIGINS = "https://lemma-voice-demo.fly.dev,https://voice.lemmalegal.com"
   LOG_LEVEL = "WARNING"
   LOG_TO_FILE = "false"

@@ -2,7 +2,7 @@
 
 A browser front end and a small FastAPI host for the repository's actual intake flow. Click **Start voice demo**, allow the microphone, and speak with the assistant. **Finish & see summary** ends audio and displays the structured answers collected so far, with an optional JSON download. The intake can also end naturally.
 
-This uses the full Virginia sample screening, capped at ten minutes; it is not a shortened marketing script. It can ask for personal identifiers, so visitors are explicitly asked to use invented details. SSN and date of birth are excluded from the summary. No LegalServer submission, SMS, saved transcript, or state file is produced in demo mode. Azure still processes audio and conversation data under the account's provider settings.
+This uses the full Virginia sample screening, capped at ten minutes; it is not a shortened marketing script. It can ask for personal identifiers, so visitors are explicitly asked to use invented details. SSN and date of birth are excluded from the summary. No LegalServer submission, SMS, saved transcript, or state file is produced in demo mode. Deepgram processes speech and Azure processes conversation text under the accounts' provider settings.
 
 ## Folder layout and shared code
 
@@ -33,7 +33,7 @@ From the repository root:
 uv sync --no-dev --group demo --group test
 npm ci --prefix demo/web
 npm run --prefix demo/web build
-# Export the five Azure settings below into the process environment, then:
+# Export the four provider settings below into the process environment, then:
 uv run --no-dev --group demo uvicorn demo.app:app --host 127.0.0.1 --port 8080 --no-access-log --ws-max-size 65536
 ```
 
@@ -44,8 +44,7 @@ Open http://localhost:8080. The browser uses a local AudioWorklet for PCM captur
 - `AZURE_API_KEY`
 - `AZURE_LLM_ENDPOINT` (Azure resource root)
 - `AZURE_LLM_MODEL` (deployment name)
-- `AZURE_SPEECH_REGION`
-- `AZURE_SPEECH_VOICE`
+- `DEEPGRAM_API_KEY`
 
 The same Azure setup requirements as the main bot apply. Optional classifier deployment overrides are described in the root `.env.dist`. Export values rather than relying on the root `.env`: the demo checks configuration before importing the bot. Do not configure Dialpad or LegalServer credentials for this deployment.
 
@@ -56,7 +55,8 @@ Run commands from the repository root; the Docker build needs both `src/` and `d
 ```sh
 fly apps create lemma-voice-demo
 # Import a protected dotenv-format file through stdin, never commit it:
-fly secrets import --app lemma-voice-demo < /path/to/demo-azure.env
+fly secrets import --app lemma-voice-demo < /path/to/demo-voice.env
+git switch demo/azure-deepgram
 fly deploy --config demo/fly.toml --ha=false
 fly scale count 1 --app lemma-voice-demo
 ```
@@ -89,16 +89,20 @@ The main website must also permit the iframe origin in its CSP and microphone Pe
 
 ## Branch review
 
-Reviewed remote branches after fetching origin:
+The `demo/azure-deepgram` branch merges `refactor-cleanup` (`e7598bc`) with the
+browser demo and its latest branding/calculator changes. Fly builds the checked-out
+source; it is not automatically connected to a Git branch.
 
-- `main` (`e4e453c`): current Azure STT/LLM/TTS flow and browser WebSocket transport, reused here.
-- `deepgram` (`a688276`): switches speech services and adds turn handling. A provider change is optional for this demo, and needs different credentials.
-- `deepgram-flux` (`04e6cf3`) and `cartesia-flux` (`b3bc3b3`): alternate speech stacks on older Pipecat dependency lines. Not suitable for wholesale merge into current main.
-- `reduce-llm-deepgram` (`77ed9d7`): larger Pipecat 1.5 migration, prompt/latency improvements, handshake metadata, rate limiting, and lazy LegalServer credentials. This demo incorporates the latter two ideas, using opaque session tokens rather than caller details in URLs.
-- `refactor-cleanup` (`e7598bc`): most advanced continuation, with Pipecat 1.7, Flux, conversation continuity, and in-process text scenario coverage. Worth adopting as a separate core upgrade with its regression tests; cherry-picking only its bot file would mix incompatible APIs.
-- `dev` and `twilio-websockets` (`ea571d4`): older shared telephony implementation, not needed for a browser demo.
+The shared runtime uses Pipecat 1.7, Azure LLM, Deepgram Flux multilingual STT,
+streaming Flux English TTS (`flux-alexis-en`), and Aura 2 Spanish TTS
+(`aura-2-olivia-es`). It includes deterministic spoken prompts, structured state
+context, and the branch's conversation regression tests. Demo isolation and browser
+audio sample rates are explicitly preserved; telephone defaults stay at 8 kHz.
 
-Core changes are limited to an explicit `demo_mode` flag that suppresses persistence/observability/SMS and a lazy LegalServer import. Normal bot callers retain the default behavior. The new demo does not expose the root development server publicly.
+`deepgram` and `reduce-llm-deepgram` are earlier versions of this runtime. The old
+Cartesia branch is not the deployment baseline. No Cartesia or direct OpenAI key is
+required. Pipecat Cloud is a separate deployment; its deployed revision and secret
+set cannot be verified until organization access is available.
 
 ## Verification
 
@@ -107,46 +111,45 @@ Core changes are limited to an explicit `demo_mode` flag that suppresses persist
 npm run --prefix demo/web build
 ```
 
-Server tests cover session ownership, replay rejection, origin checks, capacity, expiration, hourly limits, missing credentials, timeout handling, and summary filtering. The Azure-backed WebSocket smoke test was exercised with synthetic speech and returned captured language data; browser layout/start/finish paths were exercised separately. A human microphone/speaker test remains useful: this headless WSL environment has no functioning audio output clock in Chromium. The native browser audio adapter initializes its context on the Start gesture and offers an explicit Enable audio fallback. DNS and TLS must be configured before browser microphone access on the public custom domain works.
+Server tests cover session ownership, replay rejection, origin checks, capacity, expiration, hourly limits, missing credentials, timeout handling, and summary filtering. Voice smoke tests use synthetic English and Spanish speech through the same WebSocket path as the browser; browser layout/start/finish paths are checked separately. A human microphone/speaker test remains useful: this headless WSL environment has no functioning audio output clock in Chromium. The native browser audio adapter initializes its context on the Start gesture and offers an explicit Enable audio fallback. DNS and TLS must be configured before browser microphone access on the public custom domain works.
 
-## Current deployment
-
-### Transparency and sample data
+## Transparency and sample data
 
 The page offers a worked fictional example alongside a separate **Your conversation** view. County/city suggestions come from `reference_data.yml`. During an active conversation only, the page refreshes the explanation every two seconds; polling stops when the conversation ends, preserving idle sleep behavior.
 
-The legal-issue panel shows the actual description, suggested LSC problem code, individual classifier votes and weights, and follow-up questions. The example mapping is explicitly illustrative. Provider scores are model-voting scores, not probabilities. High-confidence classifications no longer make an unnecessary call to merge unused follow-up questions.
+The legal-issue panel shows the actual description, suggested LSC problem code, individual classifier votes and weights, and follow-up questions. The example mapping is explicitly illustrative. Provider scores are model-voting scores, not probabilities. Follow-up questions are deduplicated locally without another model call.
 
 Income rows use the same `monthly_income_rows()` function as the validator. The panel displays each conversion, the truncated monthly total, household size, bundled poverty-guideline year, and the repository's 300% threshold. These are demonstration rules, not a promise of eligibility.
 
 Conflict checks compare collected opposing-party full names against two **fictional** records in `demo/explain.py`. Try **Jordan Vale** to match **DEMO-1042**. Matching ignores case, punctuation and whitespace; it does not connect to LegalServer, establish a real conflict, or stop the intake. The fictional example is never inserted into session state.
 
-The Fly demo uses 2-second Smart Turn silence fallback, a 3-second user-turn timeout, and a 0.8-second Azure transcription-latency allowance (previously 4.5, 7 and 1.5 seconds). Smart Turn and finalized-transcript interruption remain enabled. The interface distinguishes listening, preparing a response, and speaking, and reports response preparation time after the end-of-turn event. Longer pauses and cold starts can still occur.
+The Fly demo uses Flux's integrated turn detection with a 0.6 end-of-turn
+confidence threshold, an 800 ms silence fallback, and a 0.2-second external-turn
+stop timeout. The branch's eager threshold does not start speculative LLM calls;
+no eager-response speedup is claimed. The interface reports time from detected
+turn completion to the bot-speaking event, not physical speaker playback.
 
-Validation includes desktop/mobile rendering, live-panel fixture updates in a real browser session, example/session separation, HTML escaping, JSON download, real Azure classification, and unit tests of income conversions and fictional matching. A broader validator run found the pre-existing `South Boston` fuzzy-location test fails (matches `Southampton County`); that location is not used in the demo's county suggestions.
-
-### Hosting
+## Deployment
 
 - Public URL: https://voice.lemmalegal.com
 - Fly app: `lemma-voice-demo`, Lemma organization (`lemma`), `iad` region.
-- Azure: existing `quint-mln02sj6-eastus2` AI Services resource, `gpt-4.1-mini` intake deployment and `en-US-AvaMultilingualNeural` speech voice. Credentials are stored only in Fly secrets.
+- Runtime: Azure LLM plus Deepgram speech; provider credentials live in Fly secrets.
+- Branch: `demo/azure-deepgram`; deploy from the repository root with the command above.
 - SiteGround CNAME: `voice` → `kjx0meg.lemma-voice-demo.fly.dev`.
 - SiteGround TXT: `_fly-ownership.voice` → `app-kjx0meg`.
-- TLS certificate verified with Fly.
-- Deployment verified on October 17, 2026: HTTPS, browser start/finish and summary, and Azure-backed speech recognition and audio output over the public WebSocket. A stopped Machine woke and served the page in approximately 2.9 seconds; its first voice session also connected successfully. Voice-library imports run in a background thread to keep cold-start WebSocket handshakes responsive.
 
-The browser captures mono 16-bit PCM at 16 kHz, matching the demo pipeline and Azure speech recognition input. Playback remains 24 kHz. Unlike telephony transports, this WebSocket path does not resample incoming PCM automatically. Keep capture, WebSocket metadata, and pipeline input rates aligned. The microphone level meter reflects local captured audio, not server transcription.
-
-The demo keeps Pipecat Silero VAD and Smart Turn v3 enabled, and uses finalized transcriptions for turn-start detection. It requests browser `echoCancellation: "all"` where supported (with standard cancellation as fallback), retaining natural spoken interruption. The last finalized transcript is shown on screen. Fly enables `DEMO_REQUIRE_EXPLICIT_ANSWERS=true` to reinforce answer provenance at every intake step; recording functions also reject calls before the first nonempty visitor turn. Previously supplied facts can still be reused.
-
-Timing spot checks for the same synthetic “English please” answer measured 3.28 seconds from end of speech to first response text before tuning, and 3.89 / 3.15 seconds afterward. These small samples do not demonstrate a general latency improvement. The settings reduce fallback waits, while ordinary model/tool turnaround remains roughly 3–4 seconds. A separate real classification of the example returned code 63 in 2.61 seconds. First response text is not the same as first audible playback.
+The browser captures mono 16-bit PCM at 16 kHz and plays output at 24 kHz.
+Keep capture, WebSocket metadata, and pipeline input rates aligned. The browser
+requests echo cancellation and supports spoken interruption. The demo reinforces
+answer provenance at every intake step and rejects recording calls before the
+first nonempty visitor turn.
 
 ### Case-study presentation
 
 The public page now covers the configured screening flow, a responsive component
 and data-flow diagram, an illustrative LegalServer API handoff, and an interactive
-operating-cost comparison. The handoff is documentation only: it does not import
-or enable the LegalServer client. The fictional conflict search is explicitly
+operating-cost comparison. The handoff is documentation only: the demo never invokes
+the LegalServer client. The fictional conflict search is explicitly
 separate from the repository's adverse-party collection and export.
 
 The calculator starts from the client workbook's 22,000 monthly minutes and 1,500
@@ -209,3 +212,11 @@ Local assets in `web/public/brand/` come from:
 - Livvic fonts: the main site's theme; OFL license included alongside the fonts.
 - Mountain cover: the main site's `egor-myznik-p7Zch98meq8-unsplash` image,
   https://lemmalegal.com/wp-content/uploads/2025/06/egor-myznik-p7Zch98meq8-unsplash-1536x1028.jpg.
+
+### Voice migration verification
+
+The merge preserves no-SMS/no-persistence demo behavior and 16 kHz input / 24 kHz
+output. Regression tests cover inactive voice playback signals, returning flush
+probes, context installation before the interruptible opening, and cancellation
+on browser disconnect. These address stalls found during actual English and
+Spanish audio tests, beyond the branch's text-only coverage.

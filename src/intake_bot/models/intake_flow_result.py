@@ -1,14 +1,16 @@
 from enum import Enum
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from intake_bot.models.validator import (
     Address,
     AdverseParties,
     Assets,
     CallerNames,
     HouseholdIncome,
+    HouseholdMembers,
     PhoneTypeCaller,
 )
-from pydantic import BaseModel, ConfigDict
 
 
 class Status(str, Enum):
@@ -18,7 +20,7 @@ class Status(str, Enum):
 
 class IntakeFlowResult(BaseModel):
     status: Status
-    error: str = None
+    error: str | None = None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -69,6 +71,10 @@ class HouseholdCompositionResult(IntakeFlowResult):
     number_of_children: int
 
 
+class HouseholdMembersResult(IntakeFlowResult):
+    members: HouseholdMembers
+
+
 class IncomeResult(IntakeFlowResult):
     is_eligible: bool
     monthly_amount: int
@@ -87,9 +93,12 @@ class PhoneNumberResult(IntakeFlowResult):
 
 
 class ServiceAreaResult(IntakeFlowResult):
-    location: str
-    is_eligible: bool
-    fips_code: int
+    location: str | None = None
+    is_eligible: bool | None = None
+    fips_code: int | None = None
+    outcome: str = "unknown"
+    candidates: list[str] = Field(default_factory=list)
+    match_type: str | None = None
 
 
 class SSNLast4Result(IntakeFlowResult):

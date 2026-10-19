@@ -1,4 +1,5 @@
 import pytest
+
 from intake_bot.models.validator import (
     AssetEntry,
     Assets,
@@ -12,56 +13,82 @@ from intake_bot.nodes.validator import IntakeValidator
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "user_area,expected_match,expected_fips",
+    "adults,children,expected_valid",
     [
-        ("Amelia County", "Amelia County", 51007),  # exact match
-        ("Amelia", "Amelia County", 51007),  # partial match
-        (
-            "The legal incident happened in Amelia County.",
-            "Amelia County",
-            51007,
-        ),  # embedded canonical match
-        ("amalea", "Amelia County", 51007),  # WRatio partial match
-        ("AMILYA", "Amelia County", 51007),  # WRatio partial match
-        ("aml", "Amelia County", 51007),  # WRatio partial match
-        ("Nonexistent Place", "", 0),  # no match
-        ("amelia county", "Amelia County", 51007),  # case-insensitive match
-        ("Amelia County City", "Amelia County", 51007),  # extra words
-        ("Buckingham", "Buckingham County", 51029),  # another partial match
-        ("Danville", "Danville City", 51595),  # city match
-        ("Suffolk", "Suffolk City", 51800),  # city match without suffix
-        ("South Boston", "South Boston", 51083),  # exact city
-        ("Emporia", "Emporia City", 51600),  # city match
-        ("lynchburg", "Lynchburg City", 51680),  # lowercase city
-        ("Halifax", "Halifax County", 51083),  # partial county
-        ("", "", 0),  # empty string
+        (1, 0, True),
+        (2, 3, True),
+        (0, 0, False),
+        (1, -1, False),
+        (True, 0, False),
+        (1, False, False),
+        (20, 6, False),
     ],
 )
-async def test_check_service_area(user_area, expected_match, expected_fips):
+async def test_check_household_composition(adults, children, expected_valid):
+    valid, total = await IntakeValidator().check_household_composition(adults, children)
+
+    assert valid is expected_valid
+    expected_total = adults + children if expected_valid else 0
+    assert total == expected_total
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "user_area,expected_match,expected_fips,expected_outcome",
+    [
+        ("Amelia County", "Amelia County", 51007, "exact_match"),
+        ("Amelia", "Amelia County", None, "suggested"),
+        ("amelia", "Amelia County", None, "suggested"),
+        ("ameila", "Amelia County", None, "suggested"),
+        ("Nonexistent Place", None, None, "unresolved_service_area"),
+        ("amelia county", "Amelia County", 51007, "exact_match"),
+        ("Buckingham", "Buckingham County", None, "suggested"),
+        ("Danville", "Danville City", None, "suggested"),
+        ("Suffolk", "Suffolk City", None, "suggested"),
+        ("Martinsville City", "Martinsville City", 51690, "exact_match"),
+        ("Emporia", "Emporia City", None, "suggested"),
+        ("lynchburg", "Lynchburg City", None, "suggested"),
+        ("Halifax", "Halifax County", None, "suggested"),
+        ("", None, None, "unknown"),
+    ],
+)
+async def test_check_service_area(
+    user_area, expected_match, expected_fips, expected_outcome
+):
     validator = IntakeValidator()
-    match, fips_code = await validator.check_service_area(user_area)
-    assert match == expected_match
-    assert fips_code == expected_fips
+    resolved = await validator.check_service_area(user_area)
+    canonical = resolved.get("canonical_name")
+    if expected_match:
+        assert canonical == expected_match, (
+            f"Expected canonical {expected_match} but got {canonical} for '{user_area}' (outcome={resolved.get('outcome')})"
+        )
+    else:
+        assert canonical is None or canonical == "", (
+            f"Expected no match but got {canonical} for '{user_area}'"
+        )
+    assert resolved.get("fips") == expected_fips
+    if expected_outcome:
+        assert resolved.get("outcome") == expected_outcome
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "phone,expected_valid,expected_format",
     [
-        ("866-534-5243", True, "(866) 534-5243"),  # already formatted
-        ("8665345243", True, "(866) 534-5243"),  # digits only
-        ("+18665345243", True, "(866) 534-5243"),  # +1 then digits only
-        ("(866) 534-5243", True, "(866) 534-5243"),  # with parentheses and spaces
-        ("866.534.5243", True, "(866) 534-5243"),  # with dots
-        ("866 534 5243", True, "(866) 534-5243"),  # with spaces
-        ("866-5345-243", True, "(866) 534-5243"),  # wrong format
-        ("866a534f5243.", True, "(866) 534-5243"),  # letters/symbol mixed
+        ("866-534-5243", True, "+18665345243"),  # E.164 format
+        ("8665345243", True, "+18665345243"),  # digits only
+        ("+18665345243", True, "+18665345243"),  # +1 then digits only
+        ("(866) 534-5243", True, "+18665345243"),  # with parentheses and spaces
+        ("866.534.5243", True, "+18665345243"),  # with dots
+        ("866 534 5243", True, "+18665345243"),  # with spaces
+        ("866-5345-243", True, "+18665345243"),  # wrong format
+        ("866a534f5243.", True, "+18665345243"),  # letters/symbol mixed
         ("123-456-7890", False, "123-456-7890"),  # can't start with "1"
         ("abc-def-ghij", False, "abc-def-ghij"),  # letters only
         ("866534524", False, "866534524"),  # too short
         ("", False, ""),  # empty string
-        ("+1 (866) 534-5243", True, "(866) 534-5243"),  # international format
-        ("1-866-534-5243", True, "(866) 534-5243"),  # with leading 1
+        ("+1 (866) 534-5243", True, "+18665345243"),  # international format
+        ("1-866-534-5243", True, "+18665345243"),  # with leading 1
         ("+44 20 7946 0958", False, "+44 20 7946 0958"),  # non-US number
         ("911", False, "911"),  # emergency number
         ("000-000-0000", False, "000-000-0000"),  # invalid but correct length
@@ -124,7 +151,6 @@ async def test_valid_phone_number(phone, expected_valid, expected_format):
         ),  # not eligible, just over 300% poverty for month due to round()
         (100000, "Annually", False, 8333),  # not eligible, high yearly income
         (10000, "Monthly", False, 10000),  # not eligible, high monthly income
-        (1200, "Monthly", True, 1200),  # single member, low income
         (2400, "Monthly", True, 2400),  # single member, still eligible
         (3600, "Monthly", True, 3600),  # single member, just under
         (1200, "Annually", True, 100),  # very low yearly income
@@ -317,11 +343,7 @@ async def test_check_income_semi_monthly_ineligible():
         ([{"vacant land": 10000}], True, 10000),  # single countable asset at limit
         ([{"vacant land": 9999}, {"cash": 1}], True, 10000),  # just at limit
         ([{"vacant land": 9999}, {"cash": 2}], False, 10001),  # just over limit
-        (
-            [{"car": -1000}, {"savings": 2000}],
-            True,
-            1000,
-        ),  # countable vehicle still affects total
+        # Negative asset values are now rejected by AssetEntry validation (Phase 1)
     ],
 )
 async def test_check_assets(assets_data, expected_eligible, expected_value):
@@ -331,6 +353,47 @@ async def test_check_assets(assets_data, expected_eligible, expected_value):
     is_eligible, assets_value = await validator.check_assets(assets=assets)
     assert is_eligible == expected_eligible
     assert assets_value == expected_value
+
+
+def test_assets_prompt_text_uses_spoken_sentence_format():
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"savings account": 1200}, {"jewelry": 1500}]
+        )
+        == "savings account: $1,200 and jewelry: $1,500"
+    )
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"savings account": 1200}], language="Spanish"
+        )
+        == "cuenta de ahorros: $1,200"
+    )
+    assert (
+        IntakeValidator.assets_prompt_text([], language="Spanish")
+        == "No se han reportado bienes contables hasta ahora."
+    )
+    assert (
+        IntakeValidator.assets_prompt_text(
+            [{"cash": 40}, {"jewelry": 1500}], language="Spanish"
+        )
+        == "efectivo: $40 y joyas: $1,500"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [True, False, 1.5, "100"])
+async def test_check_assets_rejects_boolean_and_non_integer_values(value):
+    validator = IntakeValidator()
+
+    class _MalformedAssets:
+        root = [  # noqa: RUF012 - malformed class-level test fixture
+            type("_MalformedAssetEntry", (), {"root": {"savings": value}})()
+        ]
+
+    validator.assets_filter_countable_entries = lambda entries: entries
+
+    with pytest.raises(ValueError, match="Non-integer asset value"):
+        await validator.check_assets(_MalformedAssets())
 
 
 @pytest.mark.asyncio
@@ -361,10 +424,12 @@ async def test_check_date_of_birth(dob_input, expected_valid, expected_output):
 @pytest.mark.asyncio
 async def test_check_date_of_birth_future_date():
     """Test that future dates are rejected."""
-    from datetime import datetime, timedelta
+    from datetime import UTC, datetime, timedelta
 
     validator = IntakeValidator()
-    future_date = (datetime.now() + timedelta(days=1)).strftime("%m/%d/%Y")
+    future_date = (datetime.now(tz=UTC).astimezone() + timedelta(days=1)).strftime(
+        "%m/%d/%Y"
+    )
     is_valid, formatted_dob = await validator.check_date_of_birth(future_date)
     assert is_valid is False
     assert formatted_dob == ""
@@ -373,13 +438,27 @@ async def test_check_date_of_birth_future_date():
 @pytest.mark.asyncio
 async def test_check_date_of_birth_today():
     """Test that today's date is rejected (must be in the past)."""
-    from datetime import datetime
+    from datetime import UTC, datetime
 
     validator = IntakeValidator()
-    today = datetime.now().strftime("%m/%d/%Y")
+    today = datetime.now(tz=UTC).astimezone().strftime("%m/%d/%Y")
     is_valid, formatted_dob = await validator.check_date_of_birth(today)
     assert is_valid is False
     assert formatted_dob == ""
+
+
+@pytest.mark.asyncio
+async def test_check_date_of_birth_yesterday_is_accepted():
+    from datetime import UTC, datetime, timedelta
+
+    validator = IntakeValidator()
+    today = datetime.now(tz=UTC).astimezone()
+    yesterday = (today - timedelta(days=1)).strftime("%m/%d/%Y")
+
+    is_valid, formatted_dob = await validator.check_date_of_birth(yesterday)
+
+    assert is_valid is True
+    assert formatted_dob == (today - timedelta(days=1)).strftime("%Y-%m-%d")
 
 
 @pytest.mark.asyncio

@@ -1,9 +1,11 @@
 import re
-from datetime import datetime
+import unicodedata
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
 import yaml
+
 from intake_bot.models.classifier import ClassificationResponse
 from intake_bot.models.validator import (
     Assets,
@@ -18,16 +20,24 @@ from intake_bot.services.phonenumber import phone_number_is_valid
 from intake_bot.services.poverty import poverty_scale_income_qualifies
 from intake_bot.services.reference_data import ReferenceDataLoader
 from intake_bot.utils.globals import DATA_DIR
-from rapidfuzz import fuzz, process, utils
 
 
 def _load_asset_exemptions() -> tuple[frozenset[str], frozenset[str]]:
     path = Path(DATA_DIR) / "asset_exemptions.yml"
     with open(path) as f:
         data = yaml.safe_load(f)
+
+    def _norm(term: str) -> str:
+        ascii_term = (
+            unicodedata.normalize("NFKD", term)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        return re.sub(r"""[^a-z0-9]+""", " ", ascii_term.lower()).strip()
+
     return (
-        frozenset(data.get("single_words", [])),
-        frozenset(data.get("phrases", [])),
+        frozenset(_norm(w) for w in data.get("single_words", [])),
+        frozenset(_norm(p) for p in data.get("phrases", [])),
     )
 
 
@@ -48,7 +58,7 @@ class IntakeValidator:
         "assets_other_property",
     )
 
-    ASSET_VALIDATION_MODELS = {
+    ASSET_VALIDATION_MODELS = {  # noqa: RUF012 - immutable class-level registry
         AssetCategory.ALL: Assets,
         AssetCategory.CASH: CashAssets,
         AssetCategory.INVESTMENTS: InvestmentAssets,
@@ -58,9 +68,7 @@ class IntakeValidator:
     ASSET_EXEMPT_SINGLE_WORDS, ASSET_EXEMPT_PHRASES = _load_asset_exemptions()
 
     def __init__(self):
-        reference_data = ReferenceDataLoader()
-        self.service_areas = reference_data.service_areas
-        self.service_area_aliases = reference_data.service_area_aliases
+        self.reference_data = ReferenceDataLoader()
         self.classifier = Classifier()
 
     @classmethod
@@ -76,7 +84,12 @@ class IntakeValidator:
 
     @staticmethod
     def assets_normalize_name(asset_name: str) -> str:
-        return re.sub(r"""[^a-z0-9]+""", " ", asset_name.lower()).strip()
+        ascii_name = (
+            unicodedata.normalize("NFKD", asset_name)
+            .encode("ascii", "ignore")
+            .decode("ascii")
+        )
+        return re.sub(r"""[^a-z0-9]+""", " ", ascii_name.lower()).strip()
 
     @classmethod
     def assets_is_exempt(cls, asset_name: str) -> bool:
@@ -87,10 +100,7 @@ class IntakeValidator:
         if normalized_name in cls.ASSET_EXEMPT_SINGLE_WORDS:
             return True
 
-        if any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES):
-            return True
-
-        return False
+        return any(phrase in normalized_name for phrase in cls.ASSET_EXEMPT_PHRASES)
 
     @classmethod
     def assets_filter_countable_entries(cls, asset_entries: list[dict]) -> list[dict]:
@@ -98,6 +108,14 @@ class IntakeValidator:
 
         for asset_entry in asset_entries:
             for asset_name, value in asset_entry.items():
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
+                        f"Asset value for '{asset_name}' must be an integer, got {type(value).__name__}"
+                    )
+                if value < 0:
+                    raise ValueError(
+                        f"Asset value for '{asset_name}' must be non-negative, got {value}"
+                    )
                 if cls.assets_is_exempt(asset_name):
                     continue
                 filtered_entries.append({asset_name: value})
@@ -149,16 +167,44 @@ class IntakeValidator:
             state.pop(state_key, None)
 
     @classmethod
-    def assets_prompt_text(cls, assets: list[dict]) -> str:
-        assets = cls.assets_filter_countable_entries(assets)
+    def assets_prompt_text(cls, assets: list[dict], language: str = "English") -> str:
+        normalized_language = language.strip().lower()
         if not assets:
-            return "No countable assets have been reported so far."
+            return (
+                "No se han reportado bienes contables hasta ahora."
+                if normalized_language == "spanish"
+                else "No countable assets have been reported so far."
+            )
 
+        labels = {
+            "spanish": {
+                "cash": "efectivo",
+                "savings": "ahorros",
+                "savings account": "cuenta de ahorros",
+                "checking": "cuenta corriente",
+                "checking account": "cuenta corriente",
+                "jewelry": "joyas",
+                "vacant land": "terreno baldío",
+                "land": "terreno",
+                "investments": "inversiones",
+                "stocks": "acciones",
+                "bonds": "bonos",
+                "crypto": "criptomonedas",
+                "business assets": "bienes del negocio",
+                "truck": "camioneta",
+                "vehicle": "vehículo",
+                "car": "vehículo",
+            }
+        }.get(normalized_language, {})
         asset_lines = []
-        for asset_entry in assets:
+        for asset_entry in cls.assets_filter_countable_entries(assets):
             for asset_name, value in asset_entry.items():
-                asset_lines.append(f"- {asset_name}: ${value}")
-        return "\n".join(asset_lines)
+                label = labels.get(asset_name.lower(), asset_name)
+                asset_lines.append(f"{label}: ${value:,}")
+        if len(asset_lines) == 1:
+            return asset_lines[0]
+        conjunction = "y" if normalized_language == "spanish" else "and"
+        return f"{', '.join(asset_lines[:-1])} {conjunction} {asset_lines[-1]}"
 
     async def check_phone_number(self, phone_number: str) -> tuple[bool, str]:
         """
@@ -204,8 +250,8 @@ class IntakeValidator:
         ]
         for fmt in formats:
             try:
-                dob = datetime.strptime(cleaned, fmt)
-                if dob.date() >= datetime.now().date():
+                dob = datetime.strptime(cleaned, fmt)  # noqa: DTZ007 - civil date
+                if dob.date() >= datetime.now(tz=UTC).astimezone().date():
                     return False, ""
                 return True, dob.strftime("%Y-%m-%d")
             except ValueError:
@@ -257,49 +303,23 @@ class IntakeValidator:
             return True, cleaned
         return False, ""
 
-    async def check_service_area(self, location: str) -> tuple[str, int]:
+    async def check_service_area(self, location: str) -> dict:
         """
-        Check if the caller's location or legal problem occurred in an eligible service area based on the city or county name.
-
-        Returns:
-            tuple[str, int]: (matched_location, fips_code) where fips_code is 0 if no match found
+        Check if the caller's location or legal problem occurred in an eligible service area.
+        Returns a structured result dict with keys:
+          - outcome: str — "exact_match", "suggested", "ambiguous", "unserved",
+                     "unknown"
+          - canonical_name: str | None
+          - fips: int | None
+          - is_eligible: bool | None
+          - candidates: list[str]
+          - match_type: str | None
         """
-        normalized_location = ReferenceDataLoader._normalize_service_area_text(location)
-        if not normalized_location:
-            return "", 0
+        return self.reference_data.resolve_service_area(location)
 
-        alias_match = self.service_area_aliases.get(normalized_location)
-        if alias_match:
-            return alias_match
-
-        embedded_alias_match = max(
-            (
-                (alias, match_data)
-                for alias, match_data in self.service_area_aliases.items()
-                if re.search(rf"""\b{re.escape(alias)}\b""", normalized_location)
-            ),
-            key=lambda item: len(item[0]),
-            default=None,
-        )
-        if embedded_alias_match:
-            return embedded_alias_match[1]
-
-        match = process.extractOne(
-            location,
-            self.service_areas.keys(),
-            scorer=fuzz.WRatio,
-            score_cutoff=50,
-            processor=utils.default_process,
-        )
-
-        if match:
-            matched_location = match[0]
-            fips_code = self.service_areas.get(matched_location, 0)
-            return matched_location, fips_code
-        else:
-            return "", 0
-
-    async def check_case_type(self, case_description: str) -> ClassificationResponse:
+    async def check_case_type(
+        self, case_description: str, language: str = "English"
+    ) -> ClassificationResponse:
         """
         Check if the caller's legal problem is a type of case that we can handle.
 
@@ -309,7 +329,9 @@ class IntakeValidator:
         - is_eligible: bool (False if code starts with "00")
         - follow_up_questions: Optional questions if confidence is below threshold
         """
-        return await self.classifier.classify(problem_description=case_description)
+        return await self.classifier.classify(
+            problem_description=case_description, language=language
+        )
 
     async def check_income(
         self, income: HouseholdIncome, household_size: int | None = None
@@ -317,6 +339,15 @@ class IntakeValidator:
         """
         Check the caller's income eligibility.
         """
+        for member_income in income.root.values():
+            for income_detail in member_income.root.values():
+                amt = income_detail.amount
+                if not isinstance(amt, int) or isinstance(amt, bool):
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
+                        f"Non-integer income amount: {amt}"
+                    )
+                if amt < 0:
+                    raise ValueError(f"Negative income amount: {amt}")
         total_monthly_income = int(sum(row["monthly"] for row in monthly_income_rows(income)))
         if household_size is None or household_size < 1:
             household_size = max(len(income.root.keys()), 1)
@@ -325,30 +356,26 @@ class IntakeValidator:
             household_size=household_size,
             multiplier=3.0,
         )
-        return is_eligible, total_monthly_income, household_size
+        return bool(is_eligible), total_monthly_income, household_size
 
     async def check_assets(self, assets: Assets) -> tuple[bool, int]:
-        """
-        Check the caller's assets eligibility.
-
-        Args:
-            assets (Assets): Pydantic RootModel wrapping a list of AssetEntry (each a dict[str,int])
-
-        Returns:
-            (is_eligible, assets_value)
-        """
         vlas_assets_limit: int = 10_000
 
         total_value = 0
-        countable_assets = self.assets_filter_countable_entries(
-            [asset_entry.root for asset_entry in assets.root]
+        countable_entries = self.assets_filter_countable_entries(
+            [entry.root for entry in assets.root]
         )
-        for asset_entry in countable_assets:
+        for asset_entry in countable_entries:
             for value in asset_entry.values():
-                total_value += int(value)
-        assets_value: int = int(total_value)
-        is_eligible: bool = vlas_assets_limit >= assets_value
-        return is_eligible, assets_value
+                if not isinstance(value, int) or isinstance(value, bool):
+                    raise ValueError(  # noqa: TRY004 - validation API uses ValueError
+                        f"Non-integer asset value: {value}"
+                    )
+                if value < 0:
+                    raise ValueError(f"Negative asset value: {value}")
+                total_value += value
+        is_eligible: bool = vlas_assets_limit >= total_value
+        return is_eligible, total_value
 
     async def check_household_composition(
         self, adults: int, children: int
@@ -363,7 +390,12 @@ class IntakeValidator:
         Returns:
             tuple[bool, int]: (is_valid, total_household_size)
         """
-        if not isinstance(adults, int) or not isinstance(children, int):
+        if (
+            not isinstance(adults, int)
+            or isinstance(adults, bool)
+            or not isinstance(children, int)
+            or isinstance(children, bool)
+        ):
             return False, 0
 
         if adults < 1:

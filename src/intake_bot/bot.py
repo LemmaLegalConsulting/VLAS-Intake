@@ -1,27 +1,31 @@
-import os
+import asyncio
+import json
 from collections.abc import Awaitable, Callable
+from contextlib import ExitStack
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import aiofiles
 from loguru import logger
-from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
-
-try:
-    from pipecat.audio.filters.krisp_viva_filter import KrispVivaFilter
-except Exception:
-    KrispVivaFilter = None
-
-from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
-from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
-from pipecat.audio.vad.silero import SileroVADAnalyzer
-from pipecat.audio.vad.vad_analyzer import VADParams
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+)
+from openai import (
+    APIError as OpenAIAPIError,
+)
+from openai import (
+    RateLimitError as OpenAIRateLimitError,
+)
+from pipecat.flows import ContextStrategy, FlowManager, NodeConfig
 from pipecat.frames.frames import (
     EndFrame,
     TTSSpeakFrame,
     UserIdleTimeoutUpdateFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from intake_bot.speech_switcher import SpeechServiceSwitcher as ServiceSwitcher
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     AssistantTurnStoppedMessage,
@@ -30,14 +34,12 @@ from pipecat.processors.aggregators.llm_response_universal import (
     LLMUserAggregatorParams,
     UserTurnStoppedMessage,
 )
-from pipecat.utils.context.llm_context_summarization import (
-    LLMAutoContextSummarizationConfig,
-    LLMContextSummaryConfig,
-)
 from pipecat.runner.types import DailyDialinRequest, RunnerArguments
 from pipecat.services.azure.llm import AzureLLMService
-from pipecat.services.azure.stt import AzureSTTService
-from pipecat.services.azure.tts import AzureTTSService
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+from pipecat.services.deepgram.tts import DeepgramTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.daily.transport import (
     DailyDialinSettings,
@@ -45,37 +47,157 @@ from pipecat.transports.daily.transport import (
     DailyTransport,
 )
 from pipecat.turns.user_mute import (
+    AlwaysUserMuteStrategy,
     FunctionCallUserMuteStrategy,
 )
-from pipecat.turns.user_start import MinWordsUserTurnStartStrategy
-from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_start.external_user_turn_start_strategy import (
+    ExternalUserTurnStartStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
-from pipecat_flows import FlowManager
+from pipecat.workers.runner import WorkerRunner
 from pydantic import ValidationError
 
+from intake_bot.models.legalserver import LegalServerOverall
 from intake_bot.nodes.nodes import (
     caller_ended_conversation,
     end_conversation,
-    node_initial,
+    node_start,
 )
-from intake_bot.nodes.utils import log_flow_manager_state, save_state_to_json
+from intake_bot.nodes.utils import save_state_to_json
+from intake_bot.services.legalserver import save_intake_legalserver
+from intake_bot.turn_strategies import DeduplicatingExternalUserTurnStopStrategy
+from intake_bot.utils.call_logging import call_logging_context, transcript_log_path
 from intake_bot.utils.daily_dialin import (
     looks_like_daily_dialin_body,
     normalize_daily_dialin_body,
 )
-from intake_bot.utils.ev import ev_is_true, get_ev, require_ev
+from intake_bot.utils.ev import ev_is_true, get_deepgram_tts_voices, get_ev, require_ev
+from intake_bot.utils.globals import DEBUG
 from intake_bot.utils.node_prompts import NodePrompts
 
 TransportSetup = Callable[
-    [BaseTransport, PipelineTask, FlowManager, str], Awaitable[None]
+    [BaseTransport, PipelineWorker, FlowManager, str], Awaitable[None]
 ]
 
 
-async def save_intake_legalserver(state):
-    # Demo and browser sessions do not need case-system credentials at import time.
-    from intake_bot.services.legalserver import save_intake_legalserver as save
+def schedule_flow_initialization(
+    flow_manager: FlowManager,
+    initial_node: NodeConfig | None,
+    call_id: str,
+) -> asyncio.Task:
+    """Initialize a flow outside the transport processor task."""
 
-    return await save(state)
+    async def initialize() -> None:
+        try:
+            await flow_manager.initialize(initial_node)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - background initialization must report failures
+            logger.exception(f"Flow initialization failed for call {call_id}")
+
+    task = asyncio.create_task(initialize(), name=f"flow-init-{call_id}")
+    cast(Any, flow_manager)._initialization_task = task
+    return task
+
+
+class StateContextFlowManager(FlowManager):
+    _transcript_handler: Any = None
+    _node_dependencies: Any = None
+    _tts_services: dict[Language, Any] | None = None
+    _STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS = frozenset(
+        {
+            "_transcript_handler",
+            "_adverse_parties_follow_up_requested",
+            "call_id",
+            "sms_messages",
+            "status",
+            "error",
+            "tts_voice",
+        }
+    )
+
+    def _trim_state_context_value(self, value):
+        if value is None:
+            return None
+
+        if isinstance(value, dict):
+            trimmed = {}
+            for key, item in value.items():
+                if isinstance(key, str) and key.startswith("_"):
+                    continue
+                trimmed_item = self._trim_state_context_value(item)
+                if trimmed_item is None:
+                    continue
+                if trimmed_item == "":
+                    continue
+                if trimmed_item == []:
+                    continue
+                if trimmed_item == {}:
+                    continue
+                trimmed[key] = trimmed_item
+            return trimmed or None
+
+        if isinstance(value, list):
+            trimmed = [
+                item
+                for item in (self._trim_state_context_value(item) for item in value)
+                if item not in (None, "", [], {})
+            ]
+            return trimmed or None
+
+        return value
+
+    def _build_state_context_message(self) -> dict | None:
+        trimmed_state = {}
+        for key, value in self.state.items():
+            if key in self._STATE_CONTEXT_EXCLUDED_TOP_LEVEL_KEYS:
+                continue
+            if isinstance(key, str) and key.startswith("_"):
+                continue
+
+            trimmed_value = self._trim_state_context_value(value)
+            if trimmed_value in (None, "", [], {}):
+                continue
+            trimmed_state[key] = trimmed_value
+
+        if not trimmed_state:
+            return None
+
+        return {
+            "role": "developer",
+            "content": (
+                "Caller data collected so far. Use this structured state for continuity and relevance. "
+                "Treat it as the current known intake state, not as wording to repeat verbatim.\n"
+                f"{json.dumps(trimmed_state, ensure_ascii=True, separators=(',', ':'))}"
+            ),
+        }
+
+    async def _update_llm_context(
+        self,
+        role_message,
+        role_messages,
+        task_messages,
+        functions,
+        strategy=None,
+    ):
+        update_config = strategy or self._context_strategy
+        effective_task_messages = list(task_messages)
+
+        if (
+            self._current_node is not None
+            and update_config.strategy == ContextStrategy.RESET
+        ):
+            state_context_message = self._build_state_context_message()
+            if state_context_message is not None:
+                effective_task_messages.insert(0, state_context_message)
+
+        await super()._update_llm_context(
+            role_message,
+            role_messages,
+            effective_task_messages,
+            functions,
+            strategy,
+        )
 
 
 class TranscriptHandler:
@@ -118,19 +240,30 @@ class TranscriptHandler:
             try:
                 async with aiofiles.open(self.output_file, "a", encoding="utf-8") as f:
                     await f.write(line + "\n")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - transcript logging is best effort
                 logger.error(f"""Error saving transcript message to file: {e}""")
+
+    async def save_assistant_tts(self, content: str) -> None:
+        if not content or not content.strip():
+            return
+
+        timestamp = datetime.now(UTC).isoformat(timespec="milliseconds")
+        await self.save_transcript_message("assistant", content, timestamp)
 
     async def on_user_transcript(
         self, aggregator, strategy, message: UserTurnStoppedMessage
     ):
         """Handle new user transcript message."""
-        await self.save_transcript_message("user", message.content, message.timestamp)
+        await self.save_transcript_message(
+            "user", message.content or "", message.timestamp
+        )
 
     async def on_assistant_transcript(
         self, aggregator, message: AssistantTurnStoppedMessage
     ):
         """Handle new assistant transcript message."""
+        if not message.content or not message.content.strip():
+            return
         await self.save_transcript_message(
             "assistant", message.content, message.timestamp
         )
@@ -139,8 +272,12 @@ class TranscriptHandler:
 class IdleRetryHandler:
     """Tracks idle reminders and returns the next frames to queue."""
 
-    def __init__(self):
+    def __init__(
+        self, prompts: NodePrompts | None = None, prompt_prefix: str = "idle_retry"
+    ):
         self._retry_count = 0
+        self._prompts = prompts or NodePrompts()
+        self._prompt_prefix = prompt_prefix
 
     def reset(self) -> None:
         self._retry_count = 0
@@ -149,23 +286,20 @@ class IdleRetryHandler:
         self._retry_count += 1
 
         if self._retry_count == 1:
-            if language == "Spanish":
-                msg = "¿Sigue ahí?"
-            else:
-                msg = "Are you still there?"
+            msg = self._prompts.get_spoken_prompt(
+                f"{self._prompt_prefix}_first", language
+            )
             return [TTSSpeakFrame(msg, append_to_context=False)]
 
         if self._retry_count == 2:
-            if language == "Spanish":
-                msg = "¿Le gustaría continuar con la entrevista?"
-            else:
-                msg = "Would you like to continue with the interview?"
+            msg = self._prompts.get_spoken_prompt(
+                f"{self._prompt_prefix}_second", language
+            )
             return [TTSSpeakFrame(msg, append_to_context=False)]
 
-        if language == "Spanish":
-            goodbye = "Parece que está ocupado en este momento. No dude en volver a llamar. ¡Que tenga un buen día!"
-        else:
-            goodbye = "It seems like you're busy right now. Feel free to call back. Have a nice day!"
+        goodbye = self._prompts.get_spoken_prompt(
+            f"{self._prompt_prefix}_goodbye", language
+        )
 
         return [TTSSpeakFrame(goodbye, append_to_context=False), EndFrame()]
 
@@ -196,11 +330,11 @@ async def bot(runner_args: RunnerArguments):
     """Main bot entry point for Daily local and Pipecat Cloud runtimes."""
     body = runner_args.body if isinstance(runner_args.body, dict) else {}
     logger.info(
-        f"""Inbound bot invoked. body_type={type(runner_args.body).__name__}, body_keys={sorted(body.keys())}, room_url_present={bool(runner_args.room_url)}"""
+        f"""Inbound bot invoked. body_type={type(runner_args.body).__name__}, body_keys={sorted(body.keys())}, room_url_present={bool(getattr(runner_args, "room_url", None))}"""
     )
 
     def build_daily_participant_initializer(log_message: str):
-        async def configure_daily_transport(transport, task, flow_manager, call_id):
+        async def configure_daily_transport(transport, worker, flow_manager, call_id):
             flow_initialized = False
 
             @transport.event_handler("on_first_participant_joined")
@@ -211,7 +345,7 @@ async def bot(runner_args: RunnerArguments):
 
                 flow_initialized = True
                 logger.info(log_message.format(call_id=call_id))
-                await flow_manager.initialize(node_initial())
+                schedule_flow_initialization(flow_manager, node_start(), call_id)
 
         return configure_daily_transport
 
@@ -219,15 +353,12 @@ async def bot(runner_args: RunnerArguments):
         logger.info(
             "No Daily dial-in metadata detected; starting standard Pipecat Cloud WebRTC session."
         )
-        audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
-        logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
         transport = DailyTransport(
-            runner_args.room_url,
-            runner_args.token,
+            getattr(runner_args, "room_url", ""),
+            getattr(runner_args, "token", ""),
             "VLAS Intake Bot",
             params=DailyParams(
                 audio_in_enabled=True,
-                audio_in_filter=audio_filter,
                 audio_out_enabled=True,
             ),
         )
@@ -244,9 +375,9 @@ async def bot(runner_args: RunnerArguments):
 
     try:
         request = DailyDialinRequest.model_validate(normalize_daily_dialin_body(body))
-    except (ValidationError, ValueError) as e:
+    except (ValidationError, ValueError):
         logger.error(
-            f"""Invalid Daily dial-in request: {e}. Received body keys: {sorted(body.keys())}. If you are using Pipecat Cloud automatic telephony, point the Daily number at the Pipecat Cloud /dialin webhook. If you are using a custom webhook server, forward dialin_settings plus Daily API credentials."""
+            "Invalid Daily dial-in request. Use Pipecat Cloud's official DailyDialinRequest format with dialin_settings, daily_api_key, and daily_api_url."
         )
         return
 
@@ -257,21 +388,16 @@ async def bot(runner_args: RunnerArguments):
 
     caller_phone_number = request.dialin_settings.From or ""
     call_id = request.dialin_settings.call_id
-    if caller_phone_number:
-        logger.info(f"""Handling Daily PSTN call from: {caller_phone_number}""")
 
-    audio_filter = KrispVivaFilter() if KrispVivaFilter else RNNoiseFilter()
-    logger.info(f"""Audio input filter: {type(audio_filter).__name__}""")
     transport = DailyTransport(
-        runner_args.room_url,
-        runner_args.token,
+        getattr(runner_args, "room_url", ""),
+        getattr(runner_args, "token", ""),
         "VLAS Intake Bot",
         params=DailyParams(
             api_key=request.daily_api_key,
             api_url=request.daily_api_url,
             dialin_settings=daily_dialin_settings,
             audio_in_enabled=True,
-            audio_in_filter=audio_filter,
             audio_out_enabled=True,
         ),
     )
@@ -281,14 +407,14 @@ async def bot(runner_args: RunnerArguments):
     )
 
     async def configure_daily_transport_with_dialin_error(
-        transport, task, flow_manager, call_id
+        transport, worker, flow_manager, call_id
     ):
-        await configure_daily_transport(transport, task, flow_manager, call_id)
+        await configure_daily_transport(transport, worker, flow_manager, call_id)
 
         @transport.event_handler("on_dialin_error")
         async def on_dialin_error(transport, data):
             logger.error(f"""Dial-in error: {data}""")
-            await task.cancel()
+            await worker.cancel()
 
     await run_bot(
         transport,
@@ -299,6 +425,54 @@ async def bot(runner_args: RunnerArguments):
     )
 
 
+def _get_flux_settings(call_id: str) -> dict:
+    default_eager_eot = "0.3" if call_id.startswith("ws-test") else "0.6"
+    default_eot = "0.3" if call_id.startswith("ws-test") else "0.6"
+    default_eot_timeout = "1500" if call_id.startswith("ws-test") else "800"
+    default_min_conf = "0.1" if call_id.startswith("ws-test") else "0.5"
+    return {
+        "eager_eot_threshold": float(
+            get_ev("DEEPGRAM_FLUX_EAGER_EOT_THRESHOLD", default_eager_eot)
+        ),
+        "eot_threshold": float(get_ev("DEEPGRAM_FLUX_EOT_THRESHOLD", default_eot)),
+        "eot_timeout_ms": int(
+            get_ev("DEEPGRAM_FLUX_EOT_TIMEOUT_MS", default_eot_timeout)
+        ),
+        "min_confidence": float(
+            get_ev("DEEPGRAM_FLUX_MIN_CONFIDENCE", default_min_conf)
+        ),
+    }
+
+
+def build_context_aggregator(
+    *,
+    user_idle_timeout_secs: float,
+    external_turn_stop_timeout_secs: float,
+    strict_user_muting: bool = False,
+) -> LLMContextAggregatorPair:
+    """Build the shared user/assistant context pair for audio and text runtimes."""
+    context = LLMContext()
+    user_mute_strategies: list[Any] = [FunctionCallUserMuteStrategy()]
+    if strict_user_muting:
+        user_mute_strategies.append(AlwaysUserMuteStrategy())
+    return LLMContextAggregatorPair(
+        context,
+        assistant_params=LLMAssistantAggregatorParams(),
+        user_params=LLMUserAggregatorParams(
+            user_mute_strategies=user_mute_strategies,
+            user_idle_timeout=user_idle_timeout_secs,
+            user_turn_strategies=UserTurnStrategies(
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[
+                    DeduplicatingExternalUserTurnStopStrategy(
+                        timeout=external_turn_stop_timeout_secs
+                    )
+                ],
+            ),
+        ),
+    )
+
+
 async def run_bot(
     transport: BaseTransport,
     call_id: str,
@@ -306,265 +480,327 @@ async def run_bot(
     handle_sigint: bool,
     configure_transport: TransportSetup | None = None,
     user_idle_timeout_secs: float | None = None,
+    strict_user_muting: bool = False,
     demo_mode: bool = False,
-    audio_out_sample_rate: int = 8000,
     audio_in_sample_rate: int = 8000,
+    audio_out_sample_rate: int = 8000,
 ):
     """
     Main function to set up and run the VLAS intake bot.
     """
-    stt = AzureSTTService(
-        api_key=require_ev("AZURE_API_KEY"),
-        region=require_ev("AZURE_SPEECH_REGION"),
-        ttfs_p99_latency=float(get_ev("AZURE_STT_TTFS_P99_LATENCY", "1.5")),
-    )
+    with ExitStack() as exit_stack:
+        if not demo_mode:
+            exit_stack.enter_context(call_logging_context(call_id))
 
-    llm = AzureLLMService(
-        api_key=require_ev("AZURE_API_KEY"),
-        endpoint=require_ev("AZURE_LLM_ENDPOINT"),
-        settings=AzureLLMService.Settings(
-            model=require_ev("AZURE_LLM_MODEL"),
-        ),
-    )
+        if caller_phone_number:
+            logger.info("Handling incoming call")
 
-    tts = AzureTTSService(
-        api_key=require_ev("AZURE_API_KEY"),
-        region=require_ev("AZURE_SPEECH_REGION"),
-        settings=AzureTTSService.Settings(
-            voice=require_ev("AZURE_SPEECH_VOICE"),
-        ),
-    )
+        flux_settings = _get_flux_settings(call_id)
+        flux_eager_eot_threshold = flux_settings["eager_eot_threshold"]
+        flux_eot_threshold = flux_settings["eot_threshold"]
+        flux_eot_timeout_ms = flux_settings["eot_timeout_ms"]
+        flux_min_confidence = flux_settings["min_confidence"]
 
-    resolved_user_idle_timeout_secs = user_idle_timeout_secs
-    if resolved_user_idle_timeout_secs is None:
-        resolved_user_idle_timeout_secs = float(
-            get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
+        deepgram_api_key = require_ev("DEEPGRAM_API_KEY")
+        stt = DeepgramFluxSTTService(
+            api_key=deepgram_api_key,
+            ttfs_p99_latency=float(get_ev("DEEPGRAM_STT_TTFS_P99_LATENCY", "0.35")),
+            settings=DeepgramFluxSTTService.Settings(
+                model=get_ev("DEEPGRAM_STT_MODEL", "flux-general-multi"),
+                language_hints=[Language.EN, Language.ES],
+                eager_eot_threshold=flux_eager_eot_threshold,
+                eot_threshold=flux_eot_threshold,
+                eot_timeout_ms=flux_eot_timeout_ms,
+                min_confidence=flux_min_confidence,
+            ),
         )
 
-    summary_llm_model = get_ev(
-        "AZURE_LLM_SUMMARY_MODEL", default=require_ev("AZURE_LLM_MODEL")
-    )
-    summary_llm = AzureLLMService(
-        api_key=require_ev("AZURE_API_KEY"),
-        endpoint=require_ev("AZURE_LLM_ENDPOINT"),
-        settings=AzureLLMService.Settings(model=summary_llm_model),
-    )
-    prompts = NodePrompts()
-    summarization_prompt = prompts.get("reset_with_summary")
+        english_tts_voice = get_deepgram_tts_voices(Language.EN)
+        spanish_tts_voice = get_deepgram_tts_voices(Language.ES)
 
-    context = LLMContext()
-    context_aggregator = LLMContextAggregatorPair(
-        context,
-        assistant_params=LLMAssistantAggregatorParams(
-            enable_auto_context_summarization=True,
-            auto_context_summarization_config=LLMAutoContextSummarizationConfig(
-                max_context_tokens=6000,
-                max_unsummarized_messages=30,
-                summary_config=LLMContextSummaryConfig(
-                    target_context_tokens=4000,
-                    min_messages_after_summary=6,
-                    summarization_prompt=summarization_prompt,
-                    llm=summary_llm,
-                ),
+        llm = AzureLLMService(
+            api_key=require_ev("AZURE_API_KEY"),
+            endpoint=require_ev("AZURE_LLM_ENDPOINT"),
+            settings=AzureLLMService.Settings(
+                model=require_ev("AZURE_LLM_MODEL"),
             ),
-        ),
-        user_params=LLMUserAggregatorParams(
-            user_mute_strategies=[FunctionCallUserMuteStrategy()],
-            user_idle_timeout=resolved_user_idle_timeout_secs,
-            user_turn_strategies=UserTurnStrategies(
-                start=[
-                    MinWordsUserTurnStartStrategy(min_words=2, use_interim=not demo_mode),
-                ],
-                stop=[
-                    TurnAnalyzerUserTurnStopStrategy(
-                        turn_analyzer=LocalSmartTurnAnalyzerV3(
-                            params=SmartTurnParams(
-                                stop_secs=float(get_ev("SMART_TURN_STOP_SECS", "4.5")),
-                                pre_speech_ms=float(
-                                    get_ev("SMART_TURN_PRE_SPEECH_MS", "700")
-                                ),
-                            )
-                        )
-                    )
-                ],
-            ),
-            user_turn_stop_timeout=float(get_ev("USER_TURN_STOP_TIMEOUT_SECS", "7.0")),
-            vad_analyzer=SileroVADAnalyzer(
-                params=VADParams(
-                    confidence=float(get_ev("VAD_CONFIDENCE", "0.65")),
-                    start_secs=float(get_ev("VAD_START_SECS", "0.4")),
-                    stop_secs=float(get_ev("VAD_STOP_SECS", "0.2")),
-                    min_volume=float(get_ev("VAD_MIN_VOLUME", "0.55")),
+        )
+
+        english_tts = DeepgramFluxTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramFluxTTSService.Settings(voice=english_tts_voice),
+        )
+        spanish_tts = DeepgramTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramTTSService.Settings(voice=spanish_tts_voice),
+        )
+        tts = ServiceSwitcher(services=[english_tts, spanish_tts])
+
+        resolved_user_idle_timeout_secs = user_idle_timeout_secs
+        if resolved_user_idle_timeout_secs is None:
+            resolved_user_idle_timeout_secs = float(
+                get_ev("USER_IDLE_TIMEOUT_SECS", "15.0")
+            )
+
+        external_turn_stop_timeout_secs = float(
+            get_ev("EXTERNAL_TURN_STOP_TIMEOUT_SECS", "0.2")
+        )
+        context_aggregator = build_context_aggregator(
+            user_idle_timeout_secs=resolved_user_idle_timeout_secs,
+            external_turn_stop_timeout_secs=external_turn_stop_timeout_secs,
+            strict_user_muting=strict_user_muting,
+        )
+
+        logger.info(
+            f"""Using user idle timeout of {resolved_user_idle_timeout_secs:.1f}s and external turn stop timeout of {external_turn_stop_timeout_secs:.2f}s for call {call_id}"""
+        )
+
+        adaptive_idle_timeout = AdaptiveIdleTimeout(
+            base_timeout_secs=resolved_user_idle_timeout_secs,
+            max_timeout_secs=float(
+                get_ev(
+                    "USER_IDLE_TIMEOUT_MAX_SECS",
+                    str(max(resolved_user_idle_timeout_secs, 25.0)),
                 )
             ),
-        ),
-    )
+            words_per_extra_second=float(
+                get_ev("USER_IDLE_TIMEOUT_WORDS_PER_EXTRA_SECOND", "12.0")
+            ),
+        )
 
-    logger.info(
-        f"""Using user idle timeout of {resolved_user_idle_timeout_secs:.1f}s for call {call_id}"""
-    )
+        transcript_handler = None
+        if not demo_mode and ev_is_true("ENABLE_TRANSCRIPTS"):
+            transcript_file = None
+            if ev_is_true("LOG_TO_FILE") and DEBUG:
+                transcript_file = transcript_log_path(call_id)
+                logger.info(f"""Logging transcript to file: {transcript_file}""")
+            if DEBUG:
+                transcript_handler = TranscriptHandler(output_file=transcript_file)
 
-    adaptive_idle_timeout = AdaptiveIdleTimeout(
-        base_timeout_secs=resolved_user_idle_timeout_secs,
-        max_timeout_secs=float(
-            get_ev(
-                "USER_IDLE_TIMEOUT_MAX_SECS",
-                str(max(resolved_user_idle_timeout_secs, 25.0)),
-            )
-        ),
-        words_per_extra_second=float(
-            get_ev("USER_IDLE_TIMEOUT_WORDS_PER_EXTRA_SECOND", "12.0")
-        ),
-    )
+                context_aggregator.user().event_handler("on_user_turn_stopped")(
+                    transcript_handler.on_user_transcript
+                )
 
-    # Create transcript handler
-    transcript_file = None
-    if not demo_mode and ev_is_true("LOG_TO_FILE"):
-        os.makedirs("logs", exist_ok=True)
-        transcript_file = f"""logs/transcript_{call_id}.txt"""
-        logger.info(f"""Logging transcript to file: {transcript_file}""")
-    transcript_handler = TranscriptHandler(output_file=transcript_file)
+                context_aggregator.assistant().event_handler(
+                    "on_assistant_turn_stopped"
+                )(transcript_handler.on_assistant_transcript)
 
-    context_aggregator.user().event_handler("on_user_turn_stopped")(
-        transcript_handler.on_user_transcript
-    )
-
-    context_aggregator.assistant().event_handler("on_assistant_turn_stopped")(
-        transcript_handler.on_assistant_transcript
-    )
-
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            stt,  # Speech-To-Text
-            context_aggregator.user(),
-            llm,  # LLM
-            tts,  # Text-To-Speech
-            transport.output(),
-            context_aggregator.assistant(),
-        ]
-    )
-
-    observers = list()
-    if not demo_mode and ev_is_true("ENABLE_TAIL_OBSERVER"):
-        from pipecat_tail.observer import TailObserver
-
-        observers.append(TailObserver())
-    if not demo_mode and ev_is_true("ENABLE_WHISKER"):
-        from pipecat_whisker import WhiskerObserver
-
-        whisker = WhiskerObserver(pipeline)
-        observers.append(whisker)
-
-    task = PipelineTask(
-        pipeline,
-        params=PipelineParams(
-            audio_in_sample_rate=audio_in_sample_rate,
-            audio_out_sample_rate=audio_out_sample_rate,
-            enable_metrics=True,
-            enable_usage_metrics=True,
-        ),
-        idle_timeout_secs=None,
-        observers=observers,
-    )
-
-    # Initialize flow manager with LLM
-    flow_manager = FlowManager(
-        task=task,
-        llm=llm,
-        context_aggregator=context_aggregator,
-        global_functions=[
-            caller_ended_conversation,
-            end_conversation,
-        ],
-    )
-
-    if demo_mode:
-        flow_manager.state["_demo_mode"] = True
-        flow_manager.state["_demo_has_user_answer"] = False
-    flow_manager.state["call_id"] = call_id
-    flow_manager.state["phone"] = caller_phone_number
-
-    idle_retry_handler = IdleRetryHandler()
-
-    @context_aggregator.user().event_handler("on_user_turn_started")
-    async def on_user_turn_started(aggregator, strategy):
-        idle_retry_handler.reset()
-
-    @context_aggregator.user().event_handler("on_user_turn_stopped")
-    async def on_empty_user_turn_recovery(
-        aggregator, strategy, message: UserTurnStoppedMessage
-    ):
-        if demo_mode and message.content and message.content.strip():
-            flow_manager.state["_demo_has_user_answer"] = True
-        if not message.content or not message.content.strip():
-            logger.warning(
-                f"""Empty user turn detected for call {call_id}; triggering idle recovery"""
-            )
-            language = flow_manager.state.get("language", {}).get("language", "English")
-            await task.queue_frames(idle_retry_handler.next_frames(language))
-
-    @context_aggregator.user().event_handler("on_user_turn_idle")
-    async def on_user_turn_idle(aggregator):
-        language = flow_manager.state.get("language", {}).get("language", "English")
-        await task.queue_frames(idle_retry_handler.next_frames(language))
-
-    @context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
-    async def on_assistant_turn_stopped(
-        aggregator, message: AssistantTurnStoppedMessage
-    ):
-        timeout_secs = adaptive_idle_timeout.timeout_for_content(message.content)
-        if timeout_secs > resolved_user_idle_timeout_secs:
-            logger.debug(
-                f"""Extending user idle timeout to {timeout_secs:.1f}s after assistant turn with {len(message.content.split())} words"""
-            )
-        await task.queue_frame(UserIdleTimeoutUpdateFrame(timeout=timeout_secs))
-
-    if configure_transport is not None:
-        await configure_transport(transport, task, flow_manager, call_id)
-
-    @transport.event_handler("on_session_timeout")
-    async def handle_timeout(transport, participant):
-        # Play timeout message before ending call
-        logger.info("Call timed out; ending.")
-        language = flow_manager.state.get("language", {}).get("language", "English")
-        if language == "Spanish":
-            timeout_msg = "Gracias por llamar al servicio de ayuda legal Law-Line de Virginia. Parece que se ha desconectado. No dude en volver a llamarnos. ¡Adiós!"
-        else:
-            timeout_msg = "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
-        await task.queue_frames(
+        pipeline = Pipeline(
             [
-                TTSSpeakFrame(timeout_msg),
-                EndFrame(),
+                transport.input(),
+                stt,  # Speech-To-Text
+                context_aggregator.user(),
+                llm,  # LLM
+                tts,  # Text-To-Speech
+                transport.output(),
+                context_aggregator.assistant(),
             ]
         )
 
-    @transport.event_handler("on_client_disconnected")
-    async def on_client_disconnected(transport, client):
-        logger.info(f"""Client disconnected for call {call_id}""")
-        await task.stop_when_done()
+        observers: list[Any] = []
+        if not demo_mode and ev_is_true("ENABLE_TAIL_OBSERVER"):
+            from pipecat_tail.observer import TailObserver
 
-    @task.event_handler("on_pipeline_finished")
-    async def on_pipeline_finished(task, frame):
+            observers.append(TailObserver())
+        if not demo_mode and ev_is_true("ENABLE_WHISKER"):
+            from pipecat_whisker import WhiskerObserver
+
+            whisker = cast(Any, WhiskerObserver)(pipeline)
+            observers.append(whisker)
+
+        worker = PipelineWorker(
+            pipeline,
+            params=PipelineParams(
+                audio_in_sample_rate=audio_in_sample_rate,
+                audio_out_sample_rate=audio_out_sample_rate,
+                enable_metrics=True,
+                enable_usage_metrics=True,
+            ),
+            idle_timeout_secs=None,
+            observers=cast(Any, observers),
+        )
+
+        flow_manager = StateContextFlowManager(
+            worker=worker,
+            llm=cast(Any, llm),
+            context_aggregator=context_aggregator,
+            global_functions=[
+                caller_ended_conversation,
+                end_conversation,
+            ],
+        )
         if demo_mode:
-            return
-        log_flow_manager_state(flow_manager)
-        await save_state_to_json(flow_manager.state)
-        await save_intake_legalserver(flow_manager.state)
+            flow_manager.state["_demo_mode"] = True
+            flow_manager.state["_demo_has_user_answer"] = False
+        flow_manager.state["call_id"] = call_id
+        flow_manager.state["phone"] = caller_phone_number
+        flow_manager.state["_user_turn_started_count"] = 0
+        flow_manager._transcript_handler = transcript_handler
+        flow_manager._tts_services = {
+            Language.EN: english_tts,
+            Language.ES: spanish_tts,
+        }
 
-    # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
-    # interruptions. We use `force_gc=True` to force garbage collection
-    # after the runner finishes running a task which could be useful for
-    # long running applications with multiple clients connecting.
+        idle_retry_handler = IdleRetryHandler()
+        empty_turn_retry_handler = IdleRetryHandler(prompt_prefix="empty_turn_retry")
 
-    if not demo_mode and ev_is_true("ENABLE_TAIL_RUNNER"):
-        from pipecat_tail.runner import TailRunner
+        async def queue_idle_frames_with_transcript(
+            frames: list[TTSSpeakFrame | EndFrame],
+        ) -> None:
+            for frame in frames:
+                if isinstance(frame, TTSSpeakFrame) and transcript_handler is not None:
+                    await transcript_handler.save_assistant_tts(frame.text)
+            await worker.queue_frames(frames)
 
-        runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
-        await runner.run(task)
-    else:
-        runner = PipelineRunner(handle_sigint=handle_sigint, force_gc=True)
-        await runner.run(task)
+        @context_aggregator.user().event_handler("on_user_turn_started")
+        async def on_user_turn_started(aggregator, strategy):
+            flow_manager.state["_user_turn_started_count"] = (
+                flow_manager.state.get("_user_turn_started_count", 0) + 1
+            )
+            idle_retry_handler.reset()
+
+        @context_aggregator.user().event_handler("on_user_turn_stopped")
+        async def on_empty_user_turn_recovery(
+            aggregator, strategy, message: UserTurnStoppedMessage
+        ):
+            if demo_mode and message.content and message.content.strip():
+                flow_manager.state["_demo_has_user_answer"] = True
+            if not message.content or not message.content.strip():
+                logger.warning(
+                    f"""Empty user turn detected for call {call_id}; triggering empty-turn recovery"""
+                )
+                language = flow_manager.state.get("language", {}).get(
+                    "language", "English"
+                )
+                await queue_idle_frames_with_transcript(
+                    empty_turn_retry_handler.next_frames(language)
+                )
+            else:
+                empty_turn_retry_handler.reset()
+
+        @context_aggregator.user().event_handler("on_user_turn_idle")
+        async def on_user_turn_idle(aggregator):
+            language = flow_manager.state.get("language", {}).get("language", "English")
+            await queue_idle_frames_with_transcript(
+                idle_retry_handler.next_frames(language)
+            )
+
+        @context_aggregator.assistant().event_handler("on_assistant_turn_stopped")
+        async def on_assistant_turn_stopped(
+            aggregator, message: AssistantTurnStoppedMessage
+        ):
+            timeout_secs = adaptive_idle_timeout.timeout_for_content(message.content)
+            if timeout_secs > resolved_user_idle_timeout_secs:
+                logger.debug(
+                    f"""Extending user idle timeout to {timeout_secs:.1f}s after assistant turn with {len(message.content.split())} words"""
+                )
+            await worker.queue_frame(UserIdleTimeoutUpdateFrame(timeout=timeout_secs))
+
+        if configure_transport is not None:
+            await configure_transport(transport, worker, flow_manager, call_id)
+
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info(f"""Client disconnected for call {call_id}""")
+            initialization_task = getattr(flow_manager, "_initialization_task", None)
+            if initialization_task is not None and not initialization_task.done():
+                initialization_task.cancel()
+            if demo_mode:
+                # The browser has already closed its socket. Cancel queued speech
+                # instead of draining it into a disconnected output transport.
+                await worker.cancel()
+            else:
+                await worker.stop_when_done()
+
+        @transport.event_handler("on_session_timeout")
+        async def handle_timeout(transport, participant):
+            logger.info("Call timed out; ending.")
+            language = flow_manager.state.get("language", {}).get("language", "English")
+            if language == "Spanish":
+                timeout_msg = "Gracias por llamar al servicio de ayuda legal Law-Line de Virginia. Parece que se ha desconectado. No dude en volver a llamarnos. ¡Adiós!"
+            else:
+                timeout_msg = "Thank you for calling Virginia's Law-Line Legal Help Service. It seems that you have disconnected. Please feel free to call us back. Goodbye!"
+            await worker.queue_frames(
+                [
+                    TTSSpeakFrame(timeout_msg),
+                    EndFrame(),
+                ]
+            )
+
+        @worker.event_handler("on_pipeline_finished")
+        async def on_pipeline_finished(worker, frame):
+            if demo_mode:
+                return
+            await save_state_to_json(flow_manager.state)
+            ls_result = await save_intake_legalserver(flow_manager.state)
+            if ls_result.overall == LegalServerOverall.FAILED:
+                logger.error(f"LegalServer save failed: {ls_result.message}")
+            elif ls_result.overall == LegalServerOverall.DEGRADED:
+                logger.warning(f"LegalServer save degraded: {ls_result.message}")
+            elif ls_result.overall == LegalServerOverall.SKIPPED:
+                logger.info(f"LegalServer save skipped: {ls_result.message}")
+            else:
+                logger.info(f"LegalServer save complete: {ls_result.message}")
+
+        _llm_error_count = 0
+        _last_llm_error_time = 0.0
+
+        @worker.event_handler("on_pipeline_error")
+        async def on_pipeline_error(worker, error):
+            nonlocal _llm_error_count, _last_llm_error_time
+            error_name = type(error).__name__
+            error_msg = str(error)
+            logger.warning(
+                f"Pipeline error in call {call_id}: {error_name}: {error_msg}"
+            )
+            error_name_lower = error_name.lower()
+            error_msg_lower = error_msg.lower()
+            if isinstance(
+                error,
+                (
+                    OpenAIAPIError,
+                    OpenAIRateLimitError,
+                    APIConnectionError,
+                    APITimeoutError,
+                ),
+            ) or (
+                "completion" in error_msg_lower
+                or "llm" in error_name_lower
+                or "openai" in error_name_lower
+            ):
+                now = datetime.now(UTC).timestamp()
+                if now - _last_llm_error_time < 30.0:
+                    _llm_error_count += 1
+                else:
+                    _llm_error_count = 1
+                _last_llm_error_time = now
+                if _llm_error_count >= 3:
+                    logger.error(
+                        f"Too many LLM completion errors ({_llm_error_count}) in call {call_id}; ending call"
+                    )
+                    language = flow_manager.state.get("language", {}).get(
+                        "language", "English"
+                    )
+                    if language == "Spanish":
+                        msg = "Lo siento, tenemos problemas técnicos. Por favor, intente llamar de nuevo más tarde. ¡Gracias y adiós!"
+                    else:
+                        msg = "I'm sorry, we are experiencing technical difficulties. Please try calling again later. Thank you and goodbye!"
+                    await worker.queue_frames(
+                        [
+                            TTSSpeakFrame(msg),
+                            EndFrame(),
+                        ]
+                    )
+
+        if not demo_mode and ev_is_true("ENABLE_TAIL_RUNNER"):
+            from pipecat_tail.runner import TailRunner
+
+            runner = TailRunner(handle_sigint=handle_sigint, force_gc=True)
+            await cast(Any, runner).run()
+        else:
+            runner = WorkerRunner(handle_sigint=handle_sigint, force_gc=True)
+            await runner.add_workers(worker)
+            await runner.run()
 
 
 if __name__ == "__main__":

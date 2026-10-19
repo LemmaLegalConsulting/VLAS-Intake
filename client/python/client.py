@@ -1,13 +1,13 @@
 import argparse
 import asyncio
+import json
 import os
 import random
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import urlencode
+from typing import Any, cast
 
-import yaml
 from dotenv import load_dotenv
 from loguru import logger
 from openai import AsyncAzureOpenAI
@@ -20,8 +20,7 @@ from pipecat.frames.frames import (
     TranscriptionFrame,
 )
 from pipecat.pipeline.pipeline import Pipeline
-from pipecat.pipeline.runner import PipelineRunner
-from pipecat.pipeline.task import PipelineParams, PipelineTask
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import (
     LLMContextAggregatorPair,
@@ -30,18 +29,28 @@ from pipecat.processors.aggregators.llm_response_universal import (
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.serializers.protobuf import ProtobufFrameSerializer
 from pipecat.services.azure.llm import AzureLLMService
-from pipecat.services.azure.stt import AzureSTTService
-from pipecat.services.azure.tts import AzureTTSService
+from pipecat.services.deepgram.flux.stt import DeepgramFluxSTTService
+from pipecat.services.deepgram.flux.tts import DeepgramFluxTTSService
+from pipecat.services.deepgram.tts import DeepgramTTSService
 from pipecat.transcriptions.language import Language
 from pipecat.transports.websocket.client import (
     WebsocketClientParams,
     WebsocketClientTransport,
 )
-from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
+from pipecat.turns.user_start.external_user_turn_start_strategy import (
+    ExternalUserTurnStartStrategy,
+)
+from pipecat.turns.user_stop.external_user_turn_stop_strategy import (
+    ExternalUserTurnStopStrategy,
+)
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
+from pipecat.workers.runner import WorkerRunner
+from scenarios import build_client_system_prompt, load_scripts
 from test_manager import TestRunner
 
 sys.path.append(str(Path(__file__).parent.parent.parent / "src"))
+
+from intake_bot.utils.ev import get_deepgram_tts_voices
 
 
 def _patch_pipecat_websocket_client_double_connect() -> None:
@@ -49,7 +58,7 @@ def _patch_pipecat_websocket_client_double_connect() -> None:
 
     try:
         from pipecat.transports.websocket.client import WebsocketClientSession
-    except Exception:
+    except Exception:  # noqa: BLE001 - patch is optional across Pipecat versions
         return
 
     if getattr(WebsocketClientSession, "_vlas_connect_patch", False):
@@ -61,7 +70,7 @@ def _patch_pipecat_websocket_client_double_connect() -> None:
         lock = getattr(self, "_vlas_connect_lock", None)
         if lock is None:
             lock = asyncio.Lock()
-            setattr(self, "_vlas_connect_lock", lock)
+            self._vlas_connect_lock = lock
         async with lock:
             return await original_connect(self)
 
@@ -74,50 +83,12 @@ _patch_pipecat_websocket_client_double_connect()
 
 load_dotenv(override=True)
 
-logger.remove(0)
+logger.remove()
 logger.add(sys.stderr, level="DEBUG")
 
-scripts_file = Path(__file__).parent / "scripts.yml"
-with open(scripts_file) as file_handle:
-    scripts: dict = yaml.safe_load(file_handle)
+scripts: dict = load_scripts()
 
 
-AUTOMATED_CALLER_SYSTEM_PROMPT = """This is an automated intake test caller.
-Your job is to behave like a cooperative human caller while preserving the scenario facts exactly.
-
-Core rules:
-- Never change the spelling of names, streets, cities, counties, or other proper nouns from the scenario.
-- Never invent phonetic spellings, STT-style errors, or alternate spellings unless the scenario explicitly says the value is different.
-- If you are unsure, repeat the exact scenario wording verbatim instead of paraphrasing or guessing.
-- If asked for a phone type, answer with the exact scenario phone type using one short phrase.
-- If the assistant reads back or confirms a name, address, or other value that sounds close to the correct scenario value, confirm it briefly even if the spelling differs slightly. Do not attempt to correct minor differences caused by speech recognition.
-- When asked to spell something, spell it using the exact canonical letters from the scenario.
-- Answer only the question that was asked. Do not volunteer extra facts unless the question requires them.
-- Never combine the answer to the current question with facts from a different intake step.
-- Do not repeat previously answered facts unless the assistant is explicitly confirming or re-asking them.
-- Do not turn answers into questions.
-- Keep responses short, direct, and natural for voice.
-- For numbers, dates, SSN digits, phone numbers, addresses, and money amounts, preserve the exact scenario values.
-- Never drop or substitute parts of a person's legal name. Keep first, middle, and last names exactly as given in the scenario.
-- If asked about household income, include every person in the scenario who has income.
-- Attribute each income source to the person who actually receives it. Child support paid for a child still belongs to the adult who receives it unless the scenario says otherwise.
-- A minor child can still have income. If asked whether a minor is an adult, say no while preserving that child's income.
-- Only provide alternate names that the scenario explicitly says should be included in the legal file.
-- For asset questions, follow the assistant's scope exactly. Do not volunteer exempt assets when the assistant is asking only about countable assets.
-- In Spanish, answer naturally in Spanish, but keep proper nouns and factual values exactly aligned with the scenario.
-"""
-
-
-def build_client_system_prompt(script: str) -> str:
-    return (
-        AUTOMATED_CALLER_SYSTEM_PROMPT
-        + "\n\nScenario:\n"
-        + scripts[script]["system_prompt"]
-    )
-
-
-DEFAULT_USER_TURN_STOP_TIMEOUT_SECS = 0.8
-DEFAULT_USER_SPEECH_TIMEOUT_SECS = 0.6
 INTERIM_FINALIZE_TIMEOUT_SECS = 1.5
 
 
@@ -125,7 +96,7 @@ class InterimTranscriptionFinalizer(FrameProcessor):
     """Promotes interim STT transcriptions to finals after a quiet period.
 
     The server transport has no audio mixer, so it only sends audio frames
-    during TTS playback.  Between utterances the client's Azure STT receives
+    during TTS playback.  Between utterances the client's Deepgram Flux STT receives
     no audio and therefore never produces a 'Recognized' (final) event —
     only 'Recognizing' (interim) events.  This processor watches for interim
     frames and, if no new interim arrives within *timeout* seconds, promotes
@@ -183,7 +154,7 @@ class SilenceMixer(BaseAudioMixer):
     When an audio_out_mixer is set on the transport, the output loop sends
     audio frames continuously — TTS audio when speaking, silence when idle.
     Without a mixer, the transport only sends frames during TTS playback,
-    leaving the remote side's Azure STT starved of audio and unable to
+    leaving the remote side's Flux STT starved of audio and unable to
     finalize recognitions.
     """
 
@@ -218,12 +189,24 @@ def _require_env(*names: str) -> str:
     return value
 
 
-def _build_websocket_url(
-    server_url: str,
-    phone_number: str,
+def _build_websocket_metadata(
     call_id: str,
+    phone_number: str,
     idle_timeout_secs: float | None = None,
-) -> str:
+) -> dict[str, object]:
+    metadata: dict[str, object] = {
+        "call_id": call_id,
+        "caller_phone_number": phone_number,
+    }
+    auth_token = _get_env("WS_AUTH_TOKEN")
+    if auth_token is not None:
+        metadata["auth_token"] = auth_token
+    if idle_timeout_secs is not None:
+        metadata["idle_timeout_secs"] = idle_timeout_secs
+    return metadata
+
+
+def _build_websocket_url(server_url: str) -> str:
     base_url = server_url.rstrip("/")
     if base_url.startswith("http://"):
         base_url = "ws://" + base_url[len("http://") :]
@@ -233,15 +216,7 @@ def _build_websocket_url(
     if not base_url.endswith("/ws"):
         base_url = f"""{base_url}/ws"""
 
-    query_params = {
-        "call_id": call_id,
-        "caller_phone_number": phone_number,
-    }
-    if idle_timeout_secs is not None:
-        query_params["idle_timeout_secs"] = f"""{idle_timeout_secs:g}"""
-
-    query = urlencode(query_params)
-    return f"""{base_url}?{query}"""
+    return base_url
 
 
 def _new_call_id(client_name: str, prefix: str = "ws-test") -> str:
@@ -262,10 +237,10 @@ async def run_client(
     server_idle_timeout_secs: float | None = None,
 ):
     azure_api_key = _require_env("AZURE_API_KEY")
-    azure_speech_region = _require_env("AZURE_SPEECH_REGION")
     azure_llm_endpoint = _require_env("AZURE_LLM_ENDPOINT", "AZURE_CHATGPT_ENDPOINT")
     azure_llm_model = _require_env("AZURE_LLM_MODEL", "AZURE_CHATGPT_MODEL")
-    azure_speech_voice = _require_env("AZURE_SPEECH_VOICE")
+    deepgram_api_key = _require_env("DEEPGRAM_API_KEY")
+    deepgram_stt_model = _get_env("DEEPGRAM_STT_MODEL", default="flux-general-multi")
     azure_summary_model = _get_env(
         "AZURE_LLM_SUMMARY_MODEL",
         "AZURE_LLM_MODEL",
@@ -276,25 +251,13 @@ async def run_client(
         "AZURE_OPENAI_API_VERSION",
         default="2024-09-01-preview",
     )
-    user_turn_stop_timeout = float(
-        _get_env(
-            "CLIENT_USER_TURN_STOP_TIMEOUT_SECS",
-            default=str(DEFAULT_USER_TURN_STOP_TIMEOUT_SECS),
-        )
-    )
-    user_speech_timeout = float(
-        _get_env(
-            "CLIENT_USER_SPEECH_TIMEOUT_SECS",
-            default=str(DEFAULT_USER_SPEECH_TIMEOUT_SECS),
-        )
+    metadata = _build_websocket_metadata(
+        call_id,
+        phone_number,
+        server_idle_timeout_secs,
     )
 
-    websocket_url = _build_websocket_url(
-        server_url,
-        phone_number,
-        call_id,
-        idle_timeout_secs=server_idle_timeout_secs,
-    )
+    websocket_url = _build_websocket_url(server_url)
     logger.info(f"""Client {client_name} connecting to {websocket_url}""")
 
     transport = WebsocketClientTransport(
@@ -315,13 +278,18 @@ async def run_client(
         .get("language", {})
         .get("language", "English")
     )
-    client_stt_language = (
-        Language.ES_US if script_language == "Spanish" else Language.EN_US
+    client_language_hints = (
+        [Language.ES, Language.EN]
+        if script_language == "Spanish"
+        else [Language.EN, Language.ES]
     )
-    stt = AzureSTTService(
-        api_key=azure_api_key,
-        region=azure_speech_region,
-        settings=AzureSTTService.Settings(language=client_stt_language),
+    client_tts_voice = get_deepgram_tts_voices(client_language_hints[0])
+    stt = DeepgramFluxSTTService(
+        api_key=deepgram_api_key,
+        settings=DeepgramFluxSTTService.Settings(
+            model=deepgram_stt_model,
+            language_hints=client_language_hints,
+        ),
     )
 
     llm = AzureLLMService(
@@ -333,29 +301,28 @@ async def run_client(
         ),
     )
 
-    tts = AzureTTSService(
-        api_key=azure_api_key,
-        region=azure_speech_region,
-        settings=AzureTTSService.Settings(
-            voice=azure_speech_voice,
-        ),
-    )
+    if script_language == "Spanish":
+        tts = DeepgramTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramTTSService.Settings(voice=client_tts_voice),
+        )
+    else:
+        tts = DeepgramFluxTTSService(
+            api_key=deepgram_api_key,
+            settings=DeepgramFluxTTSService.Settings(voice=client_tts_voice),
+        )
 
     system_prompt = build_client_system_prompt(script)
     messages = [{"role": "system", "content": system_prompt}]
-    context = LLMContext(messages)
+    context = LLMContext(cast(Any, messages))
     context_aggregator = LLMContextAggregatorPair(
         context,
         user_params=LLMUserAggregatorParams(
             user_turn_strategies=UserTurnStrategies(
-                stop=[
-                    SpeechTimeoutUserTurnStopStrategy(
-                        user_speech_timeout=user_speech_timeout
-                    )
-                ]
+                start=[ExternalUserTurnStartStrategy()],
+                stop=[ExternalUserTurnStopStrategy(timeout=0.2)],
             ),
             vad_analyzer=SileroVADAnalyzer(),
-            user_turn_stop_timeout=user_turn_stop_timeout,
         ),
     )
 
@@ -374,7 +341,7 @@ async def run_client(
         ]
     )
 
-    task = PipelineTask(
+    worker = PipelineWorker(
         pipeline,
         params=PipelineParams(
             audio_in_sample_rate=8000,
@@ -388,11 +355,13 @@ async def run_client(
     @transport.event_handler("on_connected")
     async def on_connected(transport, client):
         logger.info(f"""Client {client_name} connected with call_id={call_id}""")
+        # Send JSON metadata handshake before any protobuf frames
+        await client.send(json.dumps(metadata))
 
     @transport.event_handler("on_disconnected")
     async def on_disconnected(transport, client):
         logger.info(f"""Client {client_name} disconnected from server""")
-        await task.cancel()
+        await worker.cancel()
 
     async def periodic_summarizer():
         if not azure_summary_model:
@@ -438,27 +407,30 @@ async def run_client(
                         "content": f"""Previous conversation summary: {summary}""",
                     },
                 ]
-                await task.queue_frame(LLMMessagesUpdateFrame(messages=new_messages))
+                await worker.queue_frame(
+                    LLMMessagesUpdateFrame(messages=cast(Any, new_messages))
+                )
                 logger.info(f"""Client {client_name} context updated with summary.""")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - summarization is best effort
                 logger.error(f"""Client {client_name} summarization failed: {exc}""")
 
-    runner = PipelineRunner(handle_sigint=True)
+    runner = WorkerRunner(handle_sigint=True)
+    await runner.add_workers(worker)
     summarizer_task = asyncio.create_task(periodic_summarizer())
 
     try:
-        await runner.run(task)
+        await runner.run()
     except asyncio.CancelledError:
         logger.debug(f"""Client {client_name} task was cancelled""")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - CLI pipeline boundary logs failures
         logger.error(
             f"""Client {client_name} pipeline error: {type(exc).__name__}: {exc}""",
             exc_info=True,
         )
     finally:
         summarizer_task.cancel()
-        if not task._cancelled:
-            await task.cancel()
+        if not worker._cancelled:
+            await worker.cancel()
 
         await asyncio.sleep(1.0)
 
@@ -556,7 +528,7 @@ async def main():
 
     script_names = list(scripts.keys())
     if args.script is not None:
-        if args.script not in scripts.keys():
+        if args.script not in scripts:
             parser.error(
                 f"""Script '{args.script}' not found in scripts.yml. Available scripts: {", ".join(script_names)}"""
             )

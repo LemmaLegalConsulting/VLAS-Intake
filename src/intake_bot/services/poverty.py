@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Union
+from typing import cast
 
 from intake_bot.utils.globals import DATA_DIR
 
@@ -16,7 +16,7 @@ def get_poverty_scale_data() -> dict:
 
 def poverty_scale_get_income_limit(
     household_size: int = 1, multiplier: float = 1.0, state=None
-) -> Union[int, None]:
+) -> int | None:
     """
     Return the income limit matching the given household size.
     """
@@ -24,14 +24,14 @@ def poverty_scale_get_income_limit(
     if not ps_data:
         return None
     if state and state.lower() == "hi":
-        poverty_base = int(ps_data.get("poverty_base_hi"))
-        poverty_increment = int(ps_data.get("poverty_increment_hi"))
+        poverty_base = cast(int, ps_data.get("poverty_base_hi"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment_hi"))
     elif state and state.lower() == "ak":
-        poverty_base = int(ps_data.get("poverty_base_ak"))
-        poverty_increment = int(ps_data.get("poverty_increment_ak"))
+        poverty_base = cast(int, ps_data.get("poverty_base_ak"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment_ak"))
     else:
-        poverty_base = int(ps_data.get("poverty_base"))
-        poverty_increment = int(ps_data.get("poverty_increment"))
+        poverty_base = cast(int, ps_data.get("poverty_base"))
+        poverty_increment = cast(int, ps_data.get("poverty_increment"))
     additional_income_allowed = max(household_size - 1, 0) * poverty_increment
     household_income_limit = (poverty_base + additional_income_allowed) * multiplier
 
@@ -43,7 +43,7 @@ def poverty_scale_income_qualifies(
     household_size: int = 1,
     multiplier: float = 1.0,
     state=None,
-) -> Union[bool, None]:
+) -> bool | None:
     """
     Given monthly income, household size, and an optional multiplier, return whether an individual
     is at or below the federal poverty level.
@@ -55,7 +55,7 @@ def poverty_scale_income_qualifies(
         household_size=household_size, multiplier=multiplier, state=state
     )
 
-    if not household_income_limit:
+    if household_income_limit is None:
         return None
 
-    return round((household_income_limit) / 12) >= int(total_monthly_income)
+    return round(household_income_limit / 12) >= total_monthly_income

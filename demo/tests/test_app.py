@@ -114,3 +114,27 @@ def test_timeout_when_runner_swallows_cancellation(monkeypatch):
             ws.receive()
         result = client.get('/api/results', headers={'Authorization': f'Bearer {token}'}).json()
         assert result['finished'] and 'ten-minute' in result['error']
+
+
+def test_voice_configuration_requires_deepgram_not_azure_speech(monkeypatch):
+    for key in ('AZURE_API_KEY', 'AZURE_LLM_ENDPOINT', 'AZURE_LLM_MODEL'):
+        monkeypatch.setenv(key, 'test')
+    for key in ('AZURE_SPEECH_REGION', 'AZURE_SPEECH_VOICE', 'DEEPGRAM_API_KEY'):
+        monkeypatch.delenv(key, raising=False)
+    with TestClient(demo.create_app()) as client:
+        assert client.post('/api/sessions', headers=ORIGIN).status_code == 503
+        monkeypatch.setenv('DEEPGRAM_API_KEY', 'test')
+        assert client.post('/api/sessions', headers=ORIGIN).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_context_is_installed_before_interruptible_opening():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+    flow = SimpleNamespace(initialize=AsyncMock())
+    async def speak(action, manager):
+        manager.initialize.assert_awaited_once_with({"respond_immediately": False})
+    initial = {"respond_immediately": False,
+               "pre_actions": [{"type": "function", "handler": speak}]}
+    await demo.initialize_demo_flow(flow, initial)
+    assert "pre_actions" in initial

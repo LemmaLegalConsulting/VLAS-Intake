@@ -99,11 +99,11 @@
 <h3>Pipecat + Pipecat Flows</h3>
 <div class="arch-pipeline">
 <div><b>Listen</b>
-<p>Silero voice activity<br>Azure speech to text<br>Smart Turn completion</p></div><span aria-hidden="true">→</span>
+<p>Deepgram Flux recognition<br>English + Spanish<br>Integrated turn detection</p></div><span aria-hidden="true">→</span>
 <div><b>Decide</b>
 <p>Azure language model<br>Flow nodes + typed tools<br>Answer validation</p></div><span aria-hidden="true">→</span>
 <div><b>Speak</b>
-<p>Azure neural voice<br>Audio returned to caller<br>Interruption support</p></div></div></div>
+<p>Deepgram Flux / Aura 2<br>Audio streamed to caller<br>Interruption support</p></div></div></div>
 <div class="arrow" aria-hidden="true">↕ tool calls and validated state</div>
 <div class="arch-lanes">
 <div class="arch-node">
@@ -119,12 +119,12 @@
 <p>Live explanations + JSON download<br>In-memory session · no case submission<br>Fictional conflict-check illustration</p></div>
 <div class="arch-node alternate"><span class="badge">PROJECT ADAPTER</span>
 <h3>LegalServer API v2</h3>
-<p>Matter → related records → notes<br>Configured server-side credentials<br>Staff review in the case system</p></div></div><figcaption>The demo runs on one Fly Machine, with external Azure services.</figcaption></figure>
+<p>Matter → related records → notes<br>Configured server-side credentials<br>Staff review in the case system</p></div></div><figcaption>The demo runs on one Fly Machine, with Azure language models and Deepgram speech.</figcaption></figure>
 <details class="technical"><summary>Deployment and turn-taking details</summary>
 <p>FastAPI and TypeScript run on one Fly Machine (2 shared CPUs, 2 GB RAM). Sessions stay in memory, last up to ten minutes, and are limited to two concurrent conversations.</p>
 <p>Voice activity detection, Smart Turn, and echo cancellation support natural turn-taking. Recognition and speaker-echo errors remain possible.</p>
 <p>Keeping the machine warm avoids startup delay. Speech recognition, turn detection, model generation, and synthesis still add latency; performance is not benchmarked.</p>
-<p>Other branches explore Deepgram / Flux and Cartesia. Switching providers requires migration and testing.</p></details></section>
+<p>This demo combines the Azure + Deepgram intake flow with browser audio and isolated sample sessions.</p></details></section>
 <section id="legalserver" class="chapter">
 <p class="eyebrow">04 · FROM INTAKE TO CASE SYSTEM</p>
 <h2>How it goes into LegalServer.</h2>

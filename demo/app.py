@@ -64,19 +64,23 @@ def load_voice_runtime():
         FastAPIWebsocketParams, FastAPIWebsocketTransport,
     )
 
-    async def node_initial(flow):
-        # The browser has no caller ID. Complete this system-only bootstrap
-        # deterministically so the LLM starts at the actual language question.
-        _, language_node = await nodes.system_phone_number(flow)
-        return nodes.node_partial_reset_with_summary() | language_node
+    return (run_bot, nodes.node_partial_reset_with_state, nodes.node_record_language, BaseAudioMixer,
+            ProtobufFrameSerializer, FastAPIWebsocketParams, FastAPIWebsocketTransport)
 
-    return (run_bot, node_initial, BaseAudioMixer, ProtobufFrameSerializer,
-            FastAPIWebsocketParams, FastAPIWebsocketTransport)
+
+async def initialize_demo_flow(flow, initial):
+    # Install tools and answer-provenance context before the visitor can interrupt
+    # the bilingual prompt. Run its known function actions outside transport I/O.
+    initial = dict(initial)
+    opening_actions = initial.pop("pre_actions", [])
+    await flow.initialize(initial)
+    for action in opening_actions:
+        await action["handler"](action, flow)
 
 
 async def execute_session(websocket, session):
     # Keep imports lazy: health checks and static pages don't initialize voice models.
-    (run_bot, node_initial, BaseAudioMixer, ProtobufFrameSerializer,
+    (run_bot, node_context, node_initial, BaseAudioMixer, ProtobufFrameSerializer,
      FastAPIWebsocketParams, FastAPIWebsocketTransport) = await asyncio.to_thread(load_voice_runtime)
 
     class SilenceMixer(BaseAudioMixer):
@@ -105,12 +109,7 @@ async def execute_session(websocket, session):
 
         @transport.event_handler("on_client_connected")
         async def connected(transport, client):
-            initial = await node_initial(flow)
-            # Install the intake context before speaking. A blocking TTS
-            # pre-action can be interrupted before its completion frame arrives,
-            # leaving the flow uninitialized while user speech reaches the LLM.
-            initial.pop("pre_actions", None)
-            # Preserve the actual flow, but make its demonstration status explicit.
+            initial = node_context() | node_initial()
             initial.setdefault("task_messages", []).append({
                 "role": "system",
                 "content": "This is a Lemma Legal technology demo using a sample Virginia legal aid intake. "
@@ -118,7 +117,15 @@ async def execute_session(websocket, session):
                 "The page tells the visitor to use invented details. No application will be submitted and no texts will be sent. "
                 "They can finish at any point to see the information collected so far.",
             })
-            await flow.initialize(initial)
+            async def initialize():
+                try:
+                    await initialize_demo_flow(flow, initial)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    session.error = "The voice assistant could not start. Please try again."
+                    await task.cancel()
+            flow._initialization_task = asyncio.create_task(initialize())
 
     await run_bot(transport, secrets.token_hex(12), "", False,
                   configure_transport=configure, user_idle_timeout_secs=20,
@@ -188,7 +195,7 @@ def create_app(runner=execute_session):
             raise HTTPException(429, "The demo is busy. Please try again in a minute.")
         if runner is execute_session and not all(os.getenv(key) for key in (
             "AZURE_API_KEY", "AZURE_LLM_ENDPOINT", "AZURE_LLM_MODEL",
-            "AZURE_SPEECH_REGION", "AZURE_SPEECH_VOICE",
+            "DEEPGRAM_API_KEY",
         )):
             raise HTTPException(503, "Voice service is not configured yet.")
         token = secrets.token_urlsafe(32)

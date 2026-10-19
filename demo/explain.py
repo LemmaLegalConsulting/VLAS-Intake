@@ -72,6 +72,7 @@ def catalog():
                    "is_eligible": monthly <= round(poverty_scale_get_income_limit(3, 3) / 12)},
         "adverse_parties": {"adverse_parties": [{"first": "Jordan", "last": "Vale"}]},
     }
-    return {"counties": [name for name in reference.service_areas if name.endswith("County")],
-            "cities": [name for name in reference.service_areas if name.endswith("City")],
+    localities = [name for name, data in reference.virginia_localities.items() if data.get("is_eligible")]
+    return {"counties": [name for name in localities if name.endswith("County")],
+            "cities": [name for name in localities if name.endswith("City")],
             "fictional_clients": FICTIONAL_CLIENTS, "example": explanations(sample)}

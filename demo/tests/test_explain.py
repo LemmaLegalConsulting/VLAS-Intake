@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock
+from intake_bot.models.classifier import ProviderResult, ProviderStatus, ProviderLabel, ProviderQuestion
 
 import pytest
 from demo.explain import catalog, conflict_explanation, explanations, income_explanation
@@ -47,31 +47,19 @@ def test_income_explanation_preserves_recorded_total_and_all_household_members()
 
 
 @pytest.mark.asyncio
-async def test_high_confidence_match_skips_unneeded_question_merging():
+@pytest.mark.parametrize("confidence,needs_details", [(.95, False), (.4, True)])
+async def test_classification_explanation_preserves_votes_and_followups(confidence, needs_details):
     classifier = Classifier.__new__(Classifier)
-    classifier.model_weights = {"model": 1}
+    classifier.model_weights = {"gpt-4.1-mini": 1}
     classifier.follow_up_threshold = .7
-    classifier._semantically_merge_questions = AsyncMock()
     response = await classifier._get_voted_results([
-        ("model", {"labels": [{"legal_problem_code": "Housing", "confidence": .95}],
-                   "questions": [{"question": "Question one?"}, {"question": "Question two?"}]})
+        ProviderResult(model_name="gpt-4.1-mini", status=ProviderStatus.SUCCESS,
+            labels=[ProviderLabel(legal_problem_code="Housing", confidence=confidence)],
+            questions=[ProviderQuestion(question="Is the housing subsidized?")])
     ], {"Housing": "63 Private Landlord/Tenant"})
     assert response.legal_problem_code == "63 Private Landlord/Tenant"
-    assert response.follow_up_questions is None
-    assert response.provider_votes == [{"provider": "model", "code": "63 Private Landlord/Tenant", "confidence": .95, "weight": 1}]
-    classifier._semantically_merge_questions.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_uncertain_classification_still_merges_followup_questions():
-    from intake_bot.models.classifier import FollowUpQuestion
-    classifier = Classifier.__new__(Classifier)
-    classifier.model_weights = {"model": 1}
-    classifier.follow_up_threshold = .7
-    classifier._semantically_merge_questions = AsyncMock(return_value=[FollowUpQuestion(question="Is the housing subsidized?")])
-    response = await classifier._get_voted_results([
-        ("model", {"labels": [{"legal_problem_code": "Housing", "confidence": .4}],
-                   "questions": [{"question": "Question one?"}, {"question": "Question two?"}]})
-    ], {"Housing": "63 Private Landlord/Tenant"})
-    classifier._semantically_merge_questions.assert_awaited_once()
-    assert response.follow_up_questions[0].question == "Is the housing subsidized?"
+    assert bool(response.follow_up_questions) == needs_details
+    if needs_details:
+        assert response.follow_up_questions[0].question == "Is the housing subsidized?"
+    assert response.provider_votes == [{"provider": "gpt-4.1-mini",
+        "code": "63 Private Landlord/Tenant", "confidence": confidence, "weight": 1}]
