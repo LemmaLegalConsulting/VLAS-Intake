@@ -37,7 +37,7 @@ npm run --prefix demo/web build
 uv run --no-dev --group demo uvicorn demo.app:app --host 127.0.0.1 --port 8080 --no-access-log --ws-max-size 65536
 ```
 
-If the local environment lacks tokenizer data, run `uv run python -m nltk.downloader punkt_tab` once (the container includes it).
+The current Pipecat release uses SentenceX for sentence segmentation; no NLTK tokenizer download is needed.
 
 Open http://localhost:8080. The browser uses a local AudioWorklet for PCM capture and Web Audio for playback, with no remote Daily browser bundle. If autoplay is blocked, use **Enable audio**. Static pages and health checks work without credentials; starting voice returns a clear configuration error until these are set:
 
